@@ -649,27 +649,45 @@ export function IronerInterfacePage() {
                             </div>
 
                             {/* Count Input */}
-                            <div className="w-36">
+                            <div className="w-40">
                               <label className="block text-sm font-medium text-gray-700 mb-2">
                                 Adet
                               </label>
-                              <div className="flex items-center gap-1">
+                              <div className="flex items-center">
                                 <button
                                   onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: Math.max(1, (prev[hotelId] || 1) - 1) }))}
-                                  className="w-10 h-12 bg-white border-2 border-gray-300 rounded-l-lg text-xl font-bold hover:bg-gray-50"
+                                  className="w-10 h-12 bg-gray-100 border-2 border-r-0 border-gray-300 rounded-l-lg text-xl font-bold hover:bg-gray-200 transition-colors"
                                 >
                                   -
                                 </button>
                                 <input
-                                  type="number"
-                                  min="1"
-                                  value={addingCount[hotelId] || 1}
-                                  onChange={(e) => setAddingCount(prev => ({ ...prev, [hotelId]: Math.max(1, parseInt(e.target.value) || 1) }))}
-                                  className="w-14 h-12 text-center text-xl font-bold border-y-2 border-gray-300 focus:ring-2 focus:ring-purple-500"
+                                  type="text"
+                                  inputMode="numeric"
+                                  pattern="[0-9]*"
+                                  value={addingCount[hotelId] === undefined ? '' : addingCount[hotelId]}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    if (val === '') {
+                                      setAddingCount(prev => ({ ...prev, [hotelId]: undefined as any }));
+                                    } else {
+                                      const num = parseInt(val);
+                                      if (!isNaN(num) && num >= 0) {
+                                        setAddingCount(prev => ({ ...prev, [hotelId]: num }));
+                                      }
+                                    }
+                                  }}
+                                  onBlur={(e) => {
+                                    const val = parseInt(e.target.value);
+                                    if (isNaN(val) || val < 1) {
+                                      setAddingCount(prev => ({ ...prev, [hotelId]: 1 }));
+                                    }
+                                  }}
+                                  placeholder="1"
+                                  className="w-16 h-12 text-center text-xl font-bold border-2 border-gray-300 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 focus:z-10"
                                 />
                                 <button
-                                  onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 1) + 1 }))}
-                                  className="w-10 h-12 bg-white border-2 border-gray-300 rounded-r-lg text-xl font-bold hover:bg-gray-50"
+                                  onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: ((prev[hotelId] || 0) + 1) }))}
+                                  className="w-10 h-12 bg-gray-100 border-2 border-l-0 border-gray-300 rounded-r-lg text-xl font-bold hover:bg-gray-200 transition-colors"
                                 >
                                   +
                                 </button>
