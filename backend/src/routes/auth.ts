@@ -1,11 +1,16 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 import { db } from '../db';
 import { users } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 
 export const authRouter = Router();
+
+// JWT secret - use environment variable in production
+const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'dev-jwt-secret-change-in-production';
+const JWT_EXPIRES_IN = '7d'; // Token expires in 7 days
 
 // Register
 authRouter.post('/register', async (req, res) => {
@@ -82,7 +87,21 @@ authRouter.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    // Set session
+    // Generate JWT token
+    const token = jwt.sign(
+      {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role,
+        tenantId: user.tenantId,
+      },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN }
+    );
+
+    // Also set session for backward compatibility
     (req.session as any).userId = user.id;
 
     res.json({
@@ -93,6 +112,7 @@ authRouter.post('/login', async (req, res) => {
       role: user.role,
       tenantId: user.tenantId,
       tenantName: user.tenant?.name || null,
+      token, // Include JWT token in response
     });
   } catch (error: any) {
     console.error('Login error:', error);
@@ -133,4 +153,3 @@ authRouter.get('/me', requireAuth, async (req: AuthRequest, res) => {
     tenantName: user?.tenant?.name || null,
   });
 });
-

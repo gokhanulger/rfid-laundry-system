@@ -19,12 +19,39 @@ import type {
 // e.g., https://rfid-laundry-backend-production.up.railway.app/api
 const apiBaseUrl = import.meta.env.VITE_API_URL || '/api';
 
+// Token storage key
+const TOKEN_KEY = 'rfid_auth_token';
+
+// Get stored token
+export function getStoredToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+// Set token
+export function setStoredToken(token: string): void {
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+// Remove token
+export function removeStoredToken(): void {
+  localStorage.removeItem(TOKEN_KEY);
+}
+
 const api = axios.create({
   baseURL: apiBaseUrl,
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
+});
+
+// Add Authorization header interceptor
+api.interceptors.request.use((config) => {
+  const token = getStoredToken();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
 });
 
 // Log the API URL in development for debugging
