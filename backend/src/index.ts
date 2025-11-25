@@ -141,11 +141,11 @@ app.use(session({
 }));
 
 // Apply stricter rate limiting to auth endpoints
-app.use('/api/auth/login', rateLimit(10, 60000)); // 10 requests per minute
-app.use('/api/auth/register', rateLimit(5, 60000)); // 5 requests per minute
+app.use('/api/auth/login', rateLimit(30, 60000)); // 30 requests per minute
+app.use('/api/auth/register', rateLimit(10, 60000)); // 10 requests per minute
 
 // Apply general rate limiting to all API endpoints
-app.use('/api', rateLimit(100, 60000)); // 100 requests per minute
+app.use('/api', rateLimit(200, 60000)); // 200 requests per minute
 
 // Routes
 app.use('/api/auth', authRouter);
