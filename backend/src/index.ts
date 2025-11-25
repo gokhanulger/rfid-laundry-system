@@ -136,7 +136,8 @@ app.use(session({
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 'none' for cross-domain
-  },
+    partitioned: process.env.NODE_ENV === 'production', // CHIPS - Cookies Having Independent Partitioned State
+  } as any, // TypeScript doesn't know about partitioned yet
 }));
 
 // Apply stricter rate limiting to auth endpoints
