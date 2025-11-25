@@ -90,8 +90,25 @@ app.use(securityHeaders);
 app.use(requestLogger);
 
 // CORS configuration
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  'http://localhost:3000',
+  'http://localhost:3002',
+].filter(Boolean) as string[];
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, etc)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.some(allowed => origin.startsWith(allowed.replace(/\/$/, '')))) {
+      return callback(null, true);
+    }
+    // In production, also allow Vercel preview URLs
+    if (origin.includes('.vercel.app')) {
+      return callback(null, true);
+    }
+    callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -107,6 +124,8 @@ if (!sessionSecret || sessionSecret === 'change-me-in-production') {
   console.warn('WARNING: Using default session secret. Set SESSION_SECRET environment variable for production!');
 }
 
+app.set('trust proxy', 1); // Trust first proxy (Railway/Vercel)
+
 app.use(session({
   secret: sessionSecret || 'dev-secret-change-in-production',
   resave: false,
@@ -116,7 +135,7 @@ app.use(session({
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 'none' for cross-domain
   },
 }));
 
