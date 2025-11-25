@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import axios from 'axios';
+import api from '../lib/api';
 
 interface User {
   id: string;
@@ -30,9 +30,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const checkAuth = async () => {
     try {
-      const response = await axios.get('/api/auth/me', {
-        withCredentials: true,
-      });
+      const response = await api.get('/auth/me');
       setUser(response.data);
     } catch (error) {
       setUser(null);
@@ -43,11 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, password: string) => {
     try {
-      const response = await axios.post(
-        '/api/auth/login',
-        { email, password },
-        { withCredentials: true }
-      );
+      const response = await api.post('/auth/login', { email, password });
       setUser(response.data);
     } catch (error: any) {
       if (error.code === 'ECONNREFUSED' || error.message?.includes('Network Error')) {
@@ -58,7 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
-    await axios.post('/api/auth/logout', {}, { withCredentials: true });
+    await api.post('/auth/logout');
     setUser(null);
   };
 

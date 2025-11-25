@@ -15,13 +15,22 @@ import type {
   CreateItemForm,
 } from '../types';
 
+// VITE_API_URL should be the full API base URL including /api
+// e.g., https://rfid-laundry-backend-production.up.railway.app/api
+const apiBaseUrl = import.meta.env.VITE_API_URL || '/api';
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '/api',
+  baseURL: apiBaseUrl,
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
 });
+
+// Log the API URL in development for debugging
+if (import.meta.env.DEV) {
+  console.log('API Base URL:', apiBaseUrl);
+}
 
 // Error handling helper
 export function getErrorMessage(error: unknown): string {
