@@ -23,6 +23,7 @@ import { PackagingPage } from './pages/PackagingPage';
 import { HotelManagementPage } from './pages/HotelManagementPage';
 import { UserManagementPage } from './pages/UserManagementPage';
 import { ItemManagementPage } from './pages/ItemManagementPage';
+import { ReconciliationPage } from './pages/ReconciliationPage';
 
 // Driver Pages
 import { DirtyPickupPage } from './pages/driver/DirtyPickupPage';
@@ -78,6 +79,7 @@ function App() {
                 <Route path="alerts" element={<AlertsPage />} />
                 <Route path="reports" element={<ReportsPage />} />
                 <Route path="settings" element={<SettingsPage />} />
+                <Route path="reconciliation" element={<ReconciliationPage />} />
 
                 {/* Workflow Pages */}
                 <Route path="delivery-management" element={<DeliveryManagementPage />} />

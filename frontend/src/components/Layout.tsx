@@ -22,6 +22,7 @@ import {
   Tag,
   Menu,
   X,
+  FileText,
 } from 'lucide-react';
 
 export function Layout() {
@@ -47,12 +48,14 @@ export function Layout() {
     { name: 'Yeniden Yikama', href: '/rewash-queue', icon: RotateCcw },
     { name: 'Uyarilar', href: '/alerts', icon: Bell },
     { name: 'Raporlar', href: '/reports', icon: BarChart3 },
+    { name: 'Mutabakat', href: '/reconciliation', icon: FileText },
   ];
 
   // Navigation for hotel owners - only relevant pages
   const hotelNavigation = [
     { name: 'Kontrol Paneli', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Urunlerim', href: '/items', icon: Tag },
+    { name: 'Mutabakat', href: '/reconciliation', icon: FileText },
     { name: 'Uyarilar', href: '/alerts', icon: Bell },
     { name: 'Raporlar', href: '/reports', icon: BarChart3 },
   ];
