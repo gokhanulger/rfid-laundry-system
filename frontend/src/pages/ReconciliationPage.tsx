@@ -8,7 +8,6 @@ import {
   ChevronDown,
   ChevronRight,
   Package,
-  Truck,
   Building2,
   FileText,
   Filter,
