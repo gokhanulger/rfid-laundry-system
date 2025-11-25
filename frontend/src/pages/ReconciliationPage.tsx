@@ -76,7 +76,7 @@ export function ReconciliationPage() {
   });
 
   // Fetch reconciliation data
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['reconciliation', startDate, endDate, selectedTenantId],
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -89,6 +89,11 @@ export function ReconciliationPage() {
       return data;
     },
   });
+
+  // Handle errors
+  if (error) {
+    console.error('Reconciliation error:', error);
+  }
 
   const toggleSection = (section: string) => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
@@ -141,13 +146,15 @@ export function ReconciliationPage() {
   const renderCategorySection = (
     title: string,
     icon: React.ReactNode,
-    data: CategoryData | undefined,
+    categoryData: CategoryData | undefined,
     colorClass: string,
     sectionKey: string
   ) => {
-    if (!data || data.count === 0) return null;
+    if (!categoryData || categoryData.count === 0) return null;
 
     const isExpanded = expandedSections[sectionKey];
+    const byHotel = categoryData.byHotel || [];
+    const byType = categoryData.byType || {};
 
     return (
       <div className={`bg-white rounded-xl shadow-lg border-l-4 ${colorClass} overflow-hidden`}>
@@ -160,12 +167,12 @@ export function ReconciliationPage() {
             <div className="text-left">
               <h3 className="font-semibold text-gray-900">{title}</h3>
               <p className="text-sm text-gray-500">
-                {data.byHotel.length} otel, {Object.keys(data.byType).length} urun tipi
+                {byHotel.length} otel, {Object.keys(byType).length} urun tipi
               </p>
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <span className="text-2xl font-bold text-gray-900">{data.count}</span>
+            <span className="text-2xl font-bold text-gray-900">{categoryData.count}</span>
             {isExpanded ? (
               <ChevronDown className="w-5 h-5 text-gray-400" />
             ) : (
@@ -178,7 +185,7 @@ export function ReconciliationPage() {
           <div className="px-6 pb-4 space-y-4">
             {/* Type summary */}
             <div className="flex flex-wrap gap-2">
-              {Object.entries(data.byType).map(([type, count]) => (
+              {Object.entries(byType).map(([type, count]) => (
                 <span key={type} className="px-3 py-1 bg-gray-100 rounded-full text-sm">
                   {type}: <span className="font-semibold">{count}</span>
                 </span>
@@ -187,7 +194,7 @@ export function ReconciliationPage() {
 
             {/* By hotel */}
             <div className="space-y-2">
-              {data.byHotel.map((hotelData) => {
+              {byHotel.map((hotelData) => {
                 const hotelExpanded = expandedHotels[`${sectionKey}-${hotelData.hotel.id}`];
                 return (
                   <div key={hotelData.hotel.id} className="border rounded-lg">
@@ -491,6 +498,21 @@ export function ReconciliationPage() {
       {isLoading && (
         <div className="flex items-center justify-center h-64 bg-white rounded-xl shadow">
           <RefreshCw className="w-10 h-10 animate-spin text-indigo-500" />
+        </div>
+      )}
+
+      {/* Error State */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center">
+          <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+          <p className="text-red-700 font-medium">Veri yuklenirken hata olustu</p>
+          <p className="text-red-600 text-sm mt-2">{(error as Error).message}</p>
+          <button
+            onClick={() => refetch()}
+            className="mt-4 px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200"
+          >
+            Tekrar Dene
+          </button>
         </div>
       )}
 
