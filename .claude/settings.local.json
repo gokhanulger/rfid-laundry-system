@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "Bash(xargs ls:*)",
+      "Bash(cat:*)",
+      "Bash(npm run dev:*)",
+      "Bash(lsof:*)",
+      "Bash(xargs kill:*)",
+      "Bash(curl:*)",
+      "Bash(npx tsx:*)",
+      "Bash(npm show:*)",
+      "Bash(npm run db:migrate:*)",
+      "Bash(npm run db:generate:*)",
+      "Bash(npm install:*)",
+      "Bash(npx drizzle-kit generate)",
+      "Bash(npm ls:*)",
+      "Bash(npm run db:seed:*)",
+      "Bash(npx playwright:*)",
+      "Bash(npm run test:api:*)",
+      "Bash(npm run test:e2e:*)",
+      "Bash(python3:*)",
+      "Bash(pkill:*)",
+      "Bash(/dev/null echo 'All processes killed')",
+      "mcp__ide__getDiagnostics",
+      "Bash(npm run db:seed-hotels:*)",
+      "Bash(npx drizzle-kit:*)",
+      "Bash(npm run build:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

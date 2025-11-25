@@ -1,0 +1,29 @@
+{
+  "name": "rfid-laundry-tracking-system",
+  "version": "1.0.0",
+  "description": "Comprehensive RFID-based laundry tracking system for industrial laundries",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace=frontend\" \"npm run dev --workspace=backend\"",
+    "build": "npm run build --workspace=frontend && npm run build --workspace=backend",
+    "install:all": "npm install && npm install --workspace=frontend && npm install --workspace=backend",
+    "test": "npm run test:api && npm run test:e2e",
+    "test:api": "npx tsx tests/api/workflow.test.ts",
+    "test:e2e": "npx playwright test",
+    "test:e2e:ui": "npx playwright test --ui",
+    "test:e2e:headed": "npx playwright test --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "concurrently": "^8.2.2",
+    "drizzle-orm": "^0.44.7",
+    "playwright": "^1.56.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,0 +1,1 @@
+ALTER TABLE "pickups" ALTER COLUMN "seal_number" DROP NOT NULL;
