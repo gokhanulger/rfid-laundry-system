@@ -35,7 +35,7 @@ export function Layout() {
 
   // Navigation for laundry staff (not hotel owners or drivers)
   const laundryNavigation = [
-    { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+    { name: 'Kontrol Paneli', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Toplu Tarama', href: '/bulk-scan', icon: Scan },
     { name: 'Camasir Isleme', href: '/laundry-processing', icon: Sparkles },
     { name: 'Utu Etiketi', href: '/ironer-interface', icon: Printer },
@@ -44,44 +44,49 @@ export function Layout() {
     { name: 'Teslimat Yonetimi', href: '/delivery-management', icon: Truck },
     { name: 'Gelen Takip', href: '/inbound', icon: ArrowDown },
     { name: 'Giden Takip', href: '/outbound', icon: ArrowUp },
-    { name: 'Rewash Queue', href: '/rewash-queue', icon: RotateCcw },
+    { name: 'Yeniden Yikama', href: '/rewash-queue', icon: RotateCcw },
     { name: 'Uyarilar', href: '/alerts', icon: Bell },
     { name: 'Raporlar', href: '/reports', icon: BarChart3 },
   ];
 
   // Navigation for hotel owners - only relevant pages
   const hotelNavigation = [
-    { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-    { name: 'My Items', href: '/items', icon: Tag },
-    { name: 'Alerts', href: '/alerts', icon: Bell },
-    { name: 'Reports', href: '/reports', icon: BarChart3 },
+    { name: 'Kontrol Paneli', href: '/dashboard', icon: LayoutDashboard },
+    { name: 'Urunlerim', href: '/items', icon: Tag },
+    { name: 'Uyarilar', href: '/alerts', icon: Bell },
+    { name: 'Raporlar', href: '/reports', icon: BarChart3 },
   ];
 
   // Navigation for drivers - simple and clear
   const driverNavigation = [
-    { name: 'Dirty Pickup', href: '/driver/dirty-pickup', icon: ArrowUp },
-    { name: 'Laundry Pickup', href: '/driver/laundry-pickup', icon: Package },
-    { name: 'Hotel Delivery', href: '/driver/hotel-delivery', icon: Truck },
+    { name: 'Kirli Toplama', href: '/driver/dirty-pickup', icon: ArrowUp },
+    { name: 'Camasirhane Toplama', href: '/driver/laundry-pickup', icon: Package },
+    { name: 'Otel Teslimati', href: '/driver/hotel-delivery', icon: Truck },
   ];
 
   // Admin navigation (only for system_admin and laundry_manager)
   const adminNavigation = [
     { name: 'Otel Yonetimi', href: '/hotels', icon: Building2 },
     { name: 'Kullanici Yonetimi', href: '/users', icon: Users },
-    { name: 'Item Yonetimi', href: '/items', icon: Tag },
+    { name: 'Urun Yonetimi', href: '/items', icon: Tag },
     { name: 'Ayarlar', href: '/settings', icon: Settings },
   ];
 
   // Choose navigation based on role
   const navigation = isDriver ? driverNavigation : (isHotelOwner ? hotelNavigation : laundryNavigation);
 
-  // Format role name for display
+  // Format role name for display in Turkish
   const formatRole = (role: string | undefined) => {
     if (!role) return '';
-    return role
-      .split('_')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
+    const roleNames: Record<string, string> = {
+      'system_admin': 'Sistem Yoneticisi',
+      'laundry_manager': 'Camasirhane Muduru',
+      'hotel_owner': 'Otel Sahibi',
+      'operator': 'Operator',
+      'driver': 'Surucu',
+      'packager': 'Paketleyici',
+    };
+    return roleNames[role] || role;
   };
 
   const closeSidebar = () => setSidebarOpen(false);
@@ -97,9 +102,9 @@ export function Layout() {
           <Menu className="w-6 h-6" />
         </button>
         <div className="flex items-center gap-2">
-          <h1 className="text-lg font-bold text-gray-900">RFID Laundry</h1>
-          {isDriver && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Driver</span>}
-          {isHotelOwner && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Hotel</span>}
+          <h1 className="text-lg font-bold text-gray-900">RFID Camasirhane</h1>
+          {isDriver && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Surucu</span>}
+          {isHotelOwner && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Otel</span>}
         </div>
         <div className="w-10" /> {/* Spacer for centering */}
       </div>
@@ -123,12 +128,12 @@ export function Layout() {
           {/* Sidebar Header */}
           <div className="p-4 border-b border-gray-200 flex items-center justify-between">
             <div>
-              <h1 className="text-xl font-bold text-gray-900">RFID Laundry</h1>
+              <h1 className="text-xl font-bold text-gray-900">RFID Camasirhane</h1>
               {isHotelOwner && (
-                <p className="text-xs text-blue-600 mt-1">Hotel Portal</p>
+                <p className="text-xs text-blue-600 mt-1">Otel Portali</p>
               )}
               {isDriver && (
-                <p className="text-xs text-green-600 mt-1">Driver Portal</p>
+                <p className="text-xs text-green-600 mt-1">Surucu Portali</p>
               )}
             </div>
             <button
@@ -142,14 +147,14 @@ export function Layout() {
           {/* Hotel/Driver Info Banner */}
           {isHotelOwner && user?.tenantName && (
             <div className="px-4 py-3 bg-blue-50 border-b border-blue-100">
-              <p className="text-xs text-blue-500 uppercase font-semibold">Your Hotel</p>
+              <p className="text-xs text-blue-500 uppercase font-semibold">Oteliniz</p>
               <p className="text-sm font-bold text-blue-700">{user.tenantName}</p>
             </div>
           )}
           {isDriver && (
             <div className="px-4 py-3 bg-green-50 border-b border-green-100">
-              <p className="text-xs text-green-600 uppercase font-semibold">Today's Tasks</p>
-              <p className="text-sm font-bold text-green-700">Ready to go!</p>
+              <p className="text-xs text-green-600 uppercase font-semibold">Bugunun Gorevleri</p>
+              <p className="text-sm font-bold text-green-700">Hazir!</p>
             </div>
           )}
 
@@ -180,7 +185,7 @@ export function Layout() {
               <>
                 <div className="pt-4 pb-2">
                   <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                    Admin
+                    Yonetim
                   </p>
                 </div>
                 {adminNavigation.map((item) => {

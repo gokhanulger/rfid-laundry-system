@@ -13,12 +13,12 @@ const severityColors: Record<AlertSeverity, string> = {
 };
 
 const typeLabels: Record<AlertType, string> = {
-  missing_item: 'Missing Item',
-  dwell_time: 'Dwell Time',
-  damaged_item: 'Damaged Item',
-  stained_item: 'Stained Item',
-  high_wash_count: 'High Wash Count',
-  system: 'System',
+  missing_item: 'Kayip Urun',
+  dwell_time: 'Bekleme Suresi',
+  damaged_item: 'Hasarli Urun',
+  stained_item: 'Lekeli Urun',
+  high_wash_count: 'Yuksek Yikama Sayisi',
+  system: 'Sistem',
 };
 
 export function AlertsPage() {
@@ -36,9 +36,9 @@ export function AlertsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['alerts'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
-      toast.success('Alert marked as read');
+      toast.success('Uyari okundu olarak isaretlendi');
     },
-    onError: (err) => toast.error('Failed to mark alert', getErrorMessage(err)),
+    onError: (err) => toast.error('Uyari isaretlenemedi', getErrorMessage(err)),
   });
 
   const markAllReadMutation = useMutation({
@@ -46,18 +46,18 @@ export function AlertsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['alerts'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
-      toast.success('All alerts marked as read');
+      toast.success('Tum uyarilar okundu olarak isaretlendi');
     },
-    onError: (err) => toast.error('Failed to mark all alerts', getErrorMessage(err)),
+    onError: (err) => toast.error('Tum uyarilar isaretlenemedi', getErrorMessage(err)),
   });
 
   const deleteMutation = useMutation({
     mutationFn: alertsApi.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['alerts'] });
-      toast.success('Alert deleted');
+      toast.success('Uyari silindi');
     },
-    onError: (err) => toast.error('Failed to delete alert', getErrorMessage(err)),
+    onError: (err) => toast.error('Uyari silinemedi', getErrorMessage(err)),
   });
 
   const alerts = data?.data || [];
@@ -67,10 +67,10 @@ export function AlertsPage() {
     <div className="p-8 space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold text-gray-900">Alerts</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Uyarilar</h1>
           {unreadCount > 0 && (
             <span className="px-2 py-1 text-xs font-medium bg-red-100 text-red-800 rounded-full">
-              {unreadCount} unread
+              {unreadCount} okunmamis
             </span>
           )}
         </div>
@@ -81,14 +81,14 @@ export function AlertsPage() {
             className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
           >
             <CheckCheck className="w-4 h-4" />
-            Mark All Read
+            Tumunu Okundu Isaretle
           </button>
           <button
             onClick={() => refetch()}
             className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
           >
             <RefreshCw className="w-4 h-4" />
-            Refresh
+            Yenile
           </button>
         </div>
       </div>
@@ -97,7 +97,7 @@ export function AlertsPage() {
       <div className="bg-white rounded-lg shadow p-4 flex items-center gap-4 flex-wrap">
         <div className="flex items-center gap-2">
           <Filter className="w-4 h-4 text-gray-500" />
-          <span className="text-sm font-medium text-gray-700">Filters:</span>
+          <span className="text-sm font-medium text-gray-700">Filtreler:</span>
         </div>
         <label className="flex items-center gap-2 cursor-pointer">
           <input
@@ -106,18 +106,18 @@ export function AlertsPage() {
             onChange={(e) => setFilter({ ...filter, unreadOnly: e.target.checked })}
             className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
           />
-          <span className="text-sm text-gray-600">Unread only</span>
+          <span className="text-sm text-gray-600">Sadece okunmamis</span>
         </label>
         <select
           value={filter.severity || ''}
           onChange={(e) => setFilter({ ...filter, severity: e.target.value || undefined })}
           className="px-3 py-1 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500"
         >
-          <option value="">All Severities</option>
-          <option value="low">Low</option>
-          <option value="medium">Medium</option>
-          <option value="high">High</option>
-          <option value="critical">Critical</option>
+          <option value="">Tum Onem Seviyeleri</option>
+          <option value="low">Dusuk</option>
+          <option value="medium">Orta</option>
+          <option value="high">Yuksek</option>
+          <option value="critical">Kritik</option>
         </select>
       </div>
 
@@ -128,13 +128,13 @@ export function AlertsPage() {
         </div>
       ) : error ? (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <p className="text-red-600">Failed to load alerts</p>
-          <button onClick={() => refetch()} className="text-red-600 underline mt-2">Try again</button>
+          <p className="text-red-600">Uyarilar yuklenemedi</p>
+          <button onClick={() => refetch()} className="text-red-600 underline mt-2">Tekrar dene</button>
         </div>
       ) : alerts.length === 0 ? (
         <div className="bg-white rounded-lg shadow p-8 text-center">
           <Bell className="w-12 h-12 mx-auto text-gray-400 mb-4" />
-          <p className="text-gray-500">No alerts to display</p>
+          <p className="text-gray-500">Goruntulecek uyari yok</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -153,7 +153,7 @@ export function AlertsPage() {
       {data?.pagination && data.pagination.totalPages > 1 && (
         <div className="flex items-center justify-center gap-2">
           <span className="text-sm text-gray-500">
-            Page {data.pagination.page} of {data.pagination.totalPages} ({data.pagination.total} alerts)
+            Sayfa {data.pagination.page} / {data.pagination.totalPages} ({data.pagination.total} uyari)
           </span>
         </div>
       )}
@@ -186,14 +186,14 @@ function AlertCard({
               {typeLabels[alert.type] || alert.type}
             </span>
             {!alert.isRead && (
-              <span className="w-2 h-2 bg-blue-500 rounded-full" title="Unread" />
+              <span className="w-2 h-2 bg-blue-500 rounded-full" title="Okunmamis" />
             )}
           </div>
           <h3 className="font-semibold text-gray-900">{alert.title}</h3>
           <p className="text-sm text-gray-600 mt-1">{alert.message}</p>
           {alert.item && (
             <p className="text-xs text-gray-500 mt-2">
-              Related Item: <span className="font-mono">{alert.item.rfidTag}</span>
+              Ilgili Urun: <span className="font-mono">{alert.item.rfidTag}</span>
             </p>
           )}
           <p className="text-xs text-gray-400 mt-2">
@@ -205,7 +205,7 @@ function AlertCard({
             <button
               onClick={onMarkRead}
               className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-              title="Mark as read"
+              title="Okundu olarak isaretle"
             >
               <Check className="w-4 h-4" />
             </button>
@@ -213,7 +213,7 @@ function AlertCard({
           <button
             onClick={onDelete}
             className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-            title="Delete"
+            title="Sil"
           >
             <Trash2 className="w-4 h-4" />
           </button>

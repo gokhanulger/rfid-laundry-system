@@ -21,12 +21,12 @@ export function LaundryPickupPage() {
       return deliveriesApi.pickup(deliveryId);
     },
     onSuccess: () => {
-      toast.success('Delivery picked up successfully!');
+      toast.success('Teslimat basariyla toplandı!');
       queryClient.invalidateQueries({ queryKey: ['deliveries'] });
       setSelectedDeliveries([]);
       refetch();
     },
-    onError: (err) => toast.error('Failed to pickup', getErrorMessage(err)),
+    onError: (err) => toast.error('Toplama basarisiz', getErrorMessage(err)),
   });
 
   const handlePickup = (deliveryId: string) => {
@@ -50,7 +50,7 @@ export function LaundryPickupPage() {
 
   // Group by hotel
   const deliveriesByHotel = deliveriesList.reduce((acc: Record<string, Delivery[]>, delivery: Delivery) => {
-    const hotelName = delivery.tenant?.name || 'Unknown';
+    const hotelName = delivery.tenant?.name || 'Bilinmiyor';
     if (!acc[hotelName]) acc[hotelName] = [];
     acc[hotelName].push(delivery);
     return acc;
@@ -65,8 +65,8 @@ export function LaundryPickupPage() {
             <Package className="w-8 h-8 md:w-10 md:h-10 text-purple-600" />
           </div>
           <div>
-            <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Laundry Pickup</h1>
-            <p className="text-sm md:text-base text-gray-500">Pick up clean packages from laundry</p>
+            <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Camasirhane Toplama</h1>
+            <p className="text-sm md:text-base text-gray-500">Camasirhaneden temiz paketleri topla</p>
           </div>
         </div>
         <button
@@ -81,15 +81,15 @@ export function LaundryPickupPage() {
       <div className="grid grid-cols-3 gap-2 md:gap-4">
         <div className="bg-white rounded-xl shadow p-3 md:p-4">
           <p className="text-2xl md:text-4xl font-bold text-purple-600">{deliveriesList.length}</p>
-          <p className="text-xs md:text-sm text-gray-500">Ready for Pickup</p>
+          <p className="text-xs md:text-sm text-gray-500">Toplama Hazir</p>
         </div>
         <div className="bg-white rounded-xl shadow p-3 md:p-4">
           <p className="text-2xl md:text-4xl font-bold text-blue-600">{Object.keys(deliveriesByHotel).length}</p>
-          <p className="text-xs md:text-sm text-gray-500">Hotels</p>
+          <p className="text-xs md:text-sm text-gray-500">Otel</p>
         </div>
         <div className="bg-white rounded-xl shadow p-3 md:p-4">
           <p className="text-2xl md:text-4xl font-bold text-green-600">{selectedDeliveries.length}</p>
-          <p className="text-xs md:text-sm text-gray-500">Selected</p>
+          <p className="text-xs md:text-sm text-gray-500">Secili</p>
         </div>
       </div>
 
@@ -97,7 +97,7 @@ export function LaundryPickupPage() {
       {selectedDeliveries.length > 0 && (
         <div className="bg-purple-600 text-white rounded-xl p-3 md:p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
           <span className="font-bold text-base md:text-lg">
-            {selectedDeliveries.length} package(s) selected
+            {selectedDeliveries.length} paket secildi
           </span>
           <button
             onClick={handlePickupAll}
@@ -105,7 +105,7 @@ export function LaundryPickupPage() {
             className="w-full sm:w-auto px-4 md:px-6 py-3 bg-white text-purple-600 rounded-xl font-bold hover:bg-purple-50 active:bg-purple-100 flex items-center justify-center gap-2 touch-manipulation"
           >
             <Truck className="w-5 h-5" />
-            Pickup All Selected
+            Secilenleri Topla
           </button>
         </div>
       )}
@@ -118,8 +118,8 @@ export function LaundryPickupPage() {
       ) : deliveriesList.length === 0 ? (
         <div className="bg-white rounded-2xl shadow-lg p-8 md:p-16 text-center">
           <Package className="w-16 h-16 md:w-20 md:h-20 mx-auto text-gray-300 mb-4" />
-          <p className="text-xl md:text-2xl font-semibold text-gray-500">No packages ready for pickup</p>
-          <p className="text-sm md:text-base text-gray-400 mt-2">Check back later</p>
+          <p className="text-xl md:text-2xl font-semibold text-gray-500">Toplamaya hazir paket yok</p>
+          <p className="text-sm md:text-base text-gray-400 mt-2">Daha sonra tekrar kontrol edin</p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -132,7 +132,7 @@ export function LaundryPickupPage() {
                     <Building2 className="w-6 h-6 md:w-8 md:h-8 text-white flex-shrink-0" />
                     <div className="min-w-0">
                       <h3 className="text-lg md:text-xl font-bold text-white truncate">{hotelName}</h3>
-                      <p className="text-purple-100 text-xs md:text-sm">{hotelDeliveries.length} package(s)</p>
+                      <p className="text-purple-100 text-xs md:text-sm">{hotelDeliveries.length} paket</p>
                     </div>
                   </div>
                   <button
@@ -147,7 +147,7 @@ export function LaundryPickupPage() {
                     }}
                     className="px-3 md:px-4 py-2 bg-white bg-opacity-20 text-white rounded-lg hover:bg-opacity-30 active:bg-opacity-40 text-sm md:text-base touch-manipulation flex-shrink-0"
                   >
-                    {hotelDeliveries.every(d => selectedDeliveries.includes(d.id)) ? 'Deselect' : 'Select All'}
+                    {hotelDeliveries.every(d => selectedDeliveries.includes(d.id)) ? 'Secimi Kaldir' : 'Tumunu Sec'}
                   </button>
                 </div>
               </div>
@@ -172,8 +172,8 @@ export function LaundryPickupPage() {
                       <div className="min-w-0">
                         <p className="font-mono font-bold text-sm md:text-lg truncate">{delivery.barcode}</p>
                         <div className="flex items-center gap-2 md:gap-4 text-xs md:text-sm text-gray-500">
-                          <span>{delivery.deliveryItems?.length || 0} items</span>
-                          <span>{delivery.packageCount || 1} pkg</span>
+                          <span>{delivery.deliveryItems?.length || 0} urun</span>
+                          <span>{delivery.packageCount || 1} pkt</span>
                         </div>
                       </div>
                     </label>
@@ -183,7 +183,7 @@ export function LaundryPickupPage() {
                       className="px-3 md:px-4 py-2 bg-purple-600 text-white rounded-xl font-medium hover:bg-purple-700 active:bg-purple-800 disabled:bg-gray-400 flex items-center gap-1 md:gap-2 text-sm md:text-base touch-manipulation flex-shrink-0 ml-2"
                     >
                       <CheckCircle className="w-4 h-4 md:w-5 md:h-5" />
-                      <span className="hidden sm:inline">Pickup</span>
+                      <span className="hidden sm:inline">Topla</span>
                     </button>
                   </div>
                 ))}

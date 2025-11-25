@@ -8,14 +8,14 @@ import { useAuth } from '../contexts/AuthContext';
 import type { ItemStatus } from '../types';
 
 const statusLabels: Record<ItemStatus, string> = {
-  at_hotel: 'At Hotel',
-  at_laundry: 'At Laundry',
-  processing: 'Processing',
-  ready_for_delivery: 'Ready',
-  label_printed: 'Labeled',
-  packaged: 'Packaged',
-  in_transit: 'Transit',
-  delivered: 'Delivered',
+  at_hotel: 'Otelde',
+  at_laundry: 'Camasirhanede',
+  processing: 'Isleniyor',
+  ready_for_delivery: 'Hazir',
+  label_printed: 'Etiketlendi',
+  packaged: 'Paketlendi',
+  in_transit: 'Yolda',
+  delivered: 'Teslim Edildi',
 };
 
 const statusColors: Record<ItemStatus, string> = {
@@ -69,13 +69,13 @@ export function DashboardPage() {
   return (
     <div className="p-8 space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Kontrol Paneli</h1>
         <button
           onClick={() => refetch()}
           className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
         >
           <RefreshCw className="w-4 h-4" />
-          Refresh
+          Yenile
         </button>
       </div>
 
@@ -84,7 +84,7 @@ export function DashboardPage() {
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Total Items</p>
+              <p className="text-sm text-gray-500">Toplam Urun</p>
               <p className="text-3xl font-bold mt-1">{stats?.totalItems?.toLocaleString() || 0}</p>
             </div>
             <div className="p-3 bg-blue-100 rounded-full">
@@ -95,7 +95,7 @@ export function DashboardPage() {
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Today's Pickups</p>
+              <p className="text-sm text-gray-500">Bugunun Toplamalari</p>
               <p className="text-3xl font-bold mt-1">{stats?.todayActivity?.pickups || 0}</p>
             </div>
             <div className="p-3 bg-green-100 rounded-full">
@@ -106,7 +106,7 @@ export function DashboardPage() {
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Today's Deliveries</p>
+              <p className="text-sm text-gray-500">Bugunun Teslimleri</p>
               <p className="text-3xl font-bold mt-1">{stats?.todayActivity?.deliveries || 0}</p>
             </div>
             <div className="p-3 bg-emerald-100 rounded-full">
@@ -117,7 +117,7 @@ export function DashboardPage() {
         <div className={`bg-white rounded-lg shadow p-6 ${stats?.unreadAlerts ? 'ring-2 ring-orange-500' : ''}`}>
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Unread Alerts</p>
+              <p className="text-sm text-gray-500">Okunmamis Uyarilar</p>
               <p className="text-3xl font-bold mt-1">{stats?.unreadAlerts || 0}</p>
             </div>
             <div className="p-3 bg-orange-100 rounded-full">
@@ -131,7 +131,7 @@ export function DashboardPage() {
       <div className="bg-white rounded-lg shadow p-6">
         <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
           <TrendingUp className="w-5 h-5 text-gray-500" />
-          Workflow Overview
+          Is Akisi Ozeti
         </h2>
         <div className="grid grid-cols-4 md:grid-cols-8 gap-4">
           {stats?.workflowSummary && Object.entries(stats.workflowSummary).map(([key, value]) => {
@@ -155,7 +155,7 @@ export function DashboardPage() {
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <Truck className="w-5 h-5 text-gray-500" />
-            Recent Pickups
+            Son Toplamalar
           </h2>
           {stats?.recentPickups && stats.recentPickups.length > 0 ? (
             <div className="space-y-3">
@@ -181,7 +181,7 @@ export function DashboardPage() {
               ))}
             </div>
           ) : (
-            <p className="text-gray-500 text-center py-4">No recent pickups</p>
+            <p className="text-gray-500 text-center py-4">Son toplama yok</p>
           )}
         </div>
 
@@ -189,7 +189,7 @@ export function DashboardPage() {
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <CheckCircle className="w-5 h-5 text-gray-500" />
-            Recent Deliveries
+            Son Teslimler
           </h2>
           {stats?.recentDeliveries && stats.recentDeliveries.length > 0 ? (
             <div className="space-y-3">
@@ -214,7 +214,7 @@ export function DashboardPage() {
               ))}
             </div>
           ) : (
-            <p className="text-gray-500 text-center py-4">No recent deliveries</p>
+            <p className="text-gray-500 text-center py-4">Son teslim yok</p>
           )}
         </div>
       </div>
@@ -224,16 +224,16 @@ export function DashboardPage() {
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <AlertTriangle className="w-5 h-5 text-orange-500" />
-            Items Needing Attention
+            Dikkat Gerektiren Urunler
           </h2>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b">
-                  <th className="text-left py-2 px-4 text-sm font-medium text-gray-500">RFID Tag</th>
-                  <th className="text-left py-2 px-4 text-sm font-medium text-gray-500">Type</th>
-                  <th className="text-left py-2 px-4 text-sm font-medium text-gray-500">Issue</th>
-                  <th className="text-left py-2 px-4 text-sm font-medium text-gray-500">Wash Count</th>
+                  <th className="text-left py-2 px-4 text-sm font-medium text-gray-500">RFID Etiketi</th>
+                  <th className="text-left py-2 px-4 text-sm font-medium text-gray-500">Tur</th>
+                  <th className="text-left py-2 px-4 text-sm font-medium text-gray-500">Sorun</th>
+                  <th className="text-left py-2 px-4 text-sm font-medium text-gray-500">Yikama Sayisi</th>
                 </tr>
               </thead>
               <tbody>
@@ -243,9 +243,9 @@ export function DashboardPage() {
                     <td className="py-2 px-4">{item.itemType?.name || 'Unknown'}</td>
                     <td className="py-2 px-4">
                       <div className="flex gap-1">
-                        {item.isDamaged && <span className="px-2 py-0.5 text-xs bg-red-100 text-red-800 rounded">Damaged</span>}
-                        {item.isStained && <span className="px-2 py-0.5 text-xs bg-orange-100 text-orange-800 rounded">Stained</span>}
-                        {item.washCount > 50 && <span className="px-2 py-0.5 text-xs bg-yellow-100 text-yellow-800 rounded">High Wash</span>}
+                        {item.isDamaged && <span className="px-2 py-0.5 text-xs bg-red-100 text-red-800 rounded">Hasarli</span>}
+                        {item.isStained && <span className="px-2 py-0.5 text-xs bg-orange-100 text-orange-800 rounded">Lekeli</span>}
+                        {item.washCount > 50 && <span className="px-2 py-0.5 text-xs bg-yellow-100 text-yellow-800 rounded">Yuksek Yikama</span>}
                       </div>
                     </td>
                     <td className="py-2 px-4">{item.washCount}</td>
@@ -266,15 +266,15 @@ function HotelOwnerDashboard({ stats, refetch }: { stats: HotelStats; refetch: (
     <div className="p-8 space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">My Hotel Dashboard</h1>
-          <p className="text-gray-500">Overview of your laundry items and activity</p>
+          <h1 className="text-2xl font-bold text-gray-900">Otel Kontrol Paneli</h1>
+          <p className="text-gray-500">Camasir urunleri ve aktivite ozeti</p>
         </div>
         <button
           onClick={() => refetch()}
           className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
         >
           <RefreshCw className="w-4 h-4" />
-          Refresh
+          Yenile
         </button>
       </div>
 
@@ -283,7 +283,7 @@ function HotelOwnerDashboard({ stats, refetch }: { stats: HotelStats; refetch: (
         <div className="bg-white rounded-xl shadow-lg p-6 border-l-4 border-blue-500">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Total Items</p>
+              <p className="text-sm text-gray-500">Toplam Urun</p>
               <p className="text-3xl font-bold mt-1 text-blue-600">{stats.totalItems}</p>
             </div>
             <Package className="w-10 h-10 text-blue-200" />
@@ -293,7 +293,7 @@ function HotelOwnerDashboard({ stats, refetch }: { stats: HotelStats; refetch: (
         <div className="bg-white rounded-xl shadow-lg p-6 border-l-4 border-green-500">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">At Hotel</p>
+              <p className="text-sm text-gray-500">Otelde</p>
               <p className="text-3xl font-bold mt-1 text-green-600">{stats.itemsByStatus['at_hotel'] || 0}</p>
             </div>
             <CheckCircle className="w-10 h-10 text-green-200" />
@@ -303,7 +303,7 @@ function HotelOwnerDashboard({ stats, refetch }: { stats: HotelStats; refetch: (
         <div className="bg-white rounded-xl shadow-lg p-6 border-l-4 border-yellow-500">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">At Laundry</p>
+              <p className="text-sm text-gray-500">Camasirhanede</p>
               <p className="text-3xl font-bold mt-1 text-yellow-600">{stats.pickupDeliveryStats.itemsAtLaundry}</p>
             </div>
             <Droplets className="w-10 h-10 text-yellow-200" />
@@ -313,7 +313,7 @@ function HotelOwnerDashboard({ stats, refetch }: { stats: HotelStats; refetch: (
         <div className="bg-white rounded-xl shadow-lg p-6 border-l-4 border-purple-500">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">In Transit</p>
+              <p className="text-sm text-gray-500">Yolda</p>
               <p className="text-3xl font-bold mt-1 text-purple-600">{stats.pickupDeliveryStats.itemsInTransit}</p>
             </div>
             <Truck className="w-10 h-10 text-purple-200" />
@@ -323,7 +323,7 @@ function HotelOwnerDashboard({ stats, refetch }: { stats: HotelStats; refetch: (
         <div className="bg-white rounded-xl shadow-lg p-6 border-l-4 border-teal-500">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500">Avg. Wash Count</p>
+              <p className="text-sm text-gray-500">Ort. Yikama Sayisi</p>
               <p className="text-3xl font-bold mt-1 text-teal-600">{stats.avgWashCount}</p>
             </div>
             <TrendingUp className="w-10 h-10 text-teal-200" />
@@ -336,20 +336,20 @@ function HotelOwnerDashboard({ stats, refetch }: { stats: HotelStats; refetch: (
         <div className="bg-white rounded-xl shadow-lg p-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <Truck className="w-5 h-5 text-blue-500" />
-            Pickup & Delivery Summary
+            Toplama ve Teslimat Ozeti
           </h2>
           <div className="grid grid-cols-3 gap-4">
             <div className="text-center p-4 bg-blue-50 rounded-lg">
               <p className="text-3xl font-bold text-blue-600">{stats.pickupDeliveryStats.totalPickups}</p>
-              <p className="text-sm text-gray-600 mt-1">Total Pickups</p>
+              <p className="text-sm text-gray-600 mt-1">Toplam Toplama</p>
             </div>
             <div className="text-center p-4 bg-green-50 rounded-lg">
               <p className="text-3xl font-bold text-green-600">{stats.pickupDeliveryStats.totalDeliveries}</p>
-              <p className="text-sm text-gray-600 mt-1">Total Deliveries</p>
+              <p className="text-sm text-gray-600 mt-1">Toplam Teslimat</p>
             </div>
             <div className="text-center p-4 bg-emerald-50 rounded-lg">
               <p className="text-3xl font-bold text-emerald-600">{stats.pickupDeliveryStats.completedDeliveries}</p>
-              <p className="text-sm text-gray-600 mt-1">Completed</p>
+              <p className="text-sm text-gray-600 mt-1">Tamamlanan</p>
             </div>
           </div>
         </div>
@@ -358,30 +358,30 @@ function HotelOwnerDashboard({ stats, refetch }: { stats: HotelStats; refetch: (
         <div className="bg-white rounded-xl shadow-lg p-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <AlertCircle className="w-5 h-5 text-red-500" />
-            Discrepancies & Issues
+            Tutarsizliklar ve Sorunlar
           </h2>
           <div className="grid grid-cols-2 gap-4">
             <div className={`p-4 rounded-lg ${stats.discrepancies.damaged > 0 ? 'bg-red-50' : 'bg-gray-50'}`}>
               <p className={`text-3xl font-bold ${stats.discrepancies.damaged > 0 ? 'text-red-600' : 'text-gray-400'}`}>
                 {stats.discrepancies.damaged}
               </p>
-              <p className="text-sm text-gray-600 mt-1">Damaged Items</p>
+              <p className="text-sm text-gray-600 mt-1">Hasarli Urunler</p>
             </div>
             <div className={`p-4 rounded-lg ${stats.discrepancies.stained > 0 ? 'bg-orange-50' : 'bg-gray-50'}`}>
               <p className={`text-3xl font-bold ${stats.discrepancies.stained > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
                 {stats.discrepancies.stained}
               </p>
-              <p className="text-sm text-gray-600 mt-1">Stained Items</p>
+              <p className="text-sm text-gray-600 mt-1">Lekeli Urunler</p>
             </div>
             <div className={`p-4 rounded-lg ${stats.discrepancies.highWashCount > 0 ? 'bg-yellow-50' : 'bg-gray-50'}`}>
               <p className={`text-3xl font-bold ${stats.discrepancies.highWashCount > 0 ? 'text-yellow-600' : 'text-gray-400'}`}>
                 {stats.discrepancies.highWashCount}
               </p>
-              <p className="text-sm text-gray-600 mt-1">High Wash Count (50+)</p>
+              <p className="text-sm text-gray-600 mt-1">Yuksek Yikama (50+)</p>
             </div>
             <div className="p-4 rounded-lg bg-purple-50">
               <p className="text-3xl font-bold text-purple-600">{stats.pickupDeliveryStats.itemsAtLaundry}</p>
-              <p className="text-sm text-gray-600 mt-1">Currently Away</p>
+              <p className="text-sm text-gray-600 mt-1">Suanda Disarida</p>
             </div>
           </div>
         </div>
@@ -393,11 +393,11 @@ function HotelOwnerDashboard({ stats, refetch }: { stats: HotelStats; refetch: (
         <div className="bg-white rounded-xl shadow-lg p-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <Clock className="w-5 h-5 text-gray-500" />
-            Item Age Distribution
+            Urun Yas Dagilimi
           </h2>
           <div className="space-y-3">
             <div className="flex items-center">
-              <span className="w-32 text-sm text-gray-600">New (0-30 days)</span>
+              <span className="w-32 text-sm text-gray-600">Yeni (0-30 gun)</span>
               <div className="flex-1 bg-gray-200 rounded-full h-6 mx-3">
                 <div
                   className="bg-green-500 h-6 rounded-full flex items-center justify-end pr-2"
@@ -408,7 +408,7 @@ function HotelOwnerDashboard({ stats, refetch }: { stats: HotelStats; refetch: (
               </div>
             </div>
             <div className="flex items-center">
-              <span className="w-32 text-sm text-gray-600">Moderate (31-90)</span>
+              <span className="w-32 text-sm text-gray-600">Orta (31-90)</span>
               <div className="flex-1 bg-gray-200 rounded-full h-6 mx-3">
                 <div
                   className="bg-blue-500 h-6 rounded-full flex items-center justify-end pr-2"
@@ -419,7 +419,7 @@ function HotelOwnerDashboard({ stats, refetch }: { stats: HotelStats; refetch: (
               </div>
             </div>
             <div className="flex items-center">
-              <span className="w-32 text-sm text-gray-600">Old (91-180)</span>
+              <span className="w-32 text-sm text-gray-600">Eski (91-180)</span>
               <div className="flex-1 bg-gray-200 rounded-full h-6 mx-3">
                 <div
                   className="bg-yellow-500 h-6 rounded-full flex items-center justify-end pr-2"
@@ -430,7 +430,7 @@ function HotelOwnerDashboard({ stats, refetch }: { stats: HotelStats; refetch: (
               </div>
             </div>
             <div className="flex items-center">
-              <span className="w-32 text-sm text-gray-600">Very Old (180+)</span>
+              <span className="w-32 text-sm text-gray-600">Cok Eski (180+)</span>
               <div className="flex-1 bg-gray-200 rounded-full h-6 mx-3">
                 <div
                   className="bg-red-500 h-6 rounded-full flex items-center justify-end pr-2"
@@ -447,11 +447,11 @@ function HotelOwnerDashboard({ stats, refetch }: { stats: HotelStats; refetch: (
         <div className="bg-white rounded-xl shadow-lg p-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <Droplets className="w-5 h-5 text-blue-500" />
-            Wash Count Distribution
+            Yikama Sayisi Dagilimi
           </h2>
           <div className="space-y-3">
             <div className="flex items-center">
-              <span className="w-32 text-sm text-gray-600">Low (0-10)</span>
+              <span className="w-32 text-sm text-gray-600">Dusuk (0-10)</span>
               <div className="flex-1 bg-gray-200 rounded-full h-6 mx-3">
                 <div
                   className="bg-green-500 h-6 rounded-full flex items-center justify-end pr-2"
@@ -462,7 +462,7 @@ function HotelOwnerDashboard({ stats, refetch }: { stats: HotelStats; refetch: (
               </div>
             </div>
             <div className="flex items-center">
-              <span className="w-32 text-sm text-gray-600">Moderate (11-30)</span>
+              <span className="w-32 text-sm text-gray-600">Orta (11-30)</span>
               <div className="flex-1 bg-gray-200 rounded-full h-6 mx-3">
                 <div
                   className="bg-blue-500 h-6 rounded-full flex items-center justify-end pr-2"
@@ -473,7 +473,7 @@ function HotelOwnerDashboard({ stats, refetch }: { stats: HotelStats; refetch: (
               </div>
             </div>
             <div className="flex items-center">
-              <span className="w-32 text-sm text-gray-600">High (31-50)</span>
+              <span className="w-32 text-sm text-gray-600">Yuksek (31-50)</span>
               <div className="flex-1 bg-gray-200 rounded-full h-6 mx-3">
                 <div
                   className="bg-yellow-500 h-6 rounded-full flex items-center justify-end pr-2"
@@ -484,7 +484,7 @@ function HotelOwnerDashboard({ stats, refetch }: { stats: HotelStats; refetch: (
               </div>
             </div>
             <div className="flex items-center">
-              <span className="w-32 text-sm text-gray-600">Replace (50+)</span>
+              <span className="w-32 text-sm text-gray-600">Degistir (50+)</span>
               <div className="flex-1 bg-gray-200 rounded-full h-6 mx-3">
                 <div
                   className="bg-red-500 h-6 rounded-full flex items-center justify-end pr-2"
@@ -502,17 +502,17 @@ function HotelOwnerDashboard({ stats, refetch }: { stats: HotelStats; refetch: (
       <div className="bg-white rounded-xl shadow-lg p-6">
         <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
           <Tag className="w-5 h-5 text-teal-500" />
-          Items by Type
+          Urun Turleri
         </h2>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="border-b bg-gray-50">
-                <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Item Type</th>
-                <th className="text-center py-3 px-4 text-sm font-semibold text-gray-600">Total</th>
-                <th className="text-center py-3 px-4 text-sm font-semibold text-gray-600">At Hotel</th>
-                <th className="text-center py-3 px-4 text-sm font-semibold text-gray-600">At Laundry</th>
-                <th className="text-center py-3 px-4 text-sm font-semibold text-gray-600">In Transit</th>
+                <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Urun Turu</th>
+                <th className="text-center py-3 px-4 text-sm font-semibold text-gray-600">Toplam</th>
+                <th className="text-center py-3 px-4 text-sm font-semibold text-gray-600">Otelde</th>
+                <th className="text-center py-3 px-4 text-sm font-semibold text-gray-600">Camasirhanede</th>
+                <th className="text-center py-3 px-4 text-sm font-semibold text-gray-600">Yolda</th>
               </tr>
             </thead>
             <tbody>
@@ -543,18 +543,18 @@ function HotelOwnerDashboard({ stats, refetch }: { stats: HotelStats; refetch: (
         <div className="bg-white rounded-xl shadow-lg p-6 border-2 border-orange-200">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <AlertTriangle className="w-5 h-5 text-orange-500" />
-            Items Needing Attention
+            Dikkat Gerektiren Urunler
           </h2>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b bg-orange-50">
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">RFID Tag</th>
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Type</th>
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Status</th>
-                  <th className="text-center py-3 px-4 text-sm font-semibold text-gray-600">Wash Count</th>
-                  <th className="text-center py-3 px-4 text-sm font-semibold text-gray-600">Age (days)</th>
-                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Issues</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">RFID Etiketi</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Tur</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Durum</th>
+                  <th className="text-center py-3 px-4 text-sm font-semibold text-gray-600">Yikama Sayisi</th>
+                  <th className="text-center py-3 px-4 text-sm font-semibold text-gray-600">Yas (gun)</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-gray-600">Sorunlar</th>
                 </tr>
               </thead>
               <tbody>
@@ -571,9 +571,9 @@ function HotelOwnerDashboard({ stats, refetch }: { stats: HotelStats; refetch: (
                     <td className="py-3 px-4 text-center">{item.ageInDays}</td>
                     <td className="py-3 px-4">
                       <div className="flex gap-1 flex-wrap">
-                        {item.isDamaged && <span className="px-2 py-0.5 text-xs bg-red-100 text-red-800 rounded">Damaged</span>}
-                        {item.isStained && <span className="px-2 py-0.5 text-xs bg-orange-100 text-orange-800 rounded">Stained</span>}
-                        {item.washCount > 50 && <span className="px-2 py-0.5 text-xs bg-yellow-100 text-yellow-800 rounded">Needs Replacement</span>}
+                        {item.isDamaged && <span className="px-2 py-0.5 text-xs bg-red-100 text-red-800 rounded">Hasarli</span>}
+                        {item.isStained && <span className="px-2 py-0.5 text-xs bg-orange-100 text-orange-800 rounded">Lekeli</span>}
+                        {item.washCount > 50 && <span className="px-2 py-0.5 text-xs bg-yellow-100 text-yellow-800 rounded">Degisim Gerekli</span>}
                       </div>
                     </td>
                   </tr>

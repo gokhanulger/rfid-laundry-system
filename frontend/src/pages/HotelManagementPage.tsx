@@ -41,31 +41,31 @@ export function HotelManagementPage() {
   const createMutation = useMutation({
     mutationFn: (data: TenantForm) => api.post('/tenants', data),
     onSuccess: () => {
-      toast.success('Hotel created successfully!');
+      toast.success('Otel basariyla olusturuldu!');
       queryClient.invalidateQueries({ queryKey: ['tenants'] });
       closeModal();
     },
-    onError: (err) => toast.error('Failed to create hotel', getErrorMessage(err)),
+    onError: (err) => toast.error('Otel olusturulamadi', getErrorMessage(err)),
   });
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<TenantForm> }) =>
       api.patch(`/tenants/${id}`, data),
     onSuccess: () => {
-      toast.success('Hotel updated successfully!');
+      toast.success('Otel basariyla guncellendi!');
       queryClient.invalidateQueries({ queryKey: ['tenants'] });
       closeModal();
     },
-    onError: (err) => toast.error('Failed to update hotel', getErrorMessage(err)),
+    onError: (err) => toast.error('Otel guncellenemedi', getErrorMessage(err)),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/tenants/${id}`),
     onSuccess: () => {
-      toast.success('Hotel deleted!');
+      toast.success('Otel silindi!');
       queryClient.invalidateQueries({ queryKey: ['tenants'] });
     },
-    onError: (err) => toast.error('Failed to delete hotel', getErrorMessage(err)),
+    onError: (err) => toast.error('Otel silinemedi', getErrorMessage(err)),
   });
 
   const toggleActiveMutation = useMutation({
@@ -74,7 +74,7 @@ export function HotelManagementPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tenants'] });
     },
-    onError: (err) => toast.error('Failed to update status', getErrorMessage(err)),
+    onError: (err) => toast.error('Durum guncellenemedi', getErrorMessage(err)),
   });
 
   const openCreateModal = () => {
@@ -118,7 +118,7 @@ export function HotelManagementPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Otel Yonetimi</h1>
-            <p className="text-gray-500">Manage hotels and their information</p>
+            <p className="text-gray-500">Otelleri ve bilgilerini yonetin</p>
           </div>
         </div>
         <div className="flex gap-2">
@@ -127,14 +127,14 @@ export function HotelManagementPage() {
             className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
           >
             <RefreshCw className="w-4 h-4" />
-            Refresh
+            Yenile
           </button>
           <button
             onClick={openCreateModal}
             className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
           >
             <Plus className="w-5 h-5" />
-            Add Hotel
+            Otel Ekle
           </button>
         </div>
       </div>
@@ -143,26 +143,26 @@ export function HotelManagementPage() {
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-white rounded-lg shadow p-4">
           <p className="text-3xl font-bold text-purple-600">{tenants?.length || 0}</p>
-          <p className="text-sm text-gray-500">Total Hotels</p>
+          <p className="text-sm text-gray-500">Toplam Otel</p>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <p className="text-3xl font-bold text-green-600">
             {tenants?.filter(t => t.isActive).length || 0}
           </p>
-          <p className="text-sm text-gray-500">Active</p>
+          <p className="text-sm text-gray-500">Aktif</p>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <p className="text-3xl font-bold text-gray-600">
             {tenants?.filter(t => !t.isActive).length || 0}
           </p>
-          <p className="text-sm text-gray-500">Inactive</p>
+          <p className="text-sm text-gray-500">Pasif</p>
         </div>
       </div>
 
       {/* Hotels Table */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <div className="p-4 border-b">
-          <h2 className="text-lg font-semibold">Hotels</h2>
+          <h2 className="text-lg font-semibold">Oteller</h2>
         </div>
         {isLoading ? (
           <div className="flex items-center justify-center h-48">
@@ -172,12 +172,12 @@ export function HotelManagementPage() {
           <table className="w-full">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Phone</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Address</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ad</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">E-posta</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Telefon</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Adres</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Durum</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Islemler</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -196,7 +196,7 @@ export function HotelManagementPage() {
                           : 'bg-gray-100 text-gray-800'
                       }`}
                     >
-                      {tenant.isActive ? 'Active' : 'Inactive'}
+                      {tenant.isActive ? 'Aktif' : 'Pasif'}
                     </button>
                   </td>
                   <td className="px-4 py-3">
@@ -209,7 +209,7 @@ export function HotelManagementPage() {
                       </button>
                       <button
                         onClick={() => {
-                          if (confirm('Are you sure you want to delete this hotel?')) {
+                          if (confirm('Bu oteli silmek istediginizden emin misiniz?')) {
                             deleteMutation.mutate(tenant.id);
                           }
                         }}
@@ -226,8 +226,8 @@ export function HotelManagementPage() {
         ) : (
           <div className="p-12 text-center">
             <Building2 className="w-16 h-16 mx-auto text-gray-300 mb-4" />
-            <p className="text-xl text-gray-500">No hotels found</p>
-            <p className="text-gray-400 mt-2">Add your first hotel to get started</p>
+            <p className="text-xl text-gray-500">Otel bulunamadi</p>
+            <p className="text-gray-400 mt-2">Baslamak icin ilk otelinizi ekleyin</p>
           </div>
         )}
       </div>
@@ -238,7 +238,7 @@ export function HotelManagementPage() {
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
             <div className="p-6 border-b flex items-center justify-between">
               <h2 className="text-xl font-bold">
-                {editingTenant ? 'Edit Hotel' : 'Add New Hotel'}
+                {editingTenant ? 'Otel Duzenle' : 'Yeni Otel Ekle'}
               </h2>
               <button onClick={closeModal} className="text-gray-500 hover:text-gray-700">
                 <X className="w-5 h-5" />
@@ -247,7 +247,7 @@ export function HotelManagementPage() {
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Hotel Name *
+                  Otel Adi *
                 </label>
                 <input
                   type="text"
@@ -255,12 +255,12 @@ export function HotelManagementPage() {
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500"
-                  placeholder="Enter hotel name"
+                  placeholder="Otel adini girin"
                 />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Email *
+                  E-posta *
                 </label>
                 <input
                   type="email"
@@ -268,12 +268,12 @@ export function HotelManagementPage() {
                   value={form.email}
                   onChange={(e) => setForm({ ...form, email: e.target.value })}
                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500"
-                  placeholder="hotel@example.com"
+                  placeholder="otel@ornek.com"
                 />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Phone
+                  Telefon
                 </label>
                 <input
                   type="tel"
@@ -285,13 +285,13 @@ export function HotelManagementPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Address
+                  Adres
                 </label>
                 <textarea
                   value={form.address}
                   onChange={(e) => setForm({ ...form, address: e.target.value })}
                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500"
-                  placeholder="Full address"
+                  placeholder="Tam adres"
                   rows={2}
                 />
               </div>
@@ -301,7 +301,7 @@ export function HotelManagementPage() {
                   onClick={closeModal}
                   className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
                 >
-                  Cancel
+                  Iptal
                 </button>
                 <button
                   type="submit"
@@ -309,7 +309,7 @@ export function HotelManagementPage() {
                   className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   <Check className="w-4 h-4" />
-                  {editingTenant ? 'Update' : 'Create'}
+                  {editingTenant ? 'Guncelle' : 'Olustur'}
                 </button>
               </div>
             </form>

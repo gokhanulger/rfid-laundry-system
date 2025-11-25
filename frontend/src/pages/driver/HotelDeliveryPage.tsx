@@ -21,12 +21,12 @@ export function HotelDeliveryPage() {
       return deliveriesApi.deliver(deliveryId);
     },
     onSuccess: () => {
-      toast.success('Delivery completed successfully!');
+      toast.success('Teslimat basariyla tamamlandi!');
       queryClient.invalidateQueries({ queryKey: ['deliveries'] });
       setSelectedDeliveries([]);
       refetch();
     },
-    onError: (err) => toast.error('Failed to deliver', getErrorMessage(err)),
+    onError: (err) => toast.error('Teslim basarisiz', getErrorMessage(err)),
   });
 
   const handleDeliver = (deliveryId: string) => {
@@ -50,7 +50,7 @@ export function HotelDeliveryPage() {
 
   // Group by hotel
   const deliveriesByHotel = deliveriesList.reduce((acc: Record<string, Delivery[]>, delivery: Delivery) => {
-    const hotelName = delivery.tenant?.name || 'Unknown';
+    const hotelName = delivery.tenant?.name || 'Bilinmeyen';
     if (!acc[hotelName]) acc[hotelName] = [];
     acc[hotelName].push(delivery);
     return acc;
@@ -65,8 +65,8 @@ export function HotelDeliveryPage() {
             <Truck className="w-8 h-8 md:w-10 md:h-10 text-green-600" />
           </div>
           <div>
-            <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Hotel Delivery</h1>
-            <p className="text-sm md:text-base text-gray-500">Deliver clean packages to hotels</p>
+            <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Otel Teslimati</h1>
+            <p className="text-sm md:text-base text-gray-500">Temiz paketleri otellere teslim et</p>
           </div>
         </div>
         <button
@@ -81,15 +81,15 @@ export function HotelDeliveryPage() {
       <div className="grid grid-cols-3 gap-2 md:gap-4">
         <div className="bg-white rounded-xl shadow p-3 md:p-4">
           <p className="text-2xl md:text-4xl font-bold text-green-600">{deliveriesList.length}</p>
-          <p className="text-xs md:text-sm text-gray-500">Ready to Deliver</p>
+          <p className="text-xs md:text-sm text-gray-500">Teslime Hazir</p>
         </div>
         <div className="bg-white rounded-xl shadow p-3 md:p-4">
           <p className="text-2xl md:text-4xl font-bold text-blue-600">{Object.keys(deliveriesByHotel).length}</p>
-          <p className="text-xs md:text-sm text-gray-500">Hotels</p>
+          <p className="text-xs md:text-sm text-gray-500">Otel</p>
         </div>
         <div className="bg-white rounded-xl shadow p-3 md:p-4">
           <p className="text-2xl md:text-4xl font-bold text-purple-600">{selectedDeliveries.length}</p>
-          <p className="text-xs md:text-sm text-gray-500">Selected</p>
+          <p className="text-xs md:text-sm text-gray-500">Secili</p>
         </div>
       </div>
 
@@ -97,7 +97,7 @@ export function HotelDeliveryPage() {
       {selectedDeliveries.length > 0 && (
         <div className="bg-green-600 text-white rounded-xl p-3 md:p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
           <span className="font-bold text-base md:text-lg">
-            {selectedDeliveries.length} package(s) selected
+            {selectedDeliveries.length} paket secildi
           </span>
           <button
             onClick={handleDeliverAll}
@@ -105,7 +105,7 @@ export function HotelDeliveryPage() {
             className="w-full sm:w-auto px-4 md:px-6 py-3 bg-white text-green-600 rounded-xl font-bold hover:bg-green-50 active:bg-green-100 flex items-center justify-center gap-2 touch-manipulation"
           >
             <CheckCircle className="w-5 h-5" />
-            Deliver All Selected
+            Secilenleri Teslim Et
           </button>
         </div>
       )}
@@ -118,8 +118,8 @@ export function HotelDeliveryPage() {
       ) : deliveriesList.length === 0 ? (
         <div className="bg-white rounded-2xl shadow-lg p-8 md:p-16 text-center">
           <Truck className="w-16 h-16 md:w-20 md:h-20 mx-auto text-gray-300 mb-4" />
-          <p className="text-xl md:text-2xl font-semibold text-gray-500">No packages to deliver</p>
-          <p className="text-sm md:text-base text-gray-400 mt-2">Pick up packages from laundry first</p>
+          <p className="text-xl md:text-2xl font-semibold text-gray-500">Teslim edilecek paket yok</p>
+          <p className="text-sm md:text-base text-gray-400 mt-2">Once camasirhaneden paketleri al</p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -134,7 +134,7 @@ export function HotelDeliveryPage() {
                       <h3 className="text-lg md:text-xl font-bold text-white truncate">{hotelName}</h3>
                       <p className="text-green-100 text-xs md:text-sm flex items-center gap-1">
                         <MapPin className="w-3 h-3 md:w-4 md:h-4" />
-                        {hotelDeliveries.length} package(s) to deliver
+                        {hotelDeliveries.length} paket teslim edilecek
                       </p>
                     </div>
                   </div>
@@ -150,7 +150,7 @@ export function HotelDeliveryPage() {
                     }}
                     className="px-3 md:px-4 py-2 bg-white bg-opacity-20 text-white rounded-lg hover:bg-opacity-30 active:bg-opacity-40 text-sm md:text-base touch-manipulation flex-shrink-0"
                   >
-                    {hotelDeliveries.every(d => selectedDeliveries.includes(d.id)) ? 'Deselect' : 'Select All'}
+                    {hotelDeliveries.every(d => selectedDeliveries.includes(d.id)) ? 'Secimi Kaldir' : 'Tumunu Sec'}
                   </button>
                 </div>
               </div>
@@ -175,8 +175,8 @@ export function HotelDeliveryPage() {
                       <div className="min-w-0">
                         <p className="font-mono font-bold text-sm md:text-lg truncate">{delivery.barcode}</p>
                         <div className="flex items-center gap-2 md:gap-4 text-xs md:text-sm text-gray-500">
-                          <span>{delivery.deliveryItems?.length || 0} items</span>
-                          <span>{delivery.packageCount || 1} pkg</span>
+                          <span>{delivery.deliveryItems?.length || 0} urun</span>
+                          <span>{delivery.packageCount || 1} pkt</span>
                         </div>
                       </div>
                     </label>
@@ -186,7 +186,7 @@ export function HotelDeliveryPage() {
                       className="px-3 md:px-4 py-2 bg-green-600 text-white rounded-xl font-medium hover:bg-green-700 active:bg-green-800 disabled:bg-gray-400 flex items-center gap-1 md:gap-2 text-sm md:text-base touch-manipulation flex-shrink-0 ml-2"
                     >
                       <CheckCircle className="w-4 h-4 md:w-5 md:h-5" />
-                      <span className="hidden sm:inline">Deliver</span>
+                      <span className="hidden sm:inline">Teslim Et</span>
                     </button>
                   </div>
                 ))}

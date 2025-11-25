@@ -23,18 +23,18 @@ export function BulkScanPage() {
     onSuccess: (data) => {
       setScanResults(data);
       if (data.notFound > 0) {
-        toast.warning(`${data.found} items found, ${data.notFound} not found`);
+        toast.warning(`${data.found} urun bulundu, ${data.notFound} bulunamadi`);
       } else {
-        toast.success(`${data.found} items found`);
+        toast.success(`${data.found} urun bulundu`);
       }
     },
-    onError: (err) => toast.error('Scan failed', getErrorMessage(err)),
+    onError: (err) => toast.error('Tarama basarisiz', getErrorMessage(err)),
   });
 
   const markCleanMutation = useMutation({
     mutationFn: (itemIds: string[]) => itemsApi.markClean(itemIds),
     onSuccess: (data) => {
-      toast.success(`${data.count} items marked as clean`);
+      toast.success(`${data.count} urun temiz olarak isaretlendi`);
       queryClient.invalidateQueries({ queryKey: ['items'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
       setSelectedItems(new Set());
@@ -43,7 +43,7 @@ export function BulkScanPage() {
         scanMutation.mutate(scannedTags);
       }
     },
-    onError: (err) => toast.error('Failed to mark items', getErrorMessage(err)),
+    onError: (err) => toast.error('Urunler isaretlenemedi', getErrorMessage(err)),
   });
 
   const handleAddTag = () => {
@@ -64,7 +64,7 @@ export function BulkScanPage() {
 
   const handleScan = () => {
     if (scannedTags.length === 0) {
-      toast.warning('Add at least one RFID tag');
+      toast.warning('En az bir RFID etiketi ekleyin');
       return;
     }
     scanMutation.mutate(scannedTags);
@@ -97,7 +97,7 @@ export function BulkScanPage() {
 
   const handleMarkClean = () => {
     if (selectedItems.size === 0) {
-      toast.warning('Select items to mark as clean');
+      toast.warning('Temiz olarak isaretlemek icin urun secin');
       return;
     }
     markCleanMutation.mutate(Array.from(selectedItems));
@@ -105,25 +105,25 @@ export function BulkScanPage() {
 
   return (
     <div className="p-8 space-y-6 animate-fade-in">
-      <h1 className="text-2xl font-bold text-gray-900">Bulk RFID Scan</h1>
+      <h1 className="text-2xl font-bold text-gray-900">Toplu RFID Tarama</h1>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Input Section */}
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <Scan className="w-5 h-5 text-blue-500" />
-            RFID Tags Input
+            RFID Etiket Girisi
           </h2>
 
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Enter RFID Tags (one per line or comma-separated)
+                RFID Etiketleri Girin (her satira bir tane veya virgul ile ayrilmis)
               </label>
               <textarea
                 value={rfidInput}
                 onChange={(e) => setRfidInput(e.target.value)}
-                placeholder="Enter RFID tags..."
+                placeholder="RFID etiketleri girin..."
                 rows={4}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
               />
@@ -135,21 +135,21 @@ export function BulkScanPage() {
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
                 <Plus className="w-4 h-4" />
-                Add Tags
+                Etiket Ekle
               </button>
               <button
                 onClick={handleClear}
                 className="flex items-center gap-2 px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 <Trash2 className="w-4 h-4" />
-                Clear All
+                Tum Temizle
               </button>
             </div>
 
             {/* Tags List */}
             {scannedTags.length > 0 && (
               <div className="border rounded-lg p-3 max-h-48 overflow-y-auto">
-                <p className="text-sm text-gray-500 mb-2">{scannedTags.length} tags added</p>
+                <p className="text-sm text-gray-500 mb-2">{scannedTags.length} etiket eklendi</p>
                 <div className="flex flex-wrap gap-2">
                   {scannedTags.map((tag) => (
                     <span
@@ -179,7 +179,7 @@ export function BulkScanPage() {
               ) : (
                 <Scan className="w-5 h-5" />
               )}
-              Scan Items
+              Urunleri Tara
             </button>
           </div>
         </div>
@@ -188,13 +188,13 @@ export function BulkScanPage() {
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <CheckCircle className="w-5 h-5 text-green-500" />
-            Scan Results
+            Tarama Sonuclari
           </h2>
 
           {!scanResults ? (
             <div className="text-center py-12 text-gray-500">
               <Scan className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-              <p>Add RFID tags and click "Scan Items" to see results</p>
+              <p>RFID etiketleri ekleyin ve sonuclari gormek icin "Urunleri Tara" butonuna tiklayin</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -202,11 +202,11 @@ export function BulkScanPage() {
               <div className="flex gap-4">
                 <div className="flex-1 p-3 bg-green-50 rounded-lg text-center">
                   <p className="text-2xl font-bold text-green-600">{scanResults.found}</p>
-                  <p className="text-sm text-green-700">Found</p>
+                  <p className="text-sm text-green-700">Bulundu</p>
                 </div>
                 <div className="flex-1 p-3 bg-red-50 rounded-lg text-center">
                   <p className="text-2xl font-bold text-red-600">{scanResults.notFound}</p>
-                  <p className="text-sm text-red-700">Not Found</p>
+                  <p className="text-sm text-red-700">Bulunamadi</p>
                 </div>
               </div>
 
@@ -215,7 +215,7 @@ export function BulkScanPage() {
                 <div className="p-3 bg-red-50 rounded-lg">
                   <div className="flex items-center gap-2 text-red-700 mb-2">
                     <AlertTriangle className="w-4 h-4" />
-                    <span className="text-sm font-medium">Tags not found in system:</span>
+                    <span className="text-sm font-medium">Sistemde bulunamayan etiketler:</span>
                   </div>
                   <div className="flex flex-wrap gap-1">
                     {scanResults.notFoundTags.map(tag => (
@@ -235,10 +235,10 @@ export function BulkScanPage() {
                       onClick={selectAll}
                       className="text-sm text-blue-600 hover:underline"
                     >
-                      Select all eligible
+                      Tum uygun urunleri sec
                     </button>
                     <span className="text-sm text-gray-500">
-                      {selectedItems.size} selected
+                      {selectedItems.size} secildi
                     </span>
                   </div>
 
@@ -248,8 +248,8 @@ export function BulkScanPage() {
                         <tr>
                           <th className="p-2 text-left"></th>
                           <th className="p-2 text-left">RFID</th>
-                          <th className="p-2 text-left">Type</th>
-                          <th className="p-2 text-left">Status</th>
+                          <th className="p-2 text-left">Tip</th>
+                          <th className="p-2 text-left">Durum</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -290,7 +290,7 @@ export function BulkScanPage() {
                     ) : (
                       <CheckCircle className="w-5 h-5" />
                     )}
-                    Mark {selectedItems.size} Items as Clean
+                    {selectedItems.size} Urunu Temiz Olarak Isaretle
                   </button>
                 </>
               )}

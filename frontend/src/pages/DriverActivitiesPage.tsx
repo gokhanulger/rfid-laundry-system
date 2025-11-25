@@ -66,17 +66,17 @@ export function DriverActivitiesPage() {
         );
         if (newItems.length > 0) {
           setScannedItems([...scannedItems, ...newItems]);
-          toast.success(`Added ${newItems.length} item(s)`);
+          toast.success(`${newItems.length} ürün eklendi`);
         } else {
-          toast.warning('Item already scanned');
+          toast.warning('Ürün zaten tarandı');
         }
       }
       if (data.notFound > 0) {
-        toast.warning(`${data.notFound} tag(s) not found in system`);
+        toast.warning(`${data.notFound} etiket sistemde bulunamadı`);
       }
       setRfidInput('');
     },
-    onError: (err) => toast.error('Scan failed', getErrorMessage(err)),
+    onError: (err) => toast.error('Tarama başarısız', getErrorMessage(err)),
   });
 
   // Create items manually (without RFID scanning)
@@ -105,19 +105,19 @@ export function DriverActivitiesPage() {
     },
     onSuccess: (createdItems) => {
       setManualItems([...manualItems, ...createdItems]);
-      toast.success(`Added ${createdItems.length} item(s)`);
+      toast.success(`${createdItems.length} ürün eklendi`);
       setSelectedItemTypeId('');
       setItemQuantity('1');
       queryClient.invalidateQueries({ queryKey: ['items'] });
     },
-    onError: (err) => toast.error('Failed to create items', getErrorMessage(err)),
+    onError: (err) => toast.error('Ürün oluşturulamadı', getErrorMessage(err)),
   });
 
   // Create dirty pickup
   const createPickupMutation = useMutation({
     mutationFn: pickupsApi.create,
     onSuccess: () => {
-      toast.success('Dirty pickup created successfully!');
+      toast.success('Kirli toplama başarıyla oluşturuldu!');
       queryClient.invalidateQueries({ queryKey: ['pickups'] });
       // Reset form
       setTenantId('');
@@ -127,7 +127,7 @@ export function DriverActivitiesPage() {
       setManualItems([]);
       setNotes('');
     },
-    onError: (err) => toast.error('Failed to create pickup', getErrorMessage(err)),
+    onError: (err) => toast.error('Toplama oluşturulamadı', getErrorMessage(err)),
   });
 
   const scanMutation = useMutation({
@@ -135,17 +135,17 @@ export function DriverActivitiesPage() {
     onSuccess: (delivery) => {
       if (activeTab === 'clean-pickup' && delivery.status === 'packaged') {
         setScannedDelivery(delivery);
-        toast.success('Ready for pickup!');
+        toast.success('Toplama için hazır!');
       } else if (activeTab === 'deliver' && delivery.status === 'picked_up') {
         setScannedDelivery(delivery);
-        toast.success('Ready to deliver!');
+        toast.success('Teslimat için hazır!');
       } else {
-        toast.warning(`Cannot ${activeTab} - delivery status is "${delivery.status}"`);
+        toast.warning(`${activeTab === 'clean-pickup' ? 'Toplama' : 'Teslimat'} yapılamaz - teslimat durumu "${delivery.status}"`);
       }
       setBarcodeInput('');
     },
     onError: (err) => {
-      toast.error('Delivery not found', getErrorMessage(err));
+      toast.error('Teslimat bulunamadı', getErrorMessage(err));
       setBarcodeInput('');
     },
   });
@@ -153,21 +153,21 @@ export function DriverActivitiesPage() {
   const pickupMutation = useMutation({
     mutationFn: deliveriesApi.pickup,
     onSuccess: () => {
-      toast.success('Delivery picked up!');
+      toast.success('Teslimat toplandı!');
       queryClient.invalidateQueries({ queryKey: ['deliveries'] });
       setScannedDelivery(null);
     },
-    onError: (err) => toast.error('Failed to pickup', getErrorMessage(err)),
+    onError: (err) => toast.error('Toplama başarısız', getErrorMessage(err)),
   });
 
   const deliverMutation = useMutation({
     mutationFn: deliveriesApi.deliver,
     onSuccess: () => {
-      toast.success('Delivery completed!');
+      toast.success('Teslimat tamamlandı!');
       queryClient.invalidateQueries({ queryKey: ['deliveries'] });
       setScannedDelivery(null);
     },
-    onError: (err) => toast.error('Failed to deliver', getErrorMessage(err)),
+    onError: (err) => toast.error('Teslimat başarısız', getErrorMessage(err)),
   });
 
   const handleScanBarcode = () => {
@@ -193,12 +193,12 @@ export function DriverActivitiesPage() {
 
   const handleAddManualItems = () => {
     if (!selectedItemTypeId || !tenantId) {
-      toast.warning('Please select hotel and item type');
+      toast.warning('Lütfen otel ve ürün tipi seçin');
       return;
     }
     const quantity = parseInt(itemQuantity);
     if (isNaN(quantity) || quantity < 1) {
-      toast.warning('Please enter a valid quantity (minimum 1)');
+      toast.warning('Lütfen geçerli bir miktar girin (minimum 1)');
       return;
     }
     createItemsMutation.mutate({
@@ -211,7 +211,7 @@ export function DriverActivitiesPage() {
   const handleCreateDirtyPickup = (e: React.FormEvent) => {
     e.preventDefault();
     if (!tenantId || !bagCode || !sealNumber) {
-      toast.warning('Please fill in all required fields');
+      toast.warning('Lütfen tüm zorunlu alanları doldurun');
       return;
     }
     // Combine both scanned and manual items
@@ -220,7 +220,7 @@ export function DriverActivitiesPage() {
       ...manualItems.map(item => item.id),
     ];
     if (allItemIds.length === 0) {
-      toast.warning('Please add at least one item (scan RFID or add manually)');
+      toast.warning('Lütfen en az bir ürün ekleyin (RFID tarayın veya manuel ekleyin)');
       return;
     }
     createPickupMutation.mutate({
@@ -260,7 +260,7 @@ export function DriverActivitiesPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Surucu Aktiviteleri</h1>
-            <p className="text-gray-500">Dirty pickups and clean deliveries</p>
+            <p className="text-gray-500">Kirli toplama ve temiz teslimatlar</p>
           </div>
         </div>
         <button
@@ -268,7 +268,7 @@ export function DriverActivitiesPage() {
           className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
         >
           <RefreshCw className="w-4 h-4" />
-          Refresh
+          Yenile
         </button>
       </div>
 
@@ -282,7 +282,7 @@ export function DriverActivitiesPage() {
               : 'text-gray-600 hover:bg-gray-100'
           }`}
         >
-          Dirty Pickup (Hotel → Laundry)
+          Kirli Toplama (Otel → Camasir)
         </button>
         <button
           onClick={() => { setActiveTab('clean-pickup'); setScannedDelivery(null); }}
@@ -292,7 +292,7 @@ export function DriverActivitiesPage() {
               : 'text-gray-600 hover:bg-gray-100'
           }`}
         >
-          Clean Pickup (Laundry → Truck)
+          Temiz Toplama (Camasir → Arac)
         </button>
         <button
           onClick={() => { setActiveTab('deliver'); setScannedDelivery(null); }}
@@ -302,7 +302,7 @@ export function DriverActivitiesPage() {
               : 'text-gray-600 hover:bg-gray-100'
           }`}
         >
-          Deliver (Truck → Hotel)
+          Teslimat (Arac → Otel)
         </button>
       </div>
 
@@ -311,11 +311,11 @@ export function DriverActivitiesPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">
             <form onSubmit={handleCreateDirtyPickup} className="bg-white rounded-lg shadow p-6 space-y-6">
-              <h2 className="text-lg font-semibold border-b pb-2">Dirty Pickup from Hotel</h2>
+              <h2 className="text-lg font-semibold border-b pb-2">Otelden Kirli Toplama</h2>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Hotel <span className="text-red-500">*</span>
+                  Otel <span className="text-red-500">*</span>
                 </label>
                 <select
                   value={tenantId}
@@ -323,7 +323,7 @@ export function DriverActivitiesPage() {
                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500"
                   required
                 >
-                  <option value="">Select hotel...</option>
+                  <option value="">Otel secin...</option>
                   {tenants?.map(t => (
                     <option key={t.id} value={t.id}>{t.name}</option>
                   ))}
@@ -333,7 +333,7 @@ export function DriverActivitiesPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Bag Code <span className="text-red-500">*</span>
+                    Torba Kodu <span className="text-red-500">*</span>
                   </label>
                   <div className="flex gap-2">
                     <input
@@ -355,7 +355,7 @@ export function DriverActivitiesPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Seal Number <span className="text-red-500">*</span>
+                    Mühür Numarası <span className="text-red-500">*</span>
                   </label>
                   <div className="flex gap-2">
                     <input
@@ -379,7 +379,7 @@ export function DriverActivitiesPage() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Scan RFID Tags (optional)
+                  RFID Etiketlerini Tara (opsiyonel)
                 </label>
                 <div className="flex gap-2">
                   <input
@@ -388,7 +388,7 @@ export function DriverActivitiesPage() {
                     onChange={(e) => setRfidInput(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleScanItems())}
                     className="flex-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500"
-                    placeholder="Enter RFID tag or scan..."
+                    placeholder="RFID etiketi girin veya tarayin..."
                   />
                   <button
                     type="button"
@@ -396,14 +396,14 @@ export function DriverActivitiesPage() {
                     disabled={scanItemsMutation.isPending}
                     className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50"
                   >
-                    {scanItemsMutation.isPending ? 'Scanning...' : 'Add'}
+                    {scanItemsMutation.isPending ? 'Taranıyor...' : 'Ekle'}
                   </button>
                 </div>
               </div>
 
               <div className="border-t pt-4">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Or Add Items by Count
+                  Veya Sayıyla Ürün Ekle
                 </label>
                 <div className="grid grid-cols-[1fr,auto,auto] gap-2">
                   <select
@@ -412,7 +412,7 @@ export function DriverActivitiesPage() {
                     className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500"
                     disabled={!tenantId}
                   >
-                    <option value="">Select item type...</option>
+                    <option value="">Ürün tipi secin...</option>
                     {itemTypes?.map(type => (
                       <option key={type.id} value={type.id}>{type.name}</option>
                     ))}
@@ -423,7 +423,7 @@ export function DriverActivitiesPage() {
                     value={itemQuantity}
                     onChange={(e) => setItemQuantity(e.target.value)}
                     className="w-24 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500"
-                    placeholder="Qty"
+                    placeholder="Adet"
                     disabled={!tenantId}
                   />
                   <button
@@ -433,11 +433,11 @@ export function DriverActivitiesPage() {
                     className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-2"
                   >
                     <Plus className="w-4 h-4" />
-                    {createItemsMutation.isPending ? 'Adding...' : 'Add'}
+                    {createItemsMutation.isPending ? 'Ekleniyor...' : 'Ekle'}
                   </button>
                 </div>
                 {!tenantId && (
-                  <p className="text-xs text-gray-500 mt-1">Select a hotel first to add items by count</p>
+                  <p className="text-xs text-gray-500 mt-1">Sayıyla ürün eklemek için önce bir otel secin</p>
                 )}
               </div>
 
@@ -445,15 +445,15 @@ export function DriverActivitiesPage() {
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <label className="block text-sm font-medium text-gray-700">
-                      All Items ({scannedItems.length + manualItems.length})
+                      Tüm Ürünler ({scannedItems.length + manualItems.length})
                     </label>
-                    <span className="text-xs text-gray-500">1 bag</span>
+                    <span className="text-xs text-gray-500">1 torba</span>
                   </div>
                   <div className="border rounded-lg max-h-64 overflow-y-auto">
                     {scannedItems.length > 0 && (
                       <>
                         <div className="px-2 py-1 bg-gray-100 border-b">
-                          <span className="text-xs font-medium text-gray-600">RFID Scanned ({scannedItems.length})</span>
+                          <span className="text-xs font-medium text-gray-600">RFID ile Taranan ({scannedItems.length})</span>
                         </div>
                         {scannedItems.map(item => (
                           <div key={item.id} className="flex items-center justify-between p-2 border-b last:border-b-0 hover:bg-gray-50">
@@ -464,7 +464,7 @@ export function DriverActivitiesPage() {
                               </div>
                               <div className="flex items-center gap-3 mt-1">
                                 <span className="text-xs text-gray-400">
-                                  Wash count: {item.washCount || 0}
+                                  Yıkama sayısı: {item.washCount || 0}
                                 </span>
                                 <span className={`text-xs px-1.5 py-0.5 rounded ${
                                   item.status === 'at_hotel' ? 'bg-blue-100 text-blue-700' :
@@ -489,7 +489,7 @@ export function DriverActivitiesPage() {
                     {manualItems.length > 0 && (
                       <>
                         <div className="px-2 py-1 bg-green-50 border-b">
-                          <span className="text-xs font-medium text-green-700">Manually Added ({manualItems.length})</span>
+                          <span className="text-xs font-medium text-green-700">Manuel Eklenen ({manualItems.length})</span>
                         </div>
                         {manualItems.map(item => (
                           <div key={item.id} className="flex items-center justify-between p-2 border-b last:border-b-0 hover:bg-gray-50">
@@ -500,7 +500,7 @@ export function DriverActivitiesPage() {
                               </div>
                               <div className="flex items-center gap-3 mt-1">
                                 <span className="text-xs text-gray-400">
-                                  Wash count: {item.washCount || 0}
+                                  Yıkama sayısı: {item.washCount || 0}
                                 </span>
                                 <span className="text-xs px-1.5 py-0.5 rounded bg-green-100 text-green-700">
                                   {item.status}
@@ -524,14 +524,14 @@ export function DriverActivitiesPage() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Notes (optional)
+                  Notlar (opsiyonel)
                 </label>
                 <textarea
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   rows={2}
                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500"
-                  placeholder="Any special notes..."
+                  placeholder="Ozel notlar..."
                 />
               </div>
 
@@ -540,10 +540,10 @@ export function DriverActivitiesPage() {
                 disabled={createPickupMutation.isPending}
                 className="w-full py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 flex items-center justify-center gap-2 font-medium"
               >
-                {createPickupMutation.isPending ? 'Creating...' : (
+                {createPickupMutation.isPending ? 'Oluşturuluyor...' : (
                   <>
                     <CheckCircle className="w-5 h-5" />
-                    Create Dirty Pickup
+                    Kirli Toplama Oluştur
                   </>
                 )}
               </button>
@@ -551,9 +551,9 @@ export function DriverActivitiesPage() {
           </div>
 
           <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-semibold mb-4">Recent Pickups</h2>
+            <h2 className="text-lg font-semibold mb-4">Son Toplamalar</h2>
             {recentPickupsList.length === 0 ? (
-              <p className="text-gray-500 text-center py-4">No recent pickups</p>
+              <p className="text-gray-500 text-center py-4">Son toplama yok</p>
             ) : (
               <div className="space-y-3">
                 {recentPickupsList.map(pickup => {
@@ -567,18 +567,18 @@ export function DriverActivitiesPage() {
                           pickup.status === 'received' ? 'bg-blue-100 text-blue-800' :
                           'bg-green-100 text-green-800'
                         }`}>
-                          {pickup.status}
+                          {pickup.status === 'created' ? 'Oluşturuldu' : pickup.status === 'received' ? 'Alındı' : pickup.status}
                         </span>
                       </div>
                       <p className="text-sm text-gray-600 mb-1">{pickup.tenant?.name}</p>
                       <div className="flex items-center gap-3 text-xs text-gray-500">
                         <span className="flex items-center gap-1">
                           <Package className="w-3 h-3" />
-                          1 bag
+                          1 torba
                         </span>
                         <span className="flex items-center gap-1">
                           <Tag className="w-3 h-3" />
-                          {itemCount} items
+                          {itemCount} ürün
                         </span>
                       </div>
                       <p className="text-xs text-gray-400 mt-2">
@@ -600,7 +600,7 @@ export function DriverActivitiesPage() {
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
               <QrCode className="w-5 h-5 text-cyan-600" />
-              Scan Delivery Barcode
+              Teslimat Barkodunu Tara
             </h2>
             <div className="flex gap-3">
               <input
@@ -608,7 +608,7 @@ export function DriverActivitiesPage() {
                 value={barcodeInput}
                 onChange={(e) => setBarcodeInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleScanBarcode()}
-                placeholder="Scan or enter barcode..."
+                placeholder="Barkodu tarayın veya girin..."
                 className="flex-1 px-4 py-3 text-lg border rounded-lg focus:ring-2 focus:ring-cyan-500 font-mono"
                 autoFocus
               />
@@ -617,7 +617,7 @@ export function DriverActivitiesPage() {
                 disabled={scanMutation.isPending}
                 className="px-6 py-3 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 disabled:opacity-50 font-medium"
               >
-                {scanMutation.isPending ? 'Scanning...' : 'Find'}
+                {scanMutation.isPending ? 'Taranıyor...' : 'Bul'}
               </button>
             </div>
           </div>
@@ -628,19 +628,19 @@ export function DriverActivitiesPage() {
               <div className="flex items-start justify-between">
                 <div>
                   <h3 className="text-lg font-bold text-cyan-900 mb-2">
-                    {activeTab === 'clean-pickup' ? 'Ready for Pickup' : 'Ready to Deliver'}
+                    {activeTab === 'clean-pickup' ? 'Toplama İçin Hazır' : 'Teslim Edilmeye Hazır'}
                   </h3>
                   <div className="space-y-2">
                     <div className="flex items-center gap-4">
-                      <span className="text-sm text-cyan-700">Barcode:</span>
+                      <span className="text-sm text-cyan-700">Barkod:</span>
                       <span className="font-mono font-bold text-xl">{scannedDelivery.barcode}</span>
                     </div>
                     <div className="flex items-center gap-4">
-                      <span className="text-sm text-cyan-700">Hotel:</span>
+                      <span className="text-sm text-cyan-700">Otel:</span>
                       <span className="font-medium">{scannedDelivery.tenant?.name}</span>
                     </div>
                     <div className="flex items-center gap-4">
-                      <span className="text-sm text-cyan-700">Items:</span>
+                      <span className="text-sm text-cyan-700">Ürünler:</span>
                       <span className="font-medium">{scannedDelivery.deliveryItems?.length || 0}</span>
                     </div>
                   </div>
@@ -650,7 +650,7 @@ export function DriverActivitiesPage() {
                     onClick={() => setScannedDelivery(null)}
                     className="px-4 py-2 border border-cyan-300 text-cyan-700 rounded-lg hover:bg-cyan-100"
                   >
-                    Cancel
+                    İptal
                   </button>
                   {activeTab === 'clean-pickup' ? (
                     <button
@@ -659,7 +659,7 @@ export function DriverActivitiesPage() {
                       className="flex items-center gap-2 px-6 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 disabled:opacity-50"
                     >
                       <Truck className="w-5 h-5" />
-                      {pickupMutation.isPending ? 'Processing...' : 'Confirm Pickup'}
+                      {pickupMutation.isPending ? 'İşleniyor...' : 'Toplamayı Onayla'}
                     </button>
                   ) : (
                     <button
@@ -668,7 +668,7 @@ export function DriverActivitiesPage() {
                       className="flex items-center gap-2 px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
                     >
                       <CheckCircle className="w-5 h-5" />
-                      {deliverMutation.isPending ? 'Processing...' : 'Confirm Delivery'}
+                      {deliverMutation.isPending ? 'İşleniyor...' : 'Teslimatı Onayla'}
                     </button>
                   )}
                 </div>
@@ -683,12 +683,12 @@ export function DriverActivitiesPage() {
                 {activeTab === 'clean-pickup' ? (
                   <>
                     <Package className="w-5 h-5 text-indigo-600" />
-                    Ready for Pickup ({packaged.length})
+                    Toplama İçin Hazır ({packaged.length})
                   </>
                 ) : (
                   <>
                     <Truck className="w-5 h-5 text-cyan-600" />
-                    In Transit - Ready to Deliver ({inTransit.length})
+                    Yolda - Teslim Edilmeye Hazır ({inTransit.length})
                   </>
                 )}
               </h2>
@@ -702,13 +702,13 @@ export function DriverActivitiesPage() {
                 {activeTab === 'clean-pickup' ? (
                   <>
                     <Package className="w-16 h-16 mx-auto text-gray-300 mb-4" />
-                    <p className="text-xl text-gray-500">No packages ready for pickup</p>
+                    <p className="text-xl text-gray-500">Toplama için hazır paket yok</p>
                   </>
                 ) : (
                   <>
                     <Truck className="w-16 h-16 mx-auto text-gray-300 mb-4" />
-                    <p className="text-xl text-gray-500">No deliveries in transit</p>
-                    <p className="text-gray-400 mt-2">Pickup packages first</p>
+                    <p className="text-xl text-gray-500">Yolda teslimat yok</p>
+                    <p className="text-gray-400 mt-2">Önce paketleri toplayın</p>
                   </>
                 )}
               </div>
@@ -725,7 +725,7 @@ export function DriverActivitiesPage() {
                               ? 'bg-indigo-100 text-indigo-800'
                               : 'bg-cyan-100 text-cyan-800'
                           }`}>
-                            {activeTab === 'clean-pickup' ? 'Packaged' : 'In Transit'}
+                            {activeTab === 'clean-pickup' ? 'Paketlendi' : 'Yolda'}
                           </span>
                         </div>
                         <p className="text-sm text-gray-600 flex items-center gap-1">
@@ -735,7 +735,7 @@ export function DriverActivitiesPage() {
                         {activeTab === 'deliver' && delivery.pickedUpAt && (
                           <p className="text-xs text-gray-400 flex items-center gap-1">
                             <Clock className="w-3 h-3" />
-                            Picked up: {new Date(delivery.pickedUpAt).toLocaleString()}
+                            Toplandı: {new Date(delivery.pickedUpAt).toLocaleString()}
                           </p>
                         )}
                       </div>
@@ -746,7 +746,7 @@ export function DriverActivitiesPage() {
                           className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 disabled:opacity-50"
                         >
                           <Truck className="w-4 h-4" />
-                          Pickup
+                          Topla
                         </button>
                       ) : (
                         <button
@@ -755,7 +755,7 @@ export function DriverActivitiesPage() {
                           className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
                         >
                           <CheckCircle className="w-4 h-4" />
-                          Deliver
+                          Teslim Et
                         </button>
                       )}
                     </div>

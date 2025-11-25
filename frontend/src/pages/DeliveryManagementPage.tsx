@@ -17,11 +17,11 @@ const statusColors: Record<DeliveryStatus, string> = {
 };
 
 const statusLabels: Record<DeliveryStatus, string> = {
-  created: 'Created',
-  label_printed: 'Label Printed',
-  packaged: 'Packaged',
-  picked_up: 'Picked Up',
-  delivered: 'Delivered',
+  created: 'Olusturuldu',
+  label_printed: 'Etiket Yazdirildi',
+  packaged: 'Paketlendi',
+  picked_up: 'Teslim Alindi',
+  delivered: 'Teslim Edildi',
 };
 
 export function DeliveryManagementPage() {
@@ -39,47 +39,47 @@ export function DeliveryManagementPage() {
   const printLabelMutation = useMutation({
     mutationFn: deliveriesApi.printLabel,
     onSuccess: () => {
-      toast.success('Label printed');
+      toast.success('Etiket yazdirildi');
       queryClient.invalidateQueries({ queryKey: ['deliveries'] });
     },
-    onError: (err) => toast.error('Failed to print label', getErrorMessage(err)),
+    onError: (err) => toast.error('Etiket yazdirilamadi', getErrorMessage(err)),
   });
 
   const packageMutation = useMutation({
     mutationFn: deliveriesApi.package,
     onSuccess: () => {
-      toast.success('Delivery packaged');
+      toast.success('Teslimat paketlendi');
       queryClient.invalidateQueries({ queryKey: ['deliveries'] });
     },
-    onError: (err) => toast.error('Failed to package', getErrorMessage(err)),
+    onError: (err) => toast.error('Paketleme basarisiz', getErrorMessage(err)),
   });
 
   const pickupMutation = useMutation({
     mutationFn: deliveriesApi.pickup,
     onSuccess: () => {
-      toast.success('Delivery picked up');
+      toast.success('Teslimat alindi');
       queryClient.invalidateQueries({ queryKey: ['deliveries'] });
     },
-    onError: (err) => toast.error('Failed to pickup', getErrorMessage(err)),
+    onError: (err) => toast.error('Teslim alma basarisiz', getErrorMessage(err)),
   });
 
   const deliverMutation = useMutation({
     mutationFn: deliveriesApi.deliver,
     onSuccess: () => {
-      toast.success('Delivery completed');
+      toast.success('Teslimat tamamlandi');
       queryClient.invalidateQueries({ queryKey: ['deliveries'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
     },
-    onError: (err) => toast.error('Failed to complete delivery', getErrorMessage(err)),
+    onError: (err) => toast.error('Teslimat tamamlanamadi', getErrorMessage(err)),
   });
 
   const cancelMutation = useMutation({
     mutationFn: deliveriesApi.cancel,
     onSuccess: () => {
-      toast.success('Delivery cancelled');
+      toast.success('Teslimat iptal edildi');
       queryClient.invalidateQueries({ queryKey: ['deliveries'] });
     },
-    onError: (err) => toast.error('Failed to cancel', getErrorMessage(err)),
+    onError: (err) => toast.error('Iptal basarisiz', getErrorMessage(err)),
   });
 
   const deliveries = data?.data || [];
@@ -87,13 +87,13 @@ export function DeliveryManagementPage() {
   const getNextAction = (delivery: Delivery) => {
     switch (delivery.status) {
       case 'created':
-        return { label: 'Print Label', action: () => printLabelMutation.mutate(delivery.id), icon: Printer };
+        return { label: 'Etiket Yazdir', action: () => printLabelMutation.mutate(delivery.id), icon: Printer };
       case 'label_printed':
-        return { label: 'Package', action: () => packageMutation.mutate(delivery.id), icon: Package };
+        return { label: 'Paketle', action: () => packageMutation.mutate(delivery.id), icon: Package };
       case 'packaged':
-        return { label: 'Pickup', action: () => pickupMutation.mutate(delivery.id), icon: Truck };
+        return { label: 'Teslim Al', action: () => pickupMutation.mutate(delivery.id), icon: Truck };
       case 'picked_up':
-        return { label: 'Deliver', action: () => deliverMutation.mutate(delivery.id), icon: CheckCircle };
+        return { label: 'Teslim Et', action: () => deliverMutation.mutate(delivery.id), icon: CheckCircle };
       default:
         return null;
     }
@@ -102,14 +102,14 @@ export function DeliveryManagementPage() {
   return (
     <div className="p-8 space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Delivery Management</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Teslimat Yonetimi</h1>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowCreateModal(true)}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
           >
             <Package className="w-4 h-4" />
-            Create Delivery
+            Teslimat Olustur
           </button>
           <button
             onClick={() => refetch()}
@@ -128,7 +128,7 @@ export function DeliveryManagementPage() {
           onChange={(e) => setFilter({ status: e.target.value || undefined })}
           className="px-3 py-1 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500"
         >
-          <option value="">All Statuses</option>
+          <option value="">Tum Durumlar</option>
           {Object.entries(statusLabels).map(([value, label]) => (
             <option key={value} value={value}>{label}</option>
           ))}
@@ -143,19 +143,19 @@ export function DeliveryManagementPage() {
       ) : deliveries.length === 0 ? (
         <div className="bg-white rounded-lg shadow p-8 text-center">
           <Package className="w-12 h-12 mx-auto text-gray-400 mb-4" />
-          <p className="text-gray-500">No deliveries found</p>
+          <p className="text-gray-500">Teslimat bulunamadi</p>
         </div>
       ) : (
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <table className="w-full">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Barcode</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Hotel</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Items</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Status</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Created</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Actions</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Barkod</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Otel</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Urunler</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Durum</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Olusturma</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Islemler</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -189,7 +189,7 @@ export function DeliveryManagementPage() {
                           <button
                             onClick={() => cancelMutation.mutate(delivery.id)}
                             className="p-1 text-red-500 hover:bg-red-50 rounded"
-                            title="Cancel"
+                            title="Iptal"
                           >
                             <XCircle className="w-4 h-4" />
                           </button>
@@ -197,7 +197,7 @@ export function DeliveryManagementPage() {
                         <button
                           onClick={() => setSelectedDelivery(delivery)}
                           className="p-1 text-gray-500 hover:bg-gray-100 rounded"
-                          title="Details"
+                          title="Detaylar"
                         >
                           <ChevronRight className="w-4 h-4" />
                         </button>
@@ -253,16 +253,16 @@ function CreateDeliveryModal({ onClose, onSuccess }: { onClose: () => void; onSu
   const createMutation = useMutation({
     mutationFn: deliveriesApi.create,
     onSuccess: () => {
-      toast.success('Delivery created');
+      toast.success('Teslimat olusturuldu');
       onSuccess();
     },
-    onError: (err) => toast.error('Failed to create delivery', getErrorMessage(err)),
+    onError: (err) => toast.error('Teslimat olusturulamadi', getErrorMessage(err)),
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!tenantId || selectedItems.length === 0) {
-      toast.warning('Select a hotel and at least one item');
+      toast.warning('Bir otel ve en az bir urun secin');
       return;
     }
     createMutation.mutate({ tenantId, itemIds: selectedItems, notes, packageCount: 1 });
@@ -272,11 +272,11 @@ function CreateDeliveryModal({ onClose, onSuccess }: { onClose: () => void; onSu
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="p-6 border-b">
-          <h2 className="text-xl font-bold">Create Delivery</h2>
+          <h2 className="text-xl font-bold">Teslimat Olustur</h2>
         </div>
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Hotel</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Otel</label>
             <select
               value={tenantId}
               onChange={(e) => {
@@ -286,7 +286,7 @@ function CreateDeliveryModal({ onClose, onSuccess }: { onClose: () => void; onSu
               className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
               required
             >
-              <option value="">Select hotel...</option>
+              <option value="">Otel secin...</option>
               {tenants?.map(t => (
                 <option key={t.id} value={t.id}>{t.name}</option>
               ))}
@@ -296,10 +296,10 @@ function CreateDeliveryModal({ onClose, onSuccess }: { onClose: () => void; onSu
           {tenantId && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Items Ready for Delivery ({readyItems?.length || 0} available)
+                Teslimata Hazir Urunler ({readyItems?.length || 0} mevcut)
               </label>
               {loadingItems ? (
-                <p className="text-gray-500">Loading items...</p>
+                <p className="text-gray-500">Urunler yukleniyor...</p>
               ) : readyItems && readyItems.length > 0 ? (
                 <div className="border rounded-lg max-h-48 overflow-y-auto">
                   {readyItems.map(item => (
@@ -322,14 +322,14 @@ function CreateDeliveryModal({ onClose, onSuccess }: { onClose: () => void; onSu
                   ))}
                 </div>
               ) : (
-                <p className="text-gray-500">No items ready for delivery</p>
+                <p className="text-gray-500">Teslimata hazir urun yok</p>
               )}
-              <p className="text-sm text-gray-500 mt-1">{selectedItems.length} items selected</p>
+              <p className="text-sm text-gray-500 mt-1">{selectedItems.length} urun secildi</p>
             </div>
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Notlar (opsiyonel)</label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
@@ -344,14 +344,14 @@ function CreateDeliveryModal({ onClose, onSuccess }: { onClose: () => void; onSu
               onClick={onClose}
               className="px-4 py-2 text-gray-600 border rounded-lg hover:bg-gray-50"
             >
-              Cancel
+              Iptal
             </button>
             <button
               type="submit"
               disabled={createMutation.isPending || selectedItems.length === 0}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
             >
-              {createMutation.isPending ? 'Creating...' : 'Create Delivery'}
+              {createMutation.isPending ? 'Olusturuluyor...' : 'Teslimat Olustur'}
             </button>
           </div>
         </form>
@@ -365,7 +365,7 @@ function DeliveryDetailsModal({ delivery, onClose }: { delivery: Delivery; onClo
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-lg">
         <div className="p-6 border-b flex items-center justify-between">
-          <h2 className="text-xl font-bold">Delivery Details</h2>
+          <h2 className="text-xl font-bold">Teslimat Detaylari</h2>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
             <XCircle className="w-5 h-5" />
           </button>
@@ -373,28 +373,28 @@ function DeliveryDetailsModal({ delivery, onClose }: { delivery: Delivery; onClo
         <div className="p-6 space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <p className="text-sm text-gray-500">Barcode</p>
+              <p className="text-sm text-gray-500">Barkod</p>
               <p className="font-mono font-medium">{delivery.barcode}</p>
             </div>
             <div>
-              <p className="text-sm text-gray-500">Status</p>
+              <p className="text-sm text-gray-500">Durum</p>
               <span className={`px-2 py-1 text-xs rounded-full ${statusColors[delivery.status]}`}>
                 {statusLabels[delivery.status]}
               </span>
             </div>
             <div>
-              <p className="text-sm text-gray-500">Hotel</p>
+              <p className="text-sm text-gray-500">Otel</p>
               <p className="font-medium">{delivery.tenant?.name || '-'}</p>
             </div>
             <div>
-              <p className="text-sm text-gray-500">Items</p>
+              <p className="text-sm text-gray-500">Urunler</p>
               <p className="font-medium">{delivery.deliveryItems?.length || 0}</p>
             </div>
           </div>
 
           {delivery.deliveryItems && delivery.deliveryItems.length > 0 && (
             <div>
-              <p className="text-sm text-gray-500 mb-2">Items in Delivery</p>
+              <p className="text-sm text-gray-500 mb-2">Teslimattaki Urunler</p>
               <div className="border rounded-lg max-h-48 overflow-y-auto">
                 {delivery.deliveryItems.map(di => (
                   <div key={di.id} className="flex items-center justify-between p-2 border-b last:border-b-0">
@@ -408,7 +408,7 @@ function DeliveryDetailsModal({ delivery, onClose }: { delivery: Delivery; onClo
 
           {delivery.notes && (
             <div>
-              <p className="text-sm text-gray-500">Notes</p>
+              <p className="text-sm text-gray-500">Notlar</p>
               <p>{delivery.notes}</p>
             </div>
           )}

@@ -17,8 +17,16 @@ export function LoginPage() {
       await login(email, password);
       navigate('/dashboard');
     } catch (err: any) {
-      const errorMessage = err.response?.data?.error || err.message || 'Login failed';
-      setError(errorMessage);
+      const errorMessage = err.response?.data?.error || err.message || 'Giris basarisiz';
+      // Translate common errors to Turkish
+      const errorTranslations: Record<string, string> = {
+        'Invalid email or password': 'Gecersiz e-posta veya sifre',
+        'Login failed': 'Giris basarisiz',
+        'Cannot connect to server. Please make sure the backend is running.': 'Sunucuya baglanilamiyor. Lutfen tekrar deneyin.',
+        'Too many requests': 'Cok fazla istek. Lutfen biraz bekleyin.',
+        'Network Error': 'Baglanti hatasi',
+      };
+      setError(errorTranslations[errorMessage] || errorMessage);
       console.error('Login error:', err);
     }
   };
@@ -28,10 +36,10 @@ export function LoginPage() {
       <div className="max-w-md w-full space-y-8 p-8 bg-white rounded-lg shadow">
         <div>
           <h2 className="text-center text-3xl font-bold text-gray-900">
-            RFID Laundry Tracking
+            RFID Camasirhane Takip
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
-            Sign in to your account
+            Hesabiniza giris yapin
           </p>
         </div>
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
@@ -43,7 +51,7 @@ export function LoginPage() {
           <div className="space-y-4">
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                Email
+                E-posta
               </label>
               <input
                 id="email"
@@ -57,7 +65,7 @@ export function LoginPage() {
             </div>
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-                Password
+                Sifre
               </label>
               <input
                 id="password"
@@ -74,11 +82,10 @@ export function LoginPage() {
             type="submit"
             className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
           >
-            Sign in
+            Giris Yap
           </button>
         </form>
       </div>
     </div>
   );
 }
-

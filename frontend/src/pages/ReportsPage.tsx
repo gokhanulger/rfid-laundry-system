@@ -30,14 +30,14 @@ export function ReportsPage() {
     if (!lifecycleReport) return;
 
     const rows = [
-      ['Metric', 'Value'],
-      ['Total Items', lifecycleReport.totalItems.toString()],
-      ['Average Wash Count', lifecycleReport.averageWashCount.toFixed(2)],
+      ['Metrik', 'Deger'],
+      ['Toplam Urunler', lifecycleReport.totalItems.toString()],
+      ['Ortalama Yikama Sayisi', lifecycleReport.averageWashCount.toFixed(2)],
       [''],
-      ['Status', 'Count'],
+      ['Durum', 'Sayi'],
       ...Object.entries(lifecycleReport.itemsByStatus).map(([status, count]) => [status, count.toString()]),
       [''],
-      ['Item Type', 'Count'],
+      ['Urun Tipi', 'Sayi'],
       ...Object.entries(lifecycleReport.itemsByType).map(([type, count]) => [type, count.toString()]),
     ];
 
@@ -46,7 +46,7 @@ export function ReportsPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `laundry-report-${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `cmasir-raporu-${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -54,14 +54,14 @@ export function ReportsPage() {
   return (
     <div className="p-8 space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Reports</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Raporlar</h1>
         <div className="flex items-center gap-4">
           <select
             value={selectedTenant}
             onChange={(e) => setSelectedTenant(e.target.value)}
             className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
           >
-            <option value="">All Hotels</option>
+            <option value="">Tum Oteller</option>
             {tenants?.map(t => (
               <option key={t.id} value={t.id}>{t.name}</option>
             ))}
@@ -72,7 +72,7 @@ export function ReportsPage() {
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
           >
             <Download className="w-4 h-4" />
-            Export CSV
+            CSV Olarak Disari Aktar
           </button>
         </div>
       </div>
@@ -84,7 +84,7 @@ export function ReportsPage() {
             <div className="p-2 bg-blue-100 rounded-lg">
               <BarChart3 className="w-5 h-5 text-blue-600" />
             </div>
-            <h3 className="font-medium text-gray-700">Total Items</h3>
+            <h3 className="font-medium text-gray-700">Toplam Urunler</h3>
           </div>
           {loadingLifecycle ? (
             <div className="h-8 bg-gray-200 rounded animate-pulse" />
@@ -98,7 +98,7 @@ export function ReportsPage() {
             <div className="p-2 bg-green-100 rounded-lg">
               <TrendingUp className="w-5 h-5 text-green-600" />
             </div>
-            <h3 className="font-medium text-gray-700">Avg Wash Count</h3>
+            <h3 className="font-medium text-gray-700">Ort. Yikama Sayisi</h3>
           </div>
           {loadingLifecycle ? (
             <div className="h-8 bg-gray-200 rounded animate-pulse" />
@@ -112,7 +112,7 @@ export function ReportsPage() {
             <div className="p-2 bg-purple-100 rounded-lg">
               <PieChart className="w-5 h-5 text-purple-600" />
             </div>
-            <h3 className="font-medium text-gray-700">Item Types</h3>
+            <h3 className="font-medium text-gray-700">Urun Tipleri</h3>
           </div>
           {loadingDistribution ? (
             <div className="h-8 bg-gray-200 rounded animate-pulse" />
@@ -127,7 +127,7 @@ export function ReportsPage() {
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <BarChart3 className="w-5 h-5 text-gray-500" />
-            Items by Status
+            Duruma Gore Urunler
           </h2>
           {loadingLifecycle ? (
             <div className="space-y-2">
@@ -157,7 +157,7 @@ export function ReportsPage() {
               })}
             </div>
           ) : (
-            <p className="text-gray-500 text-center py-4">No data available</p>
+            <p className="text-gray-500 text-center py-4">Veri mevcut degil</p>
           )}
         </div>
 
@@ -165,7 +165,7 @@ export function ReportsPage() {
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <PieChart className="w-5 h-5 text-gray-500" />
-            Items by Type
+            Tipe Gore Urunler
           </h2>
           {loadingDistribution ? (
             <div className="space-y-2">
@@ -197,7 +197,7 @@ export function ReportsPage() {
               })}
             </div>
           ) : (
-            <p className="text-gray-500 text-center py-4">No data available</p>
+            <p className="text-gray-500 text-center py-4">Veri mevcut degil</p>
           )}
         </div>
       </div>
@@ -206,7 +206,7 @@ export function ReportsPage() {
       <div className="bg-white rounded-lg shadow p-6">
         <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
           <TrendingUp className="w-5 h-5 text-gray-500" />
-          Workflow Progress
+          Is Akisi Ilerlemesi
         </h2>
         {loadingWorkflow ? (
           <div className="flex gap-4 justify-center">
@@ -240,21 +240,21 @@ export function ReportsPage() {
             ))}
           </div>
         ) : (
-          <p className="text-gray-500 text-center py-4">No workflow data available</p>
+          <p className="text-gray-500 text-center py-4">Is akisi verisi mevcut degil</p>
         )}
       </div>
 
       {/* Data Table */}
       {lifecycleReport?.itemsByStatus && (
         <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-lg font-semibold mb-4">Detailed Status Breakdown</h2>
+          <h2 className="text-lg font-semibold mb-4">Detayli Durum Dagilimi</h2>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b">
-                  <th className="text-left py-2 px-4 text-sm font-medium text-gray-500">Status</th>
-                  <th className="text-right py-2 px-4 text-sm font-medium text-gray-500">Count</th>
-                  <th className="text-right py-2 px-4 text-sm font-medium text-gray-500">Percentage</th>
+                  <th className="text-left py-2 px-4 text-sm font-medium text-gray-500">Durum</th>
+                  <th className="text-right py-2 px-4 text-sm font-medium text-gray-500">Sayi</th>
+                  <th className="text-right py-2 px-4 text-sm font-medium text-gray-500">Yuzde</th>
                 </tr>
               </thead>
               <tbody>
@@ -273,7 +273,7 @@ export function ReportsPage() {
                   );
                 })}
                 <tr className="bg-gray-50 font-bold">
-                  <td className="py-2 px-4">Total</td>
+                  <td className="py-2 px-4">Toplam</td>
                   <td className="py-2 px-4 text-right">{lifecycleReport.totalItems.toLocaleString()}</td>
                   <td className="py-2 px-4 text-right">100%</td>
                 </tr>

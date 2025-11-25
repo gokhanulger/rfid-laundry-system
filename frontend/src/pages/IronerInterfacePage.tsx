@@ -145,7 +145,7 @@ export function IronerInterfacePage() {
       return { delivery: fullDelivery, labelCount };
     },
     onSuccess: () => {
-      toast.success('Items cleaned and label printed!');
+      toast.success('Urunler temizlendi ve etiket basildi!');
       queryClient.invalidateQueries({ queryKey: ['dirty-items'] });
       queryClient.invalidateQueries({ queryKey: ['deliveries'] });
       queryClient.invalidateQueries({ queryKey: ['items'] });
@@ -289,7 +289,7 @@ export function IronerInterfacePage() {
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
             <Building2 className="w-6 h-6 text-blue-600" />
-            Select Hotels
+            Otel Sec
           </h2>
           {isWorking && (
             <button
@@ -345,18 +345,18 @@ export function IronerInterfacePage() {
               onClick={selectAllHotels}
               className="text-sm text-blue-600 hover:text-blue-700 font-medium"
             >
-              Select All
+              Tumunu Sec
             </button>
             <span className="text-gray-300">|</span>
             <button
               onClick={clearHotelSelection}
               className="text-sm text-gray-600 hover:text-gray-700 font-medium"
             >
-              Clear
+              Temizle
             </button>
           </div>
           <span className="text-sm text-gray-600">
-            {selectedHotelIds.length} selected
+            {selectedHotelIds.length} secildi
           </span>
         </div>
 
@@ -371,7 +371,7 @@ export function IronerInterfacePage() {
           disabled={selectedHotelIds.length === 0}
           className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-bold shadow-lg disabled:bg-gray-300 disabled:cursor-not-allowed"
         >
-          {isWorking ? 'Update Selection' : 'Start Working'}
+          {isWorking ? 'Secimi Guncelle' : 'Calismaya Basla'}
         </button>
       </div>
     </div>
@@ -388,13 +388,13 @@ export function IronerInterfacePage() {
             </div>
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Ütü İstasyonu</h1>
-              <p className="text-gray-500">Select hotels to start processing</p>
+              <p className="text-gray-500">Isleme baslamak icin otel secin</p>
             </div>
           </div>
           <div className="bg-white rounded-lg shadow p-12 text-center">
             <Building2 className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <p className="text-xl text-gray-500 mb-2">No hotels selected</p>
-            <p className="text-gray-400">Choose hotels from the dialog to begin</p>
+            <p className="text-xl text-gray-500 mb-2">Otel secilmedi</p>
+            <p className="text-gray-400">Baslamak icin otelleri secin</p>
           </div>
         </div>
         <HotelSelectionDialog />
@@ -413,7 +413,7 @@ export function IronerInterfacePage() {
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Ütü İstasyonu</h1>
             <p className="text-gray-500">
-              Working with {selectedHotelIds.length} hotel{selectedHotelIds.length > 1 ? 's' : ''}
+              Calisilan {selectedHotelIds.length} otel
             </p>
           </div>
         </div>
@@ -427,28 +427,28 @@ export function IronerInterfacePage() {
             }`}
           >
             <Tag className="w-4 h-4" />
-            Settings
+            Ayarlar
           </button>
           <button
             onClick={() => setShowHotelSelector(true)}
             className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200"
           >
             <Building2 className="w-4 h-4" />
-            Change Hotels
+            Otel Degistir
           </button>
           <button
             onClick={handleRefresh}
             className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
           >
             <RefreshCw className="w-4 h-4" />
-            Refresh
+            Yenile
           </button>
         </div>
       </div>
 
       {/* Selected Hotels Bar */}
       <div className="bg-blue-50 rounded-lg p-4 flex items-center gap-3 flex-wrap">
-        <span className="text-blue-700 font-medium">Working with:</span>
+        <span className="text-blue-700 font-medium">Calisilan:</span>
         {selectedHotelIds.map(hotelId => {
           const hotel = tenants?.find((t: Tenant) => t.id === hotelId);
           const hotelDirtyCount = (dirtyItems || []).filter((i: Item) => i.tenantId === hotelId).length;
@@ -478,7 +478,7 @@ export function IronerInterfacePage() {
           className="flex items-center gap-1 text-blue-600 hover:text-blue-700 text-sm font-medium"
         >
           <Plus className="w-4 h-4" />
-          Add Hotel
+          Otel Ekle
         </button>
       </div>
 
@@ -491,7 +491,7 @@ export function IronerInterfacePage() {
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
               <Tag className="w-5 h-5 text-green-600" />
-              Batch Threshold Settings
+              Grup Esik Ayarlari
             </h3>
             <button
               onClick={() => setShowThresholdSettings(false)}
@@ -501,7 +501,7 @@ export function IronerInterfacePage() {
             </button>
           </div>
           <p className="text-sm text-gray-500 mb-4">
-            Set the minimum number of items required before a batch is ready for printing.
+            Bir grubun yazdirma icin hazir olmasi gereken minimum urun sayisini ayarlayin
           </p>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {itemTypes?.map((itemType: any) => (
@@ -536,7 +536,7 @@ export function IronerInterfacePage() {
               onClick={() => setShowThresholdSettings(false)}
               className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
             >
-              Done
+              Tamam
             </button>
           </div>
         </div>
@@ -546,15 +546,15 @@ export function IronerInterfacePage() {
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-white rounded-lg shadow p-4">
           <p className="text-3xl font-bold text-purple-600">{hotelCount}</p>
-          <p className="text-sm text-gray-500">Hotels with Items</p>
+          <p className="text-sm text-gray-500">Urunlu Oteller</p>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <p className="text-3xl font-bold text-orange-600">{filteredItemCount}</p>
-          <p className="text-sm text-gray-500">Dirty Items</p>
+          <p className="text-sm text-gray-500">Kirli Urunler</p>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <p className="text-3xl font-bold text-green-600">{recentPrinted.length}</p>
-          <p className="text-sm text-gray-500">Labels Printed</p>
+          <p className="text-sm text-gray-500">Basilan Etiketler</p>
         </div>
       </div>
 
@@ -563,7 +563,7 @@ export function IronerInterfacePage() {
         <div className="lg:col-span-2 space-y-6">
           <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
             <Sparkles className="w-6 h-6 text-orange-500" />
-            Dirty Items to Process
+            Islenecek Kirli Urunler
           </h2>
 
           {loadingDirty ? (
@@ -573,8 +573,8 @@ export function IronerInterfacePage() {
           ) : hotelCount === 0 ? (
             <div className="p-16 text-center bg-white rounded-lg shadow">
               <Package className="w-20 h-20 mx-auto text-gray-300 mb-4" />
-              <p className="text-2xl font-semibold text-gray-500">No dirty items to process</p>
-              <p className="text-lg text-gray-400 mt-2">All items from selected hotels have been cleaned!</p>
+              <p className="text-2xl font-semibold text-gray-500">Islenecek kirli urun yok</p>
+              <p className="text-lg text-gray-400 mt-2">Secili otellerdeki tum urunler temizlendi!</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -599,17 +599,17 @@ export function IronerInterfacePage() {
                           )}
                           <div className="text-left">
                             <h3 className="text-2xl font-bold text-white">
-                              {hotel?.name || 'Unknown Hotel'}
+                              {hotel?.name || 'Bilinmeyen Otel'}
                             </h3>
                             <p className="text-orange-100 text-sm mt-1">
-                              Click to view and process items
+                              Urunleri gormek ve islemek icin tiklayin
                             </p>
                           </div>
                         </div>
                         <div className="flex items-center gap-3">
                           <div className="text-right">
                             <p className="text-4xl font-bold text-white">{hotelItems.length}</p>
-                            <p className="text-orange-100 text-sm">dirty items</p>
+                            <p className="text-orange-100 text-sm">kirli urun</p>
                           </div>
                         </div>
                       </div>
@@ -621,7 +621,7 @@ export function IronerInterfacePage() {
                         <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-xl p-6 border-2 border-purple-200">
                           <h4 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
                             <Printer className="w-5 h-5 text-purple-600" />
-                            Print Label
+                            Etiket Yazdir
                           </h4>
 
                           {/* Add Item Form */}
@@ -629,19 +629,19 @@ export function IronerInterfacePage() {
                             {/* Item Type Dropdown */}
                             <div className="flex-1 min-w-[200px]">
                               <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Item Type
+                                Urun Turu
                               </label>
                               <select
                                 value={addingTypeId[hotelId] || ''}
                                 onChange={(e) => setAddingTypeId(prev => ({ ...prev, [hotelId]: e.target.value }))}
                                 className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
                               >
-                                <option value="">Select type...</option>
+                                <option value="">Tur secin...</option>
                                 {Object.entries(itemsByType).map(([typeId, typeItems]) => {
                                   const itemType = itemTypes?.find((t: { id: string }) => t.id === typeId);
                                   return (
                                     <option key={typeId} value={typeId}>
-                                      {itemType?.name} ({typeItems.length} available)
+                                      {itemType?.name} ({typeItems.length} mevcut)
                                     </option>
                                   );
                                 })}
@@ -651,7 +651,7 @@ export function IronerInterfacePage() {
                             {/* Count Input */}
                             <div className="w-36">
                               <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Count
+                                Adet
                               </label>
                               <div className="flex items-center gap-1">
                                 <button
@@ -683,7 +683,7 @@ export function IronerInterfacePage() {
                               className="h-12 px-6 flex items-center gap-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-bold transition-all"
                             >
                               <Plus className="w-5 h-5" />
-                              Add
+                              Ekle
                             </button>
                           </div>
 
@@ -715,13 +715,13 @@ export function IronerInterfacePage() {
                             <div className="flex items-center justify-between pt-4 border-t border-purple-200">
                               <div className="flex items-center gap-4">
                                 <span className="text-gray-600">
-                                  Total: <span className="font-bold text-purple-600">{getTotalPrintItems(hotelId)}</span> items
+                                  Toplam: <span className="font-bold text-purple-600">{getTotalPrintItems(hotelId)}</span> urun
                                 </span>
                                 <button
                                   onClick={() => handleClearPrintList(hotelId)}
                                   className="text-sm text-gray-500 hover:text-gray-700 underline"
                                 >
-                                  Clear
+                                  Temizle
                                 </button>
                               </div>
                               <button
@@ -730,7 +730,7 @@ export function IronerInterfacePage() {
                                 className="h-12 px-8 flex items-center gap-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-lg font-bold shadow-lg transition-all"
                               >
                                 <Printer className="w-5 h-5" />
-                                {processAndPrintMutation.isPending ? 'Printing...' : 'Print Label'}
+                                {processAndPrintMutation.isPending ? 'Yazdiriliyor...' : 'Etiket Yazdir'}
                               </button>
                             </div>
                           )}
@@ -739,7 +739,7 @@ export function IronerInterfacePage() {
                           {(printItems[hotelId] || []).length === 0 && (
                             <div className="text-center py-6 text-gray-500">
                               <Package className="w-12 h-12 mx-auto text-gray-300 mb-2" />
-                              <p>Select item type and count, then click Add</p>
+                              <p>Urun turu ve adet secin, sonra Ekle'ye tiklayin</p>
                             </div>
                           )}
                         </div>
@@ -758,13 +758,13 @@ export function IronerInterfacePage() {
             <div className="p-4 border-b bg-green-50">
               <h2 className="text-lg font-semibold flex items-center gap-2">
                 <CheckCircle className="w-5 h-5 text-green-600" />
-                Recently Printed Labels
+                Son Yazdirilan Etiketler
               </h2>
             </div>
             {recentPrinted.length === 0 ? (
               <div className="p-8 text-center text-gray-500">
                 <Printer className="w-12 h-12 mx-auto text-gray-300 mb-3" />
-                <p>No recently printed labels</p>
+                <p>Son yazdirilan etiket yok</p>
               </div>
             ) : (
               <div className="divide-y max-h-[600px] overflow-y-auto">
@@ -773,13 +773,13 @@ export function IronerInterfacePage() {
                     <div className="flex items-center justify-between mb-2">
                       <span className="font-mono font-bold text-lg">{delivery.barcode}</span>
                       <span className="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">
-                        Printed
+                        Yazdirildi
                       </span>
                     </div>
                     <p className="text-sm font-medium text-gray-900">{delivery.tenant?.name}</p>
                     <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
-                      <span>{delivery.deliveryItems?.length || 0} items</span>
-                      <span>{delivery.packageCount || 1} package(s)</span>
+                      <span>{delivery.deliveryItems?.length || 0} urun</span>
+                      <span>{delivery.packageCount || 1} paket</span>
                     </div>
                     <p className="text-xs text-gray-400 mt-1">
                       {delivery.labelPrintedAt && new Date(delivery.labelPrintedAt).toLocaleString()}

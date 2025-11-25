@@ -31,12 +31,12 @@ interface UserForm {
 }
 
 const roles = [
-  { value: 'hotel_owner', label: 'Hotel Owner' },
-  { value: 'laundry_manager', label: 'Laundry Manager' },
+  { value: 'hotel_owner', label: 'Otel Sahibi' },
+  { value: 'laundry_manager', label: 'Camasirhane Muduru' },
   { value: 'operator', label: 'Operator' },
-  { value: 'driver', label: 'Driver' },
-  { value: 'packager', label: 'Packager' },
-  { value: 'system_admin', label: 'System Admin' },
+  { value: 'driver', label: 'Surucu' },
+  { value: 'packager', label: 'Paketleyici' },
+  { value: 'system_admin', label: 'Sistem Yoneticisi' },
 ];
 
 const emptyForm: UserForm = {
@@ -78,43 +78,43 @@ export function UserManagementPage() {
   const createMutation = useMutation({
     mutationFn: (data: UserForm) => api.post('/users', data),
     onSuccess: () => {
-      toast.success('User created successfully!');
+      toast.success('Kullanici basariyla olusturuldu!');
       queryClient.invalidateQueries({ queryKey: ['users'] });
       closeModal();
     },
-    onError: (err) => toast.error('Failed to create user', getErrorMessage(err)),
+    onError: (err) => toast.error('Kullanici olusturulamadi', getErrorMessage(err)),
   });
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<UserForm> }) =>
       api.patch(`/users/${id}`, data),
     onSuccess: () => {
-      toast.success('User updated successfully!');
+      toast.success('Kullanici basariyla guncellendi!');
       queryClient.invalidateQueries({ queryKey: ['users'] });
       closeModal();
     },
-    onError: (err) => toast.error('Failed to update user', getErrorMessage(err)),
+    onError: (err) => toast.error('Kullanici guncellenemedi', getErrorMessage(err)),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/users/${id}`),
     onSuccess: () => {
-      toast.success('User deleted!');
+      toast.success('Kullanici silindi!');
       queryClient.invalidateQueries({ queryKey: ['users'] });
     },
-    onError: (err) => toast.error('Failed to delete user', getErrorMessage(err)),
+    onError: (err) => toast.error('Kullanici silinemedi', getErrorMessage(err)),
   });
 
   const resetPasswordMutation = useMutation({
     mutationFn: ({ id, password }: { id: string; password: string }) =>
       api.post(`/users/${id}/reset-password`, { password }),
     onSuccess: () => {
-      toast.success('Password reset successfully!');
+      toast.success('Sifre basariyla sifirlandi!');
       setShowPasswordModal(false);
       setNewPassword('');
       setSelectedUserId(null);
     },
-    onError: (err) => toast.error('Failed to reset password', getErrorMessage(err)),
+    onError: (err) => toast.error('Sifre sifirlanamadi', getErrorMessage(err)),
   });
 
   const toggleActiveMutation = useMutation({
@@ -123,7 +123,7 @@ export function UserManagementPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
     },
-    onError: (err) => toast.error('Failed to update status', getErrorMessage(err)),
+    onError: (err) => toast.error('Durum guncellenemedi', getErrorMessage(err)),
   });
 
   const openCreateModal = () => {
@@ -198,7 +198,7 @@ export function UserManagementPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Kullanici Yonetimi</h1>
-            <p className="text-gray-500">Manage users, drivers, and operators</p>
+            <p className="text-gray-500">Kullanicilari, suruculeri ve operatorleri yonetin</p>
           </div>
         </div>
         <div className="flex gap-2">
@@ -207,14 +207,14 @@ export function UserManagementPage() {
             className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
           >
             <RefreshCw className="w-4 h-4" />
-            Refresh
+            Yenile
           </button>
           <button
             onClick={openCreateModal}
             className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
           >
             <Plus className="w-5 h-5" />
-            Add User
+            Kullanici Ekle
           </button>
         </div>
       </div>
@@ -223,32 +223,32 @@ export function UserManagementPage() {
       <div className="grid grid-cols-4 gap-4">
         <div className="bg-white rounded-lg shadow p-4">
           <p className="text-3xl font-bold text-indigo-600">{userCounts.total}</p>
-          <p className="text-sm text-gray-500">Total Users</p>
+          <p className="text-sm text-gray-500">Toplam Kullanici</p>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <p className="text-3xl font-bold text-cyan-600">{userCounts.drivers}</p>
-          <p className="text-sm text-gray-500">Drivers</p>
+          <p className="text-sm text-gray-500">Suruculer</p>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <p className="text-3xl font-bold text-green-600">{userCounts.operators}</p>
-          <p className="text-sm text-gray-500">Operators</p>
+          <p className="text-sm text-gray-500">Operatorler</p>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <p className="text-3xl font-bold text-purple-600">{userCounts.managers}</p>
-          <p className="text-sm text-gray-500">Managers</p>
+          <p className="text-sm text-gray-500">Mudurler</p>
         </div>
       </div>
 
       {/* Filter */}
       <div className="bg-white rounded-lg shadow p-4">
         <div className="flex items-center gap-4">
-          <span className="text-sm font-medium text-gray-700">Filter by Role:</span>
+          <span className="text-sm font-medium text-gray-700">Role Gore Filtrele:</span>
           <select
             value={roleFilter}
             onChange={(e) => setRoleFilter(e.target.value)}
             className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
           >
-            <option value="">All Roles</option>
+            <option value="">Tum Roller</option>
             {roles.map(role => (
               <option key={role.value} value={role.value}>{role.label}</option>
             ))}
@@ -259,7 +259,7 @@ export function UserManagementPage() {
       {/* Users Table */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <div className="p-4 border-b">
-          <h2 className="text-lg font-semibold">Users ({filteredUsers.length})</h2>
+          <h2 className="text-lg font-semibold">Kullanicilar ({filteredUsers.length})</h2>
         </div>
         {isLoading ? (
           <div className="flex items-center justify-center h-48">
@@ -269,12 +269,12 @@ export function UserManagementPage() {
           <table className="w-full">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Hotel</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Isim</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">E-posta</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rol</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Otel</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Durum</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Islemler</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -297,7 +297,7 @@ export function UserManagementPage() {
                           : 'bg-gray-100 text-gray-800'
                       }`}
                     >
-                      {user.isActive ? 'Active' : 'Inactive'}
+                      {user.isActive ? 'Aktif' : 'Pasif'}
                     </button>
                   </td>
                   <td className="px-4 py-3">
@@ -305,25 +305,25 @@ export function UserManagementPage() {
                       <button
                         onClick={() => openEditModal(user)}
                         className="p-1 text-blue-600 hover:bg-blue-50 rounded"
-                        title="Edit"
+                        title="Duzenle"
                       >
                         <Edit className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => openPasswordModal(user.id)}
                         className="p-1 text-orange-600 hover:bg-orange-50 rounded"
-                        title="Reset Password"
+                        title="Sifre Sifirla"
                       >
                         <Key className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => {
-                          if (confirm('Are you sure you want to delete this user?')) {
+                          if (confirm('Bu kullaniciyi silmek istediginizden emin misiniz?')) {
                             deleteMutation.mutate(user.id);
                           }
                         }}
                         className="p-1 text-red-600 hover:bg-red-50 rounded"
-                        title="Delete"
+                        title="Sil"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -336,7 +336,7 @@ export function UserManagementPage() {
         ) : (
           <div className="p-12 text-center">
             <Users className="w-16 h-16 mx-auto text-gray-300 mb-4" />
-            <p className="text-xl text-gray-500">No users found</p>
+            <p className="text-xl text-gray-500">Kullanici bulunamadi</p>
           </div>
         )}
       </div>
@@ -347,7 +347,7 @@ export function UserManagementPage() {
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
             <div className="p-6 border-b flex items-center justify-between">
               <h2 className="text-xl font-bold">
-                {editingUser ? 'Edit User' : 'Add New User'}
+                {editingUser ? 'Kullanici Duzenle' : 'Yeni Kullanici Ekle'}
               </h2>
               <button onClick={closeModal} className="text-gray-500 hover:text-gray-700">
                 <X className="w-5 h-5" />
@@ -356,7 +356,7 @@ export function UserManagementPage() {
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">First Name *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Ad *</label>
                   <input
                     type="text"
                     required
@@ -366,7 +366,7 @@ export function UserManagementPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Last Name *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Soyad *</label>
                   <input
                     type="text"
                     required
@@ -377,7 +377,7 @@ export function UserManagementPage() {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">E-posta *</label>
                 <input
                   type="email"
                   required
@@ -388,7 +388,7 @@ export function UserManagementPage() {
               </div>
               {!editingUser && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Password *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Sifre *</label>
                   <input
                     type="password"
                     required
@@ -400,7 +400,7 @@ export function UserManagementPage() {
                 </div>
               )}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Role *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Rol *</label>
                 <select
                   required
                   value={form.role}
@@ -413,13 +413,13 @@ export function UserManagementPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Assigned Hotel</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Atanan Otel</label>
                 <select
                   value={form.tenantId}
                   onChange={(e) => setForm({ ...form, tenantId: e.target.value })}
                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
                 >
-                  <option value="">No Hotel (System-wide)</option>
+                  <option value="">Otel Yok (Sistem Geneli)</option>
                   {tenants?.map(tenant => (
                     <option key={tenant.id} value={tenant.id}>{tenant.name}</option>
                   ))}
@@ -431,7 +431,7 @@ export function UserManagementPage() {
                   onClick={closeModal}
                   className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
                 >
-                  Cancel
+                  Iptal
                 </button>
                 <button
                   type="submit"
@@ -439,7 +439,7 @@ export function UserManagementPage() {
                   className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   <Check className="w-4 h-4" />
-                  {editingUser ? 'Update' : 'Create'}
+                  {editingUser ? 'Guncelle' : 'Olustur'}
                 </button>
               </div>
             </form>
@@ -452,14 +452,14 @@ export function UserManagementPage() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-sm">
             <div className="p-6 border-b flex items-center justify-between">
-              <h2 className="text-xl font-bold">Reset Password</h2>
+              <h2 className="text-xl font-bold">Sifre Sifirla</h2>
               <button onClick={() => setShowPasswordModal(false)} className="text-gray-500 hover:text-gray-700">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <form onSubmit={handlePasswordReset} className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">New Password *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Yeni Sifre *</label>
                 <input
                   type="password"
                   required
@@ -467,7 +467,7 @@ export function UserManagementPage() {
                   onChange={(e) => setNewPassword(e.target.value)}
                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500"
                   minLength={6}
-                  placeholder="Enter new password"
+                  placeholder="Yeni sifre giriniz"
                 />
               </div>
               <div className="flex gap-3 pt-4">
@@ -476,7 +476,7 @@ export function UserManagementPage() {
                   onClick={() => setShowPasswordModal(false)}
                   className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
                 >
-                  Cancel
+                  Iptal
                 </button>
                 <button
                   type="submit"
@@ -484,7 +484,7 @@ export function UserManagementPage() {
                   className="flex-1 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   <Key className="w-4 h-4" />
-                  Reset
+                  Sifirla
                 </button>
               </div>
             </form>

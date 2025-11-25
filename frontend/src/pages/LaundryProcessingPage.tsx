@@ -31,9 +31,9 @@ export function LaundryProcessingPage() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['dirty-items'] });
       setSelectedItems([]);
-      toast.success(`${data.count} item(s) marked as clean!`);
+      toast.success(`${data.count} urun temiz olarak isaretlendi!`);
     },
-    onError: (err) => toast.error('Failed to mark items clean', getErrorMessage(err)),
+    onError: (err) => toast.error('Urunler temiz olarak isaretle islemi basarisiz', getErrorMessage(err)),
   });
 
   const toggleSection = (sectionKey: string) => {
@@ -72,7 +72,7 @@ export function LaundryProcessingPage() {
 
   const handleMarkClean = () => {
     if (selectedItems.length === 0) {
-      toast.warning('Please select at least one item');
+      toast.warning('Lutfen en az bir urun secin');
       return;
     }
     markCleanMutation.mutate(selectedItems);
@@ -111,8 +111,8 @@ export function LaundryProcessingPage() {
             <Sparkles className="w-8 h-8 text-green-600" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Incoming Dirty Pickups</h1>
-            <p className="text-gray-500">Process dirty items and mark as clean</p>
+            <h1 className="text-2xl font-bold text-gray-900">Gelen Kirli Urunler</h1>
+            <p className="text-gray-500">Kirli urunleri isle ve temiz olarak isaretle</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -121,14 +121,14 @@ export function LaundryProcessingPage() {
             className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
           >
             <RefreshCw className="w-4 h-4" />
-            Refresh
+            Yenile
           </button>
           {dirtyItems && dirtyItems.length > 0 && (
             <button
               onClick={handleSelectAll}
               className="px-4 py-2 text-blue-600 hover:bg-blue-50 rounded-lg"
             >
-              {selectedItems.length === dirtyItems.length ? 'Deselect All' : 'Select All'}
+              {selectedItems.length === dirtyItems.length ? 'Tum Secimleri Kaldir' : 'Tumu Sec'}
             </button>
           )}
           <button
@@ -138,8 +138,8 @@ export function LaundryProcessingPage() {
           >
             <CheckCircle className="w-5 h-5" />
             {markCleanMutation.isPending
-              ? 'Processing...'
-              : `Mark ${selectedItems.length} Clean`}
+              ? 'Isleniyor...'
+              : `${selectedItems.length} Urunu Temiz Olarak Isaretle`}
           </button>
         </div>
       </div>
@@ -148,21 +148,21 @@ export function LaundryProcessingPage() {
       <div className="grid grid-cols-4 gap-4">
         <div className="bg-white rounded-lg shadow p-4">
           <p className="text-3xl font-bold text-purple-600">{Object.keys(itemsByHotel).length}</p>
-          <p className="text-sm text-gray-500">Hotels with Dirty Items</p>
+          <p className="text-sm text-gray-500">Kirli Urunlu Otel Sayisi</p>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <p className="text-3xl font-bold text-blue-600">{dirtyItems?.length || 0}</p>
-          <p className="text-sm text-gray-500">Total Dirty Items</p>
+          <p className="text-sm text-gray-500">Toplam Kirli Urun</p>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <p className="text-3xl font-bold text-green-600">{selectedItems.length}</p>
-          <p className="text-sm text-gray-500">Selected</p>
+          <p className="text-sm text-gray-500">Secili</p>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <p className="text-3xl font-bold text-orange-600">
             {dirtyItems?.filter((item: Item) => item.isDamaged || item.isStained).length || 0}
           </p>
-          <p className="text-sm text-gray-500">Need Attention</p>
+          <p className="text-sm text-gray-500">Dikkat Gerektirenler</p>
         </div>
       </div>
 
@@ -175,8 +175,8 @@ export function LaundryProcessingPage() {
         ) : Object.keys(itemsByHotel).length === 0 ? (
           <div className="p-16 text-center bg-white rounded-lg shadow">
             <Sparkles className="w-20 h-20 mx-auto text-gray-300 mb-4" />
-            <p className="text-2xl font-semibold text-gray-500">No dirty items to process</p>
-            <p className="text-lg text-gray-400 mt-2">All items are clean!</p>
+            <p className="text-2xl font-semibold text-gray-500">Islenecek kirli urun yok</p>
+            <p className="text-lg text-gray-400 mt-2">Tum urunler temiz!</p>
           </div>
         ) : (
           Object.entries(itemsByHotel).map(([hotelId, itemsByType]) => {
@@ -200,12 +200,12 @@ export function LaundryProcessingPage() {
                         &#9654;
                       </span>
                       <h2 className="text-3xl font-bold text-white">
-                        {hotel?.name || 'Unknown Hotel'}
+                        {hotel?.name || 'Bilinmeyen Otel'}
                       </h2>
                     </div>
                     <div className="flex items-center gap-4">
                       <span className="px-4 py-2 bg-white bg-opacity-25 text-white rounded-full text-lg font-bold">
-                        {selectedForHotel}/{totalItemsForHotel} Selected
+                        {selectedForHotel}/{totalItemsForHotel} Secili
                       </span>
                       <button
                         onClick={(e) => {
@@ -214,7 +214,7 @@ export function LaundryProcessingPage() {
                         }}
                         className="px-4 py-2 bg-white text-green-600 rounded-lg font-semibold hover:bg-green-50 transition-colors"
                       >
-                        {selectedForHotel === totalItemsForHotel ? 'Deselect All' : 'Select All'}
+                        {selectedForHotel === totalItemsForHotel ? 'Tum Secimleri Kaldir' : 'Tumu Sec'}
                       </button>
                     </div>
                   </div>
@@ -240,14 +240,14 @@ export function LaundryProcessingPage() {
                               <Tag className="w-7 h-7 text-green-600" />
                               <div className="text-left">
                                 <h3 className="text-2xl font-bold text-gray-900">
-                                  {itemType?.name || 'Unknown Type'}
+                                  {itemType?.name || 'Bilinmeyen Tip'}
                                 </h3>
-                                <p className="text-sm text-gray-500 mt-1">Click to view items</p>
+                                <p className="text-sm text-gray-500 mt-1">Urunleri gormek icin tiklayin</p>
                               </div>
                             </div>
                             <div className="flex items-center gap-6">
                               <span className="text-lg text-gray-600">
-                                {selectedForType}/{typeItems.length} selected
+                                {selectedForType}/{typeItems.length} secili
                               </span>
                               <span className="text-4xl font-bold text-green-600">
                                 {typeItems.length}
@@ -262,7 +262,7 @@ export function LaundryProcessingPage() {
                           {expanded && (
                             <div className="border-t-2 border-gray-200 bg-white">
                               <div className="px-6 py-4 bg-gray-100 border-b flex items-center justify-between">
-                                <p className="text-sm font-semibold text-gray-600 uppercase">Item Details</p>
+                                <p className="text-sm font-semibold text-gray-600 uppercase">Urun Detaylari</p>
                                 <button
                                   onClick={() => {
                                     const typeItemIds = typeItems.map(item => item.id);
@@ -275,7 +275,7 @@ export function LaundryProcessingPage() {
                                   }}
                                   className="text-sm text-green-600 hover:underline"
                                 >
-                                  {typeItems.every(item => selectedItems.includes(item.id)) ? 'Deselect Type' : 'Select Type'}
+                                  {typeItems.every(item => selectedItems.includes(item.id)) ? 'Tip Secimini Kaldir' : 'Tipi Sec'}
                                 </button>
                               </div>
                               <div className="divide-y divide-gray-100">
@@ -292,31 +292,31 @@ export function LaundryProcessingPage() {
                                     />
                                     <div className="flex-1 grid grid-cols-4 gap-4">
                                       <div>
-                                        <p className="text-xs text-gray-500 mb-1">RFID Tag</p>
+                                        <p className="text-xs text-gray-500 mb-1">RFID Etiketi</p>
                                         <p className="font-mono font-semibold text-gray-900">{item.rfidTag}</p>
                                       </div>
                                       <div>
-                                        <p className="text-xs text-gray-500 mb-1">Status</p>
+                                        <p className="text-xs text-gray-500 mb-1">Durum</p>
                                         <span className={`px-2 py-1 text-xs rounded-full ${getStatusColor(item.status)}`}>
                                           {item.status.replace('_', ' ')}
                                         </span>
                                       </div>
                                       <div>
-                                        <p className="text-xs text-gray-500 mb-1">Wash Count</p>
+                                        <p className="text-xs text-gray-500 mb-1">Yikama Sayisi</p>
                                         <p className="text-sm font-medium text-gray-900">{item.washCount}x</p>
                                       </div>
                                       <div>
-                                        <p className="text-xs text-gray-500 mb-1">Flags</p>
+                                        <p className="text-xs text-gray-500 mb-1">Isaretler</p>
                                         <div className="flex gap-2">
                                           {item.isDamaged && (
                                             <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs flex items-center gap-1">
                                               <AlertTriangle className="w-3 h-3" />
-                                              Damaged
+                                              Hasarli
                                             </span>
                                           )}
                                           {item.isStained && (
                                             <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs">
-                                              Stained
+                                              Lekeli
                                             </span>
                                           )}
                                           {!item.isDamaged && !item.isStained && (

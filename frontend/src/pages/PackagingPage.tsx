@@ -28,16 +28,16 @@ export function PackagingPage() {
     onSuccess: (delivery) => {
       if (delivery.status === 'label_printed') {
         setScannedDelivery(delivery);
-        toast.success('Delivery found!');
+        toast.success('Teslimat bulundu!');
       } else if (delivery.status === 'packaged') {
-        toast.warning('This delivery is already packaged');
+        toast.warning('Bu teslimat zaten paketlendi');
       } else {
-        toast.warning(`Delivery status is "${delivery.status}" - cannot package`);
+        toast.warning(`Teslimat durumu "${delivery.status}" - paketlenemez`);
       }
       setBarcodeInput('');
     },
     onError: (err) => {
-      toast.error('Delivery not found', getErrorMessage(err));
+      toast.error('Teslimat bulunamadı', getErrorMessage(err));
       setBarcodeInput('');
     },
   });
@@ -45,11 +45,11 @@ export function PackagingPage() {
   const packageMutation = useMutation({
     mutationFn: deliveriesApi.package,
     onSuccess: () => {
-      toast.success('Delivery packaged successfully!');
+      toast.success('Teslimat başarıyla paketlendi!');
       queryClient.invalidateQueries({ queryKey: ['deliveries'] });
       setScannedDelivery(null);
     },
-    onError: (err) => toast.error('Failed to package', getErrorMessage(err)),
+    onError: (err) => toast.error('Paketleme başarısız', getErrorMessage(err)),
   });
 
   const handleScan = () => {
@@ -73,7 +73,7 @@ export function PackagingPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Paketleme</h1>
-            <p className="text-gray-500">Scan labels and package deliveries</p>
+            <p className="text-gray-500">Etiketleri tarayın ve teslimatları paketleyin</p>
           </div>
         </div>
         <button
@@ -81,7 +81,7 @@ export function PackagingPage() {
           className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
         >
           <RefreshCw className="w-4 h-4" />
-          Refresh
+          Yenile
         </button>
       </div>
 
@@ -89,7 +89,7 @@ export function PackagingPage() {
       <div className="bg-white rounded-lg shadow p-6">
         <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
           <QrCode className="w-5 h-5 text-indigo-600" />
-          Scan Delivery Barcode
+          Teslimat Barkodunu Tara
         </h2>
         <div className="flex gap-3">
           <input
@@ -97,7 +97,7 @@ export function PackagingPage() {
             value={barcodeInput}
             onChange={(e) => setBarcodeInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleScan()}
-            placeholder="Scan or enter barcode..."
+            placeholder="Barkod tarayın veya girin..."
             className="flex-1 px-4 py-3 text-lg border rounded-lg focus:ring-2 focus:ring-indigo-500 font-mono"
             autoFocus
           />
@@ -106,7 +106,7 @@ export function PackagingPage() {
             disabled={scanMutation.isPending}
             className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 font-medium"
           >
-            {scanMutation.isPending ? 'Scanning...' : 'Find'}
+            {scanMutation.isPending ? 'Taranıyor...' : 'Bul'}
           </button>
         </div>
       </div>
@@ -116,18 +116,18 @@ export function PackagingPage() {
         <div className="bg-indigo-50 border-2 border-indigo-200 rounded-lg p-6">
           <div className="flex items-start justify-between">
             <div>
-              <h3 className="text-lg font-bold text-indigo-900 mb-2">Ready to Package</h3>
+              <h3 className="text-lg font-bold text-indigo-900 mb-2">Paketlemeye Hazır</h3>
               <div className="space-y-2">
                 <div className="flex items-center gap-4">
-                  <span className="text-sm text-indigo-700">Barcode:</span>
+                  <span className="text-sm text-indigo-700">Barkod:</span>
                   <span className="font-mono font-bold text-xl">{scannedDelivery.barcode}</span>
                 </div>
                 <div className="flex items-center gap-4">
-                  <span className="text-sm text-indigo-700">Hotel:</span>
+                  <span className="text-sm text-indigo-700">Otel:</span>
                   <span className="font-medium">{scannedDelivery.tenant?.name}</span>
                 </div>
                 <div className="flex items-center gap-4">
-                  <span className="text-sm text-indigo-700">Items:</span>
+                  <span className="text-sm text-indigo-700">Ürünler:</span>
                   <span className="font-medium">{scannedDelivery.deliveryItems?.length || 0}</span>
                 </div>
               </div>
@@ -137,7 +137,7 @@ export function PackagingPage() {
                 onClick={() => setScannedDelivery(null)}
                 className="px-4 py-2 border border-indigo-300 text-indigo-700 rounded-lg hover:bg-indigo-100"
               >
-                Cancel
+                İptal
               </button>
               <button
                 onClick={() => handlePackage(scannedDelivery.id)}
@@ -145,7 +145,7 @@ export function PackagingPage() {
                 className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
               >
                 <Box className="w-5 h-5" />
-                {packageMutation.isPending ? 'Processing...' : 'Confirm Package'}
+                {packageMutation.isPending ? 'İşleniyor...' : 'Paketi Onayla'}
               </button>
             </div>
           </div>
@@ -153,7 +153,7 @@ export function PackagingPage() {
           {/* Items List */}
           {scannedDelivery.deliveryItems && scannedDelivery.deliveryItems.length > 0 && (
             <div className="mt-4 pt-4 border-t border-indigo-200">
-              <p className="text-sm text-indigo-700 mb-2">Items in this delivery:</p>
+              <p className="text-sm text-indigo-700 mb-2">Bu teslimattaki ürünler:</p>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                 {scannedDelivery.deliveryItems.map((di: any) => (
                   <div key={di.id} className="bg-white px-3 py-2 rounded border border-indigo-100">
@@ -174,7 +174,7 @@ export function PackagingPage() {
             <div className="p-4 border-b">
               <h2 className="text-lg font-semibold flex items-center gap-2">
                 <Box className="w-5 h-5 text-indigo-600" />
-                Awaiting Packaging ({pendingDeliveries.length})
+                Paketleme Bekliyor ({pendingDeliveries.length})
               </h2>
             </div>
 
@@ -185,8 +185,8 @@ export function PackagingPage() {
             ) : pendingDeliveries.length === 0 ? (
               <div className="p-12 text-center">
                 <Package className="w-16 h-16 mx-auto text-gray-300 mb-4" />
-                <p className="text-xl text-gray-500">No deliveries awaiting packaging</p>
-                <p className="text-gray-400 mt-2">Print labels first</p>
+                <p className="text-xl text-gray-500">Paketleme bekleyen teslimat yok</p>
+                <p className="text-gray-400 mt-2">Önce etiketleri yazdırın</p>
               </div>
             ) : (
               <div className="divide-y">
@@ -197,12 +197,12 @@ export function PackagingPage() {
                         <div className="flex items-center gap-3 mb-1">
                           <span className="font-mono font-bold">{delivery.barcode}</span>
                           <span className="px-2 py-0.5 bg-purple-100 text-purple-800 rounded text-xs">
-                            Label Printed
+                            Etiket Yazdırıldı
                           </span>
                         </div>
                         <p className="text-sm text-gray-600">{delivery.tenant?.name}</p>
                         <p className="text-xs text-gray-400">
-                          {delivery.deliveryItems?.length || 0} items
+                          {delivery.deliveryItems?.length || 0} ürün
                         </p>
                       </div>
                       <button
@@ -211,7 +211,7 @@ export function PackagingPage() {
                         className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
                       >
                         <Box className="w-4 h-4" />
-                        Package
+                        Paketle
                       </button>
                     </div>
                   </div>
@@ -226,12 +226,12 @@ export function PackagingPage() {
           <div className="p-4 border-b">
             <h2 className="text-lg font-semibold flex items-center gap-2">
               <CheckCircle className="w-5 h-5 text-green-600" />
-              Recently Packaged
+              Son Paketlenenler
             </h2>
           </div>
           {recentPackaged.length === 0 ? (
             <div className="p-6 text-center text-gray-500">
-              No recently packaged deliveries
+              Son paketlenen teslimat yok
             </div>
           ) : (
             <div className="divide-y">
@@ -240,7 +240,7 @@ export function PackagingPage() {
                   <div className="flex items-center justify-between mb-1">
                     <span className="font-mono font-medium">{delivery.barcode}</span>
                     <span className="px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded-full text-xs">
-                      Packaged
+                      Paketlendi
                     </span>
                   </div>
                   <p className="text-sm text-gray-600">{delivery.tenant?.name}</p>

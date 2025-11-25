@@ -18,14 +18,14 @@ interface ItemFormData {
 }
 
 const statusOptions = [
-  { value: 'at_hotel', label: 'At Hotel' },
-  { value: 'at_laundry', label: 'At Laundry' },
-  { value: 'processing', label: 'Processing' },
-  { value: 'ready_for_delivery', label: 'Ready for Delivery' },
-  { value: 'label_printed', label: 'Label Printed' },
-  { value: 'packaged', label: 'Packaged' },
-  { value: 'in_transit', label: 'In Transit' },
-  { value: 'delivered', label: 'Delivered' },
+  { value: 'at_hotel', label: 'Otelde' },
+  { value: 'at_laundry', label: 'Camasirhanede' },
+  { value: 'processing', label: 'Isleniyor' },
+  { value: 'ready_for_delivery', label: 'Teslimata Hazir' },
+  { value: 'label_printed', label: 'Etiket Basildi' },
+  { value: 'packaged', label: 'Paketlendi' },
+  { value: 'in_transit', label: 'Yolda' },
+  { value: 'delivered', label: 'Teslim Edildi' },
 ];
 
 export function ItemManagementPage() {
@@ -107,30 +107,30 @@ export function ItemManagementPage() {
   const createMutation = useMutation({
     mutationFn: itemsApi.create,
     onSuccess: () => {
-      toast.success('Item created successfully!');
+      toast.success('Urun basariyla olusturuldu!');
       queryClient.invalidateQueries({ queryKey: ['items'] });
       closeModal();
     },
-    onError: (err) => toast.error('Failed to create item', getErrorMessage(err)),
+    onError: (err) => toast.error('Urun olusturulamadi', getErrorMessage(err)),
   });
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<Item> }) => itemsApi.update(id, data),
     onSuccess: () => {
-      toast.success('Item updated successfully!');
+      toast.success('Urun basariyla guncellendi!');
       queryClient.invalidateQueries({ queryKey: ['items'] });
       closeModal();
     },
-    onError: (err) => toast.error('Failed to update item', getErrorMessage(err)),
+    onError: (err) => toast.error('Urun guncellenemedi', getErrorMessage(err)),
   });
 
   const deleteMutation = useMutation({
     mutationFn: itemsApi.delete,
     onSuccess: () => {
-      toast.success('Item deleted successfully!');
+      toast.success('Urun basariyla silindi!');
       queryClient.invalidateQueries({ queryKey: ['items'] });
     },
-    onError: (err) => toast.error('Failed to delete item', getErrorMessage(err)),
+    onError: (err) => toast.error('Urun silinemedi', getErrorMessage(err)),
   });
 
   const closeModal = () => {
@@ -196,7 +196,7 @@ export function ItemManagementPage() {
   };
 
   const handleDelete = (item: Item) => {
-    if (confirm(`Are you sure you want to delete item ${item.rfidTag}?`)) {
+    if (confirm(`${item.rfidTag} etiketli urunu silmek istediginizden emin misiniz?`)) {
       deleteMutation.mutate(item.id);
     }
   };
@@ -257,7 +257,7 @@ export function ItemManagementPage() {
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
             <Building2 className="w-6 h-6 text-teal-600" />
-            Select Hotels
+            Otel Sec
           </h2>
           <button
             onClick={() => setShowHotelSelector(false)}
@@ -309,18 +309,18 @@ export function ItemManagementPage() {
               onClick={selectAllHotels}
               className="text-sm text-teal-600 hover:text-teal-700 font-medium"
             >
-              Select All
+              Tümünü Seç
             </button>
             <span className="text-gray-300">|</span>
             <button
               onClick={clearHotelSelection}
               className="text-sm text-gray-600 hover:text-gray-700 font-medium"
             >
-              Clear
+              Temizle
             </button>
           </div>
           <span className="text-sm text-gray-600">
-            {selectedHotelIds.length} selected
+            {selectedHotelIds.length} seçildi
           </span>
         </div>
 
@@ -328,7 +328,7 @@ export function ItemManagementPage() {
           onClick={() => setShowHotelSelector(false)}
           className="w-full px-6 py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-bold shadow-lg"
         >
-          Apply Selection
+          Seçimi Uygula
         </button>
       </div>
     </div>
@@ -342,8 +342,8 @@ export function ItemManagementPage() {
             <Tag className="w-8 h-8 text-teal-600" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Item Yonetimi</h1>
-            <p className="text-gray-500">Manage RFID-tagged laundry items</p>
+            <h1 className="text-2xl font-bold text-gray-900">Urun Yonetimi</h1>
+            <p className="text-gray-500">RFID etiketli camasir urunlerini yonetin</p>
           </div>
         </div>
         <button
@@ -351,15 +351,15 @@ export function ItemManagementPage() {
           className="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700"
         >
           <Plus className="w-5 h-5" />
-          Add Item
+          Urun Ekle
         </button>
       </div>
 
       {/* Selected Hotels Bar */}
       <div className="bg-teal-50 rounded-lg p-4 flex items-center gap-3 flex-wrap">
-        <span className="text-teal-700 font-medium">Showing:</span>
+        <span className="text-teal-700 font-medium">Gösterilen:</span>
         {selectedHotelIds.length === 0 ? (
-          <span className="text-gray-500">All Hotels</span>
+          <span className="text-gray-500">Tüm Oteller</span>
         ) : (
           selectedHotelIds.map(hotelId => {
             const hotel = tenants?.find((t: Tenant) => t.id === hotelId);
@@ -391,7 +391,7 @@ export function ItemManagementPage() {
           className="flex items-center gap-1 text-teal-600 hover:text-teal-700 text-sm font-medium"
         >
           <Plus className="w-4 h-4" />
-          {selectedHotelIds.length === 0 ? 'Select Hotels' : 'Change'}
+          {selectedHotelIds.length === 0 ? 'Otel Seç' : 'Değiştir'}
         </button>
       </div>
 
@@ -405,7 +405,7 @@ export function ItemManagementPage() {
                 type="text"
                 value={searchTerm}
                 onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
-                placeholder="Search by RFID tag..."
+                placeholder="RFID etiketine göre ara..."
                 className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500"
               />
             </div>
@@ -415,7 +415,7 @@ export function ItemManagementPage() {
             onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
             className="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500"
           >
-            <option value="">All Statuses</option>
+            <option value="">Tüm Durumlar</option>
             {statusOptions.map((opt) => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
@@ -435,11 +435,11 @@ export function ItemManagementPage() {
         ) : filteredItems.length === 0 ? (
           <div className="p-16 text-center bg-white rounded-lg shadow">
             <Tag className="w-20 h-20 mx-auto text-gray-300 mb-4" />
-            <p className="text-2xl font-semibold text-gray-500">No items found</p>
+            <p className="text-2xl font-semibold text-gray-500">Urun bulunamadi</p>
             <p className="text-lg text-gray-400 mt-2">
               {selectedHotelIds.length > 0
-                ? 'No items for selected hotels. Try selecting different hotels.'
-                : 'Create items to start tracking laundry'}
+                ? 'Seçili oteller için urun bulunamadi. Farklı oteller seçmeyi deneyin.'
+                : 'Camasir takibine başlamak için urun olusturun'}
             </p>
           </div>
         ) : (
@@ -463,11 +463,11 @@ export function ItemManagementPage() {
                           ▶
                         </span>
                         <h2 className="text-3xl font-bold text-white">
-                          {hotel?.name || 'Unknown Hotel'}
+                          {hotel?.name || 'Bilinmeyen Otel'}
                         </h2>
                       </div>
                       <span className="px-5 py-2 bg-white bg-opacity-25 text-white rounded-full text-lg font-bold">
-                        {totalItemsForHotel} Total Items
+                        {totalItemsForHotel} Toplam Urun
                       </span>
                     </div>
                   </button>
@@ -491,9 +491,9 @@ export function ItemManagementPage() {
                               <Tag className="w-7 h-7 text-teal-600" />
                               <div className="text-left">
                                 <h3 className="text-2xl font-bold text-gray-900">
-                                  {itemType?.name || 'Unknown Type'}
+                                  {itemType?.name || 'Bilinmeyen Tip'}
                                 </h3>
-                                <p className="text-sm text-gray-500 mt-1">Click to view RFID tags</p>
+                                <p className="text-sm text-gray-500 mt-1">RFID etiketlerini görmek için tıklayın</p>
                               </div>
                             </div>
                             <div className="flex items-center gap-6">
@@ -510,28 +510,28 @@ export function ItemManagementPage() {
                           {expanded && (
                             <div className="border-t-2 border-gray-200 bg-white">
                               <div className="px-6 py-4 bg-gray-100 border-b">
-                                <p className="text-sm font-semibold text-gray-600 uppercase">RFID Tag Details</p>
+                                <p className="text-sm font-semibold text-gray-600 uppercase">RFID Etiket Detaylari</p>
                               </div>
                               <div className="divide-y divide-gray-100">
                                 {typeItems.map((item) => (
                                   <div key={item.id} className="px-6 py-4 hover:bg-gray-50 flex items-center justify-between">
                                     <div className="flex-1 grid grid-cols-4 gap-4">
                                       <div>
-                                        <p className="text-xs text-gray-500 mb-1">RFID Tag</p>
+                                        <p className="text-xs text-gray-500 mb-1">RFID Etiketi</p>
                                         <p className="font-mono font-semibold text-gray-900">{item.rfidTag}</p>
                                       </div>
                                       <div>
-                                        <p className="text-xs text-gray-500 mb-1">Status</p>
+                                        <p className="text-xs text-gray-500 mb-1">Durum</p>
                                         <span className={`px-2 py-1 text-xs rounded-full ${getStatusColor(item.status)}`}>
-                                          {item.status.replace('_', ' ')}
+                                          {statusOptions.find(opt => opt.value === item.status)?.label || item.status}
                                         </span>
                                       </div>
                                       <div>
-                                        <p className="text-xs text-gray-500 mb-1">Location</p>
+                                        <p className="text-xs text-gray-500 mb-1">Konum</p>
                                         <p className="text-sm text-gray-700">{item.location || '-'}</p>
                                       </div>
                                       <div>
-                                        <p className="text-xs text-gray-500 mb-1">Wash Count</p>
+                                        <p className="text-xs text-gray-500 mb-1">Yikama Sayisi</p>
                                         <p className="text-sm font-medium text-gray-900">{item.washCount}x</p>
                                       </div>
                                     </div>
@@ -539,14 +539,14 @@ export function ItemManagementPage() {
                                       <button
                                         onClick={() => openEditModal(item)}
                                         className="p-3 text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
-                                        title="Edit"
+                                        title="Duzenle"
                                       >
                                         <Edit2 className="w-5 h-5" />
                                       </button>
                                       <button
                                         onClick={() => handleDelete(item)}
                                         className="p-3 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                        title="Delete"
+                                        title="Sil"
                                       >
                                         <Trash2 className="w-5 h-5" />
                                       </button>
@@ -570,7 +570,7 @@ export function ItemManagementPage() {
               <div className="bg-white rounded-lg shadow px-6 py-4">
                 <div className="flex items-center justify-between">
                   <p className="text-sm text-gray-500">
-                    Showing {(page - 1) * pagination.limit + 1} to {Math.min(page * pagination.limit, pagination.total)} of {pagination.total} items
+                    {pagination.total} urunden {(page - 1) * pagination.limit + 1} ile {Math.min(page * pagination.limit, pagination.total)} arasi gosteriliyor
                   </p>
                   <div className="flex gap-2">
                     <button
@@ -578,14 +578,14 @@ export function ItemManagementPage() {
                       disabled={page === 1}
                       className="px-3 py-1 border rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
                     >
-                      Previous
+                      Onceki
                     </button>
                     <button
                       onClick={() => setPage(page + 1)}
                       disabled={page === pagination.totalPages}
                       className="px-3 py-1 border rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
                     >
-                      Next
+                      Sonraki
                     </button>
                   </div>
                 </div>
@@ -600,7 +600,7 @@ export function ItemManagementPage() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
             <div className="p-6 border-b flex items-center justify-between">
-              <h2 className="text-xl font-bold">{editingItem ? 'Edit Item' : 'Add New Item'}</h2>
+              <h2 className="text-xl font-bold">{editingItem ? 'Urun Duzenle' : 'Yeni Urun Ekle'}</h2>
               <button onClick={closeModal} className="text-gray-500 hover:text-gray-700">
                 <X className="w-6 h-6" />
               </button>
@@ -610,7 +610,7 @@ export function ItemManagementPage() {
                 <>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      RFID Tag <span className="text-red-500">*</span>
+                      RFID Etiketi <span className="text-red-500">*</span>
                     </label>
                     <div className="flex gap-2">
                       <input
@@ -626,14 +626,14 @@ export function ItemManagementPage() {
                         onClick={generateRfidTag}
                         className="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200"
                       >
-                        Generate
+                        Olustur
                       </button>
                     </div>
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Item Type <span className="text-red-500">*</span>
+                      Urun Tipi <span className="text-red-500">*</span>
                     </label>
                     <select
                       value={formData.itemTypeId}
@@ -641,7 +641,7 @@ export function ItemManagementPage() {
                       className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500"
                       required
                     >
-                      <option value="">Select item type...</option>
+                      <option value="">Urun tipi seciniz...</option>
                       {itemTypes?.map((type) => (
                         <option key={type.id} value={type.id}>{type.name}</option>
                       ))}
@@ -650,7 +650,7 @@ export function ItemManagementPage() {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Hotel <span className="text-red-500">*</span>
+                      Otel <span className="text-red-500">*</span>
                     </label>
                     <select
                       value={formData.tenantId}
@@ -658,7 +658,7 @@ export function ItemManagementPage() {
                       className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500"
                       required
                     >
-                      <option value="">Select hotel...</option>
+                      <option value="">Otel seciniz...</option>
                       {tenants?.map((tenant) => (
                         <option key={tenant.id} value={tenant.id}>{tenant.name}</option>
                       ))}
@@ -668,7 +668,7 @@ export function ItemManagementPage() {
               )}
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Durum</label>
                 <select
                   value={formData.status}
                   onChange={(e) => setFormData({ ...formData, status: e.target.value })}
@@ -681,24 +681,24 @@ export function ItemManagementPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Konum</label>
                 <input
                   type="text"
                   value={formData.location}
                   onChange={(e) => setFormData({ ...formData, location: e.target.value })}
                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500"
-                  placeholder="Room 101, Laundry Facility, etc."
+                  placeholder="Oda 101, Camasirhane, vb."
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Notlar</label>
                 <textarea
                   value={formData.notes}
                   onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                   rows={2}
                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500"
-                  placeholder="Any additional notes..."
+                  placeholder="Ek notlar..."
                 />
               </div>
 
@@ -708,7 +708,7 @@ export function ItemManagementPage() {
                   onClick={closeModal}
                   className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
                 >
-                  Cancel
+                  Iptal
                 </button>
                 <button
                   type="submit"
@@ -716,10 +716,10 @@ export function ItemManagementPage() {
                   className="flex-1 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50"
                 >
                   {createMutation.isPending || updateMutation.isPending
-                    ? 'Saving...'
+                    ? 'Kaydediliyor...'
                     : editingItem
-                    ? 'Update Item'
-                    : 'Create Item'}
+                    ? 'Urun Guncelle'
+                    : 'Urun Olustur'}
                 </button>
               </div>
             </form>
