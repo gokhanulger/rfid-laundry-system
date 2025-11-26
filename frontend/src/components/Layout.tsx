@@ -93,17 +93,17 @@ export function Layout() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Mobile Header */}
-      <div className="md:hidden fixed top-0 left-0 right-0 z-40 bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
+      <div className="md:hidden fixed top-0 left-0 right-0 z-40 bg-slate-800 px-4 py-3 flex items-center justify-between">
         <button
           onClick={() => setSidebarOpen(true)}
-          className="p-2 -ml-2 text-gray-600 hover:bg-gray-100 rounded-lg touch-manipulation"
+          className="p-2 -ml-2 text-slate-300 hover:bg-slate-700 rounded-lg touch-manipulation"
         >
           <Menu className="w-6 h-6" />
         </button>
         <div className="flex items-center gap-2">
-          <h1 className="text-lg font-bold text-gray-900">RFID Camasirhane</h1>
-          {isDriver && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Surucu</span>}
-          {isHotelOwner && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Otel</span>}
+          <h1 className="text-lg font-bold text-white">RFID Camasirhane</h1>
+          {isDriver && <span className="text-xs bg-green-600 text-white px-2 py-0.5 rounded-full">Surucu</span>}
+          {isHotelOwner && <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full">Otel</span>}
         </div>
         <div className="w-10" /> {/* Spacer for centering */}
       </div>
@@ -120,24 +120,24 @@ export function Layout() {
         {/* Sidebar */}
         <aside className={`
           fixed md:static inset-y-0 left-0 z-50
-          w-72 md:w-64 bg-white border-r border-gray-200 min-h-screen flex flex-col
+          w-72 md:w-64 bg-slate-800 min-h-screen flex flex-col
           transform transition-transform duration-300 ease-in-out
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
         `}>
           {/* Sidebar Header */}
-          <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+          <div className="p-4 border-b border-slate-700 flex items-center justify-between">
             <div>
-              <h1 className="text-xl font-bold text-gray-900">RFID Camasirhane</h1>
+              <h1 className="text-xl font-bold text-white">RFID Camasirhane</h1>
               {isHotelOwner && (
-                <p className="text-xs text-blue-600 mt-1">Otel Portali</p>
+                <p className="text-xs text-blue-400 mt-1">Otel Portali</p>
               )}
               {isDriver && (
-                <p className="text-xs text-green-600 mt-1">Surucu Portali</p>
+                <p className="text-xs text-green-400 mt-1">Surucu Portali</p>
               )}
             </div>
             <button
               onClick={closeSidebar}
-              className="md:hidden p-2 text-gray-500 hover:bg-gray-100 rounded-lg touch-manipulation"
+              className="md:hidden p-2 text-slate-400 hover:bg-slate-700 rounded-lg touch-manipulation"
             >
               <X className="w-5 h-5" />
             </button>
@@ -145,15 +145,15 @@ export function Layout() {
 
           {/* Hotel/Driver Info Banner */}
           {isHotelOwner && user?.tenantName && (
-            <div className="px-4 py-3 bg-blue-50 border-b border-blue-100">
-              <p className="text-xs text-blue-500 uppercase font-semibold">Oteliniz</p>
-              <p className="text-sm font-bold text-blue-700">{user.tenantName}</p>
+            <div className="px-4 py-3 bg-blue-900/50 border-b border-slate-700">
+              <p className="text-xs text-blue-400 uppercase font-semibold">Oteliniz</p>
+              <p className="text-sm font-bold text-blue-300">{user.tenantName}</p>
             </div>
           )}
           {isDriver && (
-            <div className="px-4 py-3 bg-green-50 border-b border-green-100">
-              <p className="text-xs text-green-600 uppercase font-semibold">Bugunun Gorevleri</p>
-              <p className="text-sm font-bold text-green-700">Hazir!</p>
+            <div className="px-4 py-3 bg-green-900/50 border-b border-slate-700">
+              <p className="text-xs text-green-400 uppercase font-semibold">Bugunun Gorevleri</p>
+              <p className="text-sm font-bold text-green-300">Hazir!</p>
             </div>
           )}
 
@@ -169,8 +169,8 @@ export function Layout() {
                   onClick={closeSidebar}
                   className={`flex items-center gap-3 px-3 py-3 md:py-2 rounded-lg transition-colors touch-manipulation ${
                     isActive
-                      ? 'bg-blue-50 text-blue-700'
-                      : 'text-gray-700 hover:bg-gray-50 active:bg-gray-100'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-slate-300 hover:bg-slate-700 hover:text-white active:bg-slate-600'
                   }`}
                 >
                   <Icon className="w-5 h-5" />
@@ -183,7 +183,7 @@ export function Layout() {
             {isAdmin && !isHotelOwner && (
               <>
                 <div className="pt-4 pb-2">
-                  <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  <p className="px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
                     Yonetim
                   </p>
                 </div>
@@ -197,8 +197,8 @@ export function Layout() {
                       onClick={closeSidebar}
                       className={`flex items-center gap-3 px-3 py-3 md:py-2 rounded-lg transition-colors touch-manipulation ${
                         isActive
-                          ? 'bg-blue-50 text-blue-700'
-                          : 'text-gray-700 hover:bg-gray-50 active:bg-gray-100'
+                          ? 'bg-blue-600 text-white'
+                          : 'text-slate-300 hover:bg-slate-700 hover:text-white active:bg-slate-600'
                       }`}
                     >
                       <Icon className="w-5 h-5" />
@@ -211,17 +211,17 @@ export function Layout() {
           </nav>
 
           {/* User Info & Logout */}
-          <div className="p-4 border-t border-gray-200 bg-white">
-            <div className="mb-2 text-sm text-gray-600">
-              <div className="font-medium">{user?.firstName} {user?.lastName}</div>
-              <div className="text-xs text-gray-500">{formatRole(user?.role)}</div>
+          <div className="p-4 border-t border-slate-700 bg-slate-900">
+            <div className="mb-2 text-sm">
+              <div className="font-medium text-white">{user?.firstName} {user?.lastName}</div>
+              <div className="text-xs text-slate-400">{formatRole(user?.role)}</div>
             </div>
             <button
               onClick={() => {
                 closeSidebar();
                 logout();
               }}
-              className="flex items-center gap-2 w-full px-3 py-3 md:py-2 text-sm text-gray-700 hover:bg-gray-50 active:bg-gray-100 rounded-lg touch-manipulation"
+              className="flex items-center gap-2 w-full px-3 py-3 md:py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white active:bg-slate-600 rounded-lg touch-manipulation"
             >
               <LogOut className="w-4 h-4" />
               <span>Cikis Yap</span>
