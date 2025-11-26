@@ -1,9 +1,9 @@
 import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { FileText, QrCode, Printer, RefreshCw, CheckCircle, Package, X, Plus, Trash2 } from 'lucide-react';
+import { FileText, QrCode, Printer, RefreshCw, CheckCircle, Package, X, Trash2 } from 'lucide-react';
 import { deliveriesApi, settingsApi, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/Toast';
-import type { Delivery, DeliveryPackage, ItemType } from '../types';
+import type { Delivery, DeliveryPackage } from '../types';
 import { jsPDF } from 'jspdf';
 
 interface ScannedPackage {
@@ -25,11 +25,6 @@ export function IrsaliyePage() {
     queryFn: settingsApi.getTenants,
   });
 
-  // Get item types for display
-  const { data: itemTypes } = useQuery({
-    queryKey: ['item-types'],
-    queryFn: settingsApi.getItemTypes,
-  });
 
   // Get packaged deliveries ready for irsaliye
   const { data: packagedDeliveries, isLoading, refetch } = useQuery({
@@ -154,7 +149,6 @@ export function IrsaliyePage() {
 
     const hotel = tenants?.find(t => t.id === selectedHotelId);
     const totals = calculateTotals();
-    const totalItems = totals.reduce((sum, t) => sum + t.count, 0);
     const documentNo = `A-${Date.now().toString().slice(-9)}`;
     const today = new Date().toLocaleDateString('tr-TR');
 
