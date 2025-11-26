@@ -3,10 +3,8 @@ import { Outlet, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import {
   LayoutDashboard,
-  Scan,
   Package,
   Sparkles,
-  ArrowDown,
   ArrowUp,
   RotateCcw,
   Bell,
@@ -37,14 +35,11 @@ export function Layout() {
   // Navigation for laundry staff (not hotel owners or drivers)
   const laundryNavigation = [
     { name: 'Kontrol Paneli', href: '/dashboard', icon: LayoutDashboard },
-    { name: 'Toplu Tarama', href: '/bulk-scan', icon: Scan },
     { name: 'Camasir Isleme', href: '/laundry-processing', icon: Sparkles },
     { name: 'Utu Etiketi', href: '/ironer-interface', icon: Printer },
     { name: 'Paketleme', href: '/packaging', icon: Box },
     { name: 'Surucu Aktiviteleri', href: '/driver-activities', icon: Shield },
     { name: 'Teslimat Yonetimi', href: '/delivery-management', icon: Truck },
-    { name: 'Gelen Takip', href: '/inbound', icon: ArrowDown },
-    { name: 'Giden Takip', href: '/outbound', icon: ArrowUp },
     { name: 'Yeniden Yikama', href: '/rewash-queue', icon: RotateCcw },
     { name: 'Uyarilar', href: '/alerts', icon: Bell },
     { name: 'Raporlar', href: '/reports', icon: BarChart3 },
