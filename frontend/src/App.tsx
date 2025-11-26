@@ -24,6 +24,7 @@ import { HotelManagementPage } from './pages/HotelManagementPage';
 import { UserManagementPage } from './pages/UserManagementPage';
 import { ItemManagementPage } from './pages/ItemManagementPage';
 import { ReconciliationPage } from './pages/ReconciliationPage';
+import { IrsaliyePage } from './pages/IrsaliyePage';
 
 // Driver Pages
 import { DirtyPickupPage } from './pages/driver/DirtyPickupPage';
@@ -86,6 +87,7 @@ function App() {
                 <Route path="driver-activities" element={<DriverActivitiesPage />} />
                 <Route path="ironer-interface" element={<IronerInterfacePage />} />
                 <Route path="packaging" element={<PackagingPage />} />
+                <Route path="irsaliye" element={<IrsaliyePage />} />
 
                 {/* Admin Pages */}
                 <Route path="hotels" element={<HotelManagementPage />} />

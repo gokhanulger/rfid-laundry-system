@@ -38,6 +38,7 @@ export function Layout() {
     { name: 'Camasir Isleme', href: '/laundry-processing', icon: Sparkles },
     { name: 'Utu Etiketi', href: '/ironer-interface', icon: Printer },
     { name: 'Paketleme', href: '/packaging', icon: Box },
+    { name: 'Irsaliye', href: '/irsaliye', icon: FileText },
     { name: 'Surucu Aktiviteleri', href: '/driver-activities', icon: Shield },
     { name: 'Teslimat Yonetimi', href: '/delivery-management', icon: Truck },
     { name: 'Yeniden Yikama', href: '/rewash-queue', icon: RotateCcw },
