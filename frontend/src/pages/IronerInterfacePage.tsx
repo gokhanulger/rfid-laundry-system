@@ -800,7 +800,7 @@ export function IronerInterfacePage() {
                       <span>{delivery.packageCount || 1} paket</span>
                     </div>
                     <p className="text-xs text-gray-400 mt-1">
-                      {delivery.labelPrintedAt && new Date(delivery.labelPrintedAt).toLocaleString()}
+                      {delivery.labelPrintedAt && new Date(delivery.labelPrintedAt).toLocaleString('tr-TR')}
                     </p>
                   </div>
                 ))}

@@ -210,8 +210,8 @@ function generateSingleLabel(
   doc.setTextColor(black);
   doc.setFontSize(5);
   doc.setFont('helvetica', 'normal');
-  const date = new Date(delivery.createdAt || Date.now()).toLocaleDateString();
-  doc.text(`Date: ${date}`, margin, yPos);
+  const date = new Date(delivery.createdAt || Date.now()).toLocaleDateString('tr-TR');
+  doc.text(`Tarih: ${date}`, margin, yPos);
 
   // Footer line
   const footerY = LABEL_HEIGHT - 6;

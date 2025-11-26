@@ -174,7 +174,7 @@ export function DashboardPage() {
                       {pickup.status}
                     </span>
                     <p className="text-xs text-gray-500 mt-1">
-                      {new Date(pickup.createdAt).toLocaleDateString()}
+                      {new Date(pickup.createdAt).toLocaleDateString('tr-TR')}
                     </p>
                   </div>
                 </div>
@@ -207,7 +207,7 @@ export function DashboardPage() {
                       {delivery.status.replace(/_/g, ' ')}
                     </span>
                     <p className="text-xs text-gray-500 mt-1">
-                      {new Date(delivery.createdAt).toLocaleDateString()}
+                      {new Date(delivery.createdAt).toLocaleDateString('tr-TR')}
                     </p>
                   </div>
                 </div>
