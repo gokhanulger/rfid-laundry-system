@@ -21,12 +21,27 @@ import {
   Menu,
   X,
   FileText,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
+
+// Storage key for sidebar state
+const SIDEBAR_COLLAPSED_KEY = 'sidebar_collapsed';
 
 export function Layout() {
   const { user, logout } = useAuth();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    const saved = localStorage.getItem(SIDEBAR_COLLAPSED_KEY);
+    return saved === 'true';
+  });
+
+  const toggleCollapse = () => {
+    const newState = !isCollapsed;
+    setIsCollapsed(newState);
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(newState));
+  };
 
   const isHotelOwner = user?.role === 'hotel_owner';
   const isDriver = user?.role === 'driver';
@@ -120,13 +135,13 @@ export function Layout() {
         {/* Sidebar */}
         <aside className={`
           fixed md:static inset-y-0 left-0 z-50
-          w-72 md:w-64 bg-slate-800 min-h-screen flex flex-col
-          transform transition-transform duration-300 ease-in-out
+          ${isCollapsed ? 'md:w-20' : 'md:w-64'} w-72 bg-slate-800 min-h-screen flex flex-col
+          transform transition-all duration-300 ease-in-out
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
         `}>
           {/* Sidebar Header */}
-          <div className="p-4 border-b border-slate-700 flex items-center justify-between">
-            <div>
+          <div className={`p-4 border-b border-slate-700 flex items-center ${isCollapsed ? 'md:justify-center' : 'justify-between'}`}>
+            <div className={isCollapsed ? 'md:hidden' : ''}>
               <h1 className="text-xl font-bold text-white">RFID Camasirhane</h1>
               {isHotelOwner && (
                 <p className="text-xs text-blue-400 mt-1">Otel Portali</p>
@@ -135,6 +150,15 @@ export function Layout() {
                 <p className="text-xs text-green-400 mt-1">Surucu Portali</p>
               )}
             </div>
+            {/* Collapse toggle button - desktop only */}
+            <button
+              onClick={toggleCollapse}
+              className="hidden md:flex p-2 text-slate-400 hover:bg-slate-700 hover:text-white rounded-lg transition-colors"
+              title={isCollapsed ? 'Genislet' : 'Daralt'}
+            >
+              {isCollapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
+            </button>
+            {/* Close button - mobile only */}
             <button
               onClick={closeSidebar}
               className="md:hidden p-2 text-slate-400 hover:bg-slate-700 rounded-lg touch-manipulation"
@@ -144,13 +168,13 @@ export function Layout() {
           </div>
 
           {/* Hotel/Driver Info Banner */}
-          {isHotelOwner && user?.tenantName && (
+          {isHotelOwner && user?.tenantName && !isCollapsed && (
             <div className="px-4 py-3 bg-blue-900/50 border-b border-slate-700">
               <p className="text-xs text-blue-400 uppercase font-semibold">Oteliniz</p>
               <p className="text-sm font-bold text-blue-300">{user.tenantName}</p>
             </div>
           )}
-          {isDriver && (
+          {isDriver && !isCollapsed && (
             <div className="px-4 py-3 bg-green-900/50 border-b border-slate-700">
               <p className="text-xs text-green-400 uppercase font-semibold">Bugunun Gorevleri</p>
               <p className="text-sm font-bold text-green-300">Hazir!</p>
@@ -158,7 +182,7 @@ export function Layout() {
           )}
 
           {/* Navigation */}
-          <nav className="p-4 space-y-1 flex-1 overflow-y-auto">
+          <nav className={`${isCollapsed ? 'md:p-2' : 'p-4'} p-4 space-y-1 flex-1 overflow-y-auto`}>
             {navigation.map((item) => {
               const Icon = item.icon;
               const isActive = location.pathname === item.href;
@@ -167,14 +191,15 @@ export function Layout() {
                   key={item.href}
                   to={item.href}
                   onClick={closeSidebar}
-                  className={`flex items-center gap-3 px-3 py-3 md:py-2 rounded-lg transition-colors touch-manipulation ${
+                  title={isCollapsed ? item.name : undefined}
+                  className={`flex items-center ${isCollapsed ? 'md:justify-center' : ''} gap-3 px-3 py-3 md:py-2 rounded-lg transition-colors touch-manipulation ${
                     isActive
                       ? 'bg-blue-600 text-white'
                       : 'text-slate-300 hover:bg-slate-700 hover:text-white active:bg-slate-600'
                   }`}
                 >
-                  <Icon className="w-5 h-5" />
-                  <span className="text-sm font-medium">{item.name}</span>
+                  <Icon className="w-5 h-5 flex-shrink-0" />
+                  <span className={`text-sm font-medium ${isCollapsed ? 'md:hidden' : ''}`}>{item.name}</span>
                 </Link>
               );
             })}
@@ -182,11 +207,14 @@ export function Layout() {
             {/* Admin Section - only for admins, not hotel owners */}
             {isAdmin && !isHotelOwner && (
               <>
-                <div className="pt-4 pb-2">
-                  <p className="px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                    Yonetim
-                  </p>
-                </div>
+                {!isCollapsed && (
+                  <div className="pt-4 pb-2">
+                    <p className="px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Yonetim
+                    </p>
+                  </div>
+                )}
+                {isCollapsed && <div className="hidden md:block pt-4 border-t border-slate-700 mt-4" />}
                 {adminNavigation.map((item) => {
                   const Icon = item.icon;
                   const isActive = location.pathname === item.href;
@@ -195,14 +223,15 @@ export function Layout() {
                       key={item.href}
                       to={item.href}
                       onClick={closeSidebar}
-                      className={`flex items-center gap-3 px-3 py-3 md:py-2 rounded-lg transition-colors touch-manipulation ${
+                      title={isCollapsed ? item.name : undefined}
+                      className={`flex items-center ${isCollapsed ? 'md:justify-center' : ''} gap-3 px-3 py-3 md:py-2 rounded-lg transition-colors touch-manipulation ${
                         isActive
                           ? 'bg-blue-600 text-white'
                           : 'text-slate-300 hover:bg-slate-700 hover:text-white active:bg-slate-600'
                       }`}
                     >
-                      <Icon className="w-5 h-5" />
-                      <span className="text-sm font-medium">{item.name}</span>
+                      <Icon className="w-5 h-5 flex-shrink-0" />
+                      <span className={`text-sm font-medium ${isCollapsed ? 'md:hidden' : ''}`}>{item.name}</span>
                     </Link>
                   );
                 })}
@@ -211,20 +240,23 @@ export function Layout() {
           </nav>
 
           {/* User Info & Logout */}
-          <div className="p-4 border-t border-slate-700 bg-slate-900">
-            <div className="mb-2 text-sm">
-              <div className="font-medium text-white">{user?.firstName} {user?.lastName}</div>
-              <div className="text-xs text-slate-400">{formatRole(user?.role)}</div>
-            </div>
+          <div className={`${isCollapsed ? 'md:p-2' : 'p-4'} p-4 border-t border-slate-700 bg-slate-900`}>
+            {!isCollapsed && (
+              <div className="mb-2 text-sm">
+                <div className="font-medium text-white">{user?.firstName} {user?.lastName}</div>
+                <div className="text-xs text-slate-400">{formatRole(user?.role)}</div>
+              </div>
+            )}
             <button
               onClick={() => {
                 closeSidebar();
                 logout();
               }}
-              className="flex items-center gap-2 w-full px-3 py-3 md:py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white active:bg-slate-600 rounded-lg touch-manipulation"
+              title={isCollapsed ? 'Cikis Yap' : undefined}
+              className={`flex items-center ${isCollapsed ? 'md:justify-center' : ''} gap-2 w-full px-3 py-3 md:py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white active:bg-slate-600 rounded-lg touch-manipulation`}
             >
-              <LogOut className="w-4 h-4" />
-              <span>Cikis Yap</span>
+              <LogOut className="w-4 h-4 flex-shrink-0" />
+              <span className={isCollapsed ? 'md:hidden' : ''}>Cikis Yap</span>
             </button>
           </div>
         </aside>
