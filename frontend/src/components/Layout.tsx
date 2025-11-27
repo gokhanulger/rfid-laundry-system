@@ -135,7 +135,7 @@ export function Layout() {
   const closeSidebar = () => setSidebarOpen(false);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="h-screen overflow-hidden bg-gray-50">
       {/* Mobile Header */}
       <div className="md:hidden fixed top-0 left-0 right-0 z-40 bg-slate-800 px-4 py-3 flex items-center justify-between">
         <button
@@ -163,16 +163,16 @@ export function Layout() {
         />
       )}
 
-      <div className="flex">
+      <div className="flex h-full">
         {/* Sidebar */}
         <aside className={`
           fixed md:static inset-y-0 left-0 z-50
-          ${isCollapsed ? 'md:w-20' : 'md:w-64'} w-72 bg-slate-800 min-h-screen flex flex-col
+          ${isCollapsed ? 'md:w-20' : 'md:w-64'} w-72 bg-slate-800 h-screen flex flex-col
           transform transition-all duration-300 ease-in-out
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
         `}>
           {/* Sidebar Header */}
-          <div className={`p-4 border-b border-slate-700 flex items-center ${isCollapsed ? 'md:justify-center' : 'justify-between'}`}>
+          <div className={`flex-shrink-0 p-4 border-b border-slate-700 flex items-center ${isCollapsed ? 'md:justify-center' : 'justify-between'}`}>
             <div className={isCollapsed ? 'md:hidden' : ''}>
               <h1 className="text-xl font-bold text-white">RFID Camasirhane</h1>
               {isHotelOwner && (
@@ -210,13 +210,13 @@ export function Layout() {
 
           {/* Hotel/Driver Info Banner */}
           {isHotelOwner && user?.tenantName && !isCollapsed && (
-            <div className="px-4 py-3 bg-blue-900/50 border-b border-slate-700">
+            <div className="flex-shrink-0 px-4 py-3 bg-blue-900/50 border-b border-slate-700">
               <p className="text-xs text-blue-400 uppercase font-semibold">Oteliniz</p>
               <p className="text-sm font-bold text-blue-300">{user.tenantName}</p>
             </div>
           )}
           {isDriver && !isCollapsed && (
-            <div className="px-4 py-3 bg-green-900/50 border-b border-slate-700">
+            <div className="flex-shrink-0 px-4 py-3 bg-green-900/50 border-b border-slate-700">
               <p className="text-xs text-green-400 uppercase font-semibold">Bugunun Gorevleri</p>
               <p className="text-sm font-bold text-green-300">Hazir!</p>
             </div>
@@ -281,7 +281,7 @@ export function Layout() {
           </nav>
 
           {/* User Info & Logout */}
-          <div className={`${isCollapsed ? 'md:p-2' : 'p-4'} p-4 border-t border-slate-700 bg-slate-900`}>
+          <div className={`flex-shrink-0 ${isCollapsed ? 'md:p-2' : 'p-4'} p-4 border-t border-slate-700 bg-slate-900`}>
             {!isCollapsed && (
               <div className="mb-2 text-sm">
                 <div className="font-medium text-white">{user?.firstName} {user?.lastName}</div>
@@ -303,7 +303,7 @@ export function Layout() {
         </aside>
 
         {/* Main content */}
-        <main className="flex-1 pt-14 md:pt-0 min-h-screen">
+        <main className="flex-1 pt-14 md:pt-0 h-screen overflow-y-auto">
           <Outlet />
         </main>
       </div>
