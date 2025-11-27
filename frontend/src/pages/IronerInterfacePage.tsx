@@ -835,126 +835,131 @@ export function IronerInterfacePage() {
 
                           {/* Add Item Form */}
                           <div className="space-y-4 mb-4">
-                            <div className="flex flex-wrap gap-3 items-end">
-                              {/* Item Type Dropdown - sorted with last printed at top */}
-                              <div className="flex-1 min-w-[200px]">
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                  Urun Turu
-                                </label>
-                                <select
-                                  value={addingTypeId[hotelId] || ''}
-                                  onChange={(e) => setAddingTypeId(prev => ({ ...prev, [hotelId]: e.target.value }))}
-                                  className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                                >
-                                  <option value="">Tur secin...</option>
-                                  {/* Sort entries: last printed type first */}
-                                  {Object.entries(itemsByType)
-                                    .sort(([aTypeId], [bTypeId]) => {
-                                      const lastType = lastPrintedType[hotelId];
-                                      if (lastType === aTypeId) return -1;
-                                      if (lastType === bTypeId) return 1;
-                                      return 0;
-                                    })
-                                    .map(([typeId, typeItems]) => {
-                                      const itemType = itemTypes?.find((t: { id: string }) => t.id === typeId);
-                                      const isLastPrinted = lastPrintedType[hotelId] === typeId;
-                                      return (
-                                        <option key={typeId} value={typeId}>
-                                          {isLastPrinted ? '★ ' : ''}{itemType?.name} ({typeItems.length} mevcut)
-                                        </option>
-                                      );
-                                    })}
-                                </select>
-                              </div>
+                            <div className="flex gap-4">
+                              {/* Left side: Dropdown, Count, Add Button */}
+                              <div className="flex-1 space-y-3">
+                                {/* Item Type Dropdown - sorted with last printed at top */}
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Urun Turu
+                                  </label>
+                                  <select
+                                    value={addingTypeId[hotelId] || ''}
+                                    onChange={(e) => setAddingTypeId(prev => ({ ...prev, [hotelId]: e.target.value }))}
+                                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                                  >
+                                    <option value="">Tur secin...</option>
+                                    {/* Sort entries: last printed type first */}
+                                    {Object.entries(itemsByType)
+                                      .sort(([aTypeId], [bTypeId]) => {
+                                        const lastType = lastPrintedType[hotelId];
+                                        if (lastType === aTypeId) return -1;
+                                        if (lastType === bTypeId) return 1;
+                                        return 0;
+                                      })
+                                      .map(([typeId, typeItems]) => {
+                                        const itemType = itemTypes?.find((t: { id: string }) => t.id === typeId);
+                                        const isLastPrinted = lastPrintedType[hotelId] === typeId;
+                                        return (
+                                          <option key={typeId} value={typeId}>
+                                            {isLastPrinted ? '★ ' : ''}{itemType?.name} ({typeItems.length} mevcut)
+                                          </option>
+                                        );
+                                      })}
+                                  </select>
+                                </div>
 
-                              {/* Count Input */}
-                              <div className="w-40">
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                  Adet
-                                </label>
-                                <div className="flex items-center">
+                                {/* Count Input and Add Button */}
+                                <div className="flex items-end gap-3">
+                                  <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                      Adet
+                                    </label>
+                                    <div className="flex items-center">
+                                      <button
+                                        onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: Math.max(1, (prev[hotelId] || 1) - 1) }))}
+                                        className="w-10 h-12 bg-gray-100 border-2 border-r-0 border-gray-300 rounded-l-lg text-xl font-bold hover:bg-gray-200 transition-colors"
+                                      >
+                                        -
+                                      </button>
+                                      <input
+                                        type="text"
+                                        inputMode="numeric"
+                                        pattern="[0-9]*"
+                                        value={addingCount[hotelId] === undefined ? '' : addingCount[hotelId]}
+                                        onChange={(e) => {
+                                          const val = e.target.value;
+                                          if (val === '') {
+                                            setAddingCount(prev => ({ ...prev, [hotelId]: undefined as any }));
+                                          } else {
+                                            const num = parseInt(val);
+                                            if (!isNaN(num) && num >= 0) {
+                                              setAddingCount(prev => ({ ...prev, [hotelId]: num }));
+                                            }
+                                          }
+                                        }}
+                                        onBlur={(e) => {
+                                          const val = parseInt(e.target.value);
+                                          if (isNaN(val) || val < 1) {
+                                            setAddingCount(prev => ({ ...prev, [hotelId]: 1 }));
+                                          }
+                                        }}
+                                        placeholder="1"
+                                        className="w-16 h-12 text-center text-xl font-bold border-2 border-gray-300 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 focus:z-10"
+                                      />
+                                      <button
+                                        onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: ((prev[hotelId] || 0) + 1) }))}
+                                        className="w-10 h-12 bg-gray-100 border-2 border-l-0 border-gray-300 rounded-r-lg text-xl font-bold hover:bg-gray-200 transition-colors"
+                                      >
+                                        +
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  {/* Add Button */}
                                   <button
-                                    onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: Math.max(1, (prev[hotelId] || 1) - 1) }))}
-                                    className="w-10 h-12 bg-gray-100 border-2 border-r-0 border-gray-300 rounded-l-lg text-xl font-bold hover:bg-gray-200 transition-colors"
+                                    onClick={() => handleAddToPrintList(hotelId, itemsByType)}
+                                    disabled={!addingTypeId[hotelId]}
+                                    className="h-12 px-6 flex items-center gap-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-bold transition-all"
                                   >
-                                    -
-                                  </button>
-                                  <input
-                                    type="text"
-                                    inputMode="numeric"
-                                    pattern="[0-9]*"
-                                    value={addingCount[hotelId] === undefined ? '' : addingCount[hotelId]}
-                                    onChange={(e) => {
-                                      const val = e.target.value;
-                                      if (val === '') {
-                                        setAddingCount(prev => ({ ...prev, [hotelId]: undefined as any }));
-                                      } else {
-                                        const num = parseInt(val);
-                                        if (!isNaN(num) && num >= 0) {
-                                          setAddingCount(prev => ({ ...prev, [hotelId]: num }));
-                                        }
-                                      }
-                                    }}
-                                    onBlur={(e) => {
-                                      const val = parseInt(e.target.value);
-                                      if (isNaN(val) || val < 1) {
-                                        setAddingCount(prev => ({ ...prev, [hotelId]: 1 }));
-                                      }
-                                    }}
-                                    placeholder="1"
-                                    className="w-16 h-12 text-center text-xl font-bold border-2 border-gray-300 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 focus:z-10"
-                                  />
-                                  <button
-                                    onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: ((prev[hotelId] || 0) + 1) }))}
-                                    className="w-10 h-12 bg-gray-100 border-2 border-l-0 border-gray-300 rounded-r-lg text-xl font-bold hover:bg-gray-200 transition-colors"
-                                  >
-                                    +
+                                    <Plus className="w-5 h-5" />
+                                    Ekle
                                   </button>
                                 </div>
                               </div>
 
-                              {/* Add Button */}
-                              <button
-                                onClick={() => handleAddToPrintList(hotelId, itemsByType)}
-                                disabled={!addingTypeId[hotelId]}
-                                className="h-12 px-6 flex items-center gap-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-bold transition-all"
-                              >
-                                <Plus className="w-5 h-5" />
-                                Ekle
-                              </button>
-                            </div>
-
-                            {/* Number Pad for easy count entry */}
-                            <div className="bg-gray-50 rounded-lg p-3 border border-gray-200 w-48">
-                              <p className="text-xs font-medium text-gray-600 mb-2 text-center">Numara</p>
-                              <div className="grid grid-cols-3 gap-1">
-                                {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
+                              {/* Right side: Number Pad */}
+                              <div className="bg-gray-50 rounded-lg p-3 border border-gray-200 w-36">
+                                <p className="text-xs font-medium text-gray-600 mb-2 text-center">Numara</p>
+                                <div className="grid grid-cols-3 gap-1">
+                                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
+                                    <button
+                                      key={num}
+                                      onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) * 10 + num }))}
+                                      className="h-8 rounded font-bold text-base bg-white border border-gray-300 text-gray-700 hover:bg-purple-50 hover:border-purple-400 active:bg-purple-100 transition-all"
+                                    >
+                                      {num}
+                                    </button>
+                                  ))}
                                   <button
-                                    key={num}
-                                    onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) * 10 + num }))}
-                                    className="h-9 rounded font-bold text-lg bg-white border border-gray-300 text-gray-700 hover:bg-purple-50 hover:border-purple-400 active:bg-purple-100 transition-all"
+                                    onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: 0 }))}
+                                    className="h-8 rounded font-bold text-xs bg-red-100 text-red-700 border border-red-300 hover:bg-red-200 active:bg-red-300 transition-all"
                                   >
-                                    {num}
+                                    C
                                   </button>
-                                ))}
-                                <button
-                                  onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: 0 }))}
-                                  className="h-9 rounded font-bold text-xs bg-red-100 text-red-700 border border-red-300 hover:bg-red-200 active:bg-red-300 transition-all"
-                                >
-                                  C
-                                </button>
-                                <button
-                                  onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) * 10 }))}
-                                  className="h-9 rounded font-bold text-lg bg-white border border-gray-300 text-gray-700 hover:bg-purple-50 hover:border-purple-400 active:bg-purple-100 transition-all"
-                                >
-                                  0
-                                </button>
-                                <button
-                                  onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: Math.floor((prev[hotelId] || 0) / 10) }))}
-                                  className="h-9 rounded font-bold text-sm bg-gray-200 border border-gray-400 text-gray-700 hover:bg-gray-300 active:bg-gray-400 transition-all flex items-center justify-center"
-                                >
-                                  <Delete className="w-4 h-4" />
-                                </button>
+                                  <button
+                                    onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) * 10 }))}
+                                    className="h-8 rounded font-bold text-base bg-white border border-gray-300 text-gray-700 hover:bg-purple-50 hover:border-purple-400 active:bg-purple-100 transition-all"
+                                  >
+                                    0
+                                  </button>
+                                  <button
+                                    onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: Math.floor((prev[hotelId] || 0) / 10) }))}
+                                    className="h-8 rounded font-bold text-sm bg-gray-200 border border-gray-400 text-gray-700 hover:bg-gray-300 active:bg-gray-400 transition-all flex items-center justify-center"
+                                  >
+                                    <Delete className="w-3 h-3" />
+                                  </button>
+                                </div>
                               </div>
                             </div>
 
