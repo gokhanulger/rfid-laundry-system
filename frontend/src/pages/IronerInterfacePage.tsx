@@ -870,7 +870,7 @@ export function IronerInterfacePage() {
                                 </div>
 
                                 {/* Count Input and Add Button */}
-                                <div className="flex items-end gap-3">
+                                <div className="flex items-end gap-3 justify-end">
                                   <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-2">
                                       Adet
@@ -929,7 +929,7 @@ export function IronerInterfacePage() {
                               </div>
 
                               {/* Right side: Number Pad */}
-                              <div className="bg-gray-50 rounded-lg p-3 border border-gray-200 w-36">
+                              <div className="bg-gray-50 rounded-lg p-3 border border-gray-200 w-36 self-end">
                                 <p className="text-xs font-medium text-gray-600 mb-2 text-center">Numara</p>
                                 <div className="grid grid-cols-3 gap-1">
                                   {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
