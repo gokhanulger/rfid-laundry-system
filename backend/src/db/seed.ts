@@ -135,6 +135,54 @@ async function seed() {
     console.log('✅ Created driver user:', driverUser.email);
     console.log('   Password: driver123');
 
+    // Create an ironer user
+    const ironerPassword = 'ironer123';
+    const ironerPasswordHash = await bcrypt.hash(ironerPassword, 10);
+
+    const [ironerUser] = await db.insert(users).values({
+      email: 'ironer@laundry.com',
+      passwordHash: ironerPasswordHash,
+      firstName: 'Utu',
+      lastName: 'Operatoru',
+      role: 'ironer',
+      tenantId: null,
+    }).returning();
+
+    console.log('✅ Created ironer user:', ironerUser.email);
+    console.log('   Password: ironer123');
+
+    // Create a packager user
+    const packagerPassword = 'packager123';
+    const packagerPasswordHash = await bcrypt.hash(packagerPassword, 10);
+
+    const [packagerUser] = await db.insert(users).values({
+      email: 'packager@laundry.com',
+      passwordHash: packagerPasswordHash,
+      firstName: 'Paket',
+      lastName: 'Operatoru',
+      role: 'packager',
+      tenantId: null,
+    }).returning();
+
+    console.log('✅ Created packager user:', packagerUser.email);
+    console.log('   Password: packager123');
+
+    // Create an auditor user
+    const auditorPassword = 'auditor123';
+    const auditorPasswordHash = await bcrypt.hash(auditorPassword, 10);
+
+    const [auditorUser] = await db.insert(users).values({
+      email: 'auditor@laundry.com',
+      passwordHash: auditorPasswordHash,
+      firstName: 'Irsaliye',
+      lastName: 'Sorumlusu',
+      role: 'auditor',
+      tenantId: null,
+    }).returning();
+
+    console.log('✅ Created auditor user:', auditorUser.email);
+    console.log('   Password: auditor123');
+
     console.log('\n🎉 Seed completed successfully!');
     console.log('\n📋 Login Credentials:');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -153,6 +201,15 @@ async function seed() {
     console.log('\nDriver:');
     console.log('  Email: driver@laundry.com');
     console.log('  Password: driver123');
+    console.log('\nIroner (Utu Etiketi):');
+    console.log('  Email: ironer@laundry.com');
+    console.log('  Password: ironer123');
+    console.log('\nPackager (Paketleme):');
+    console.log('  Email: packager@laundry.com');
+    console.log('  Password: packager123');
+    console.log('\nAuditor (Irsaliye):');
+    console.log('  Email: auditor@laundry.com');
+    console.log('  Password: auditor123');
     console.log('\n📦 Sample Data:');
     console.log('  - 10 Item Types (Bed Sheet, Towel, etc.)');
     console.log('  - 50 Sample Items with RFID tags (RFID-000001 to RFID-000050)');

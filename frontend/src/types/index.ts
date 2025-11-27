@@ -1,5 +1,5 @@
 // User types
-export type UserRole = 'hotel_owner' | 'laundry_manager' | 'operator' | 'driver' | 'packager' | 'system_admin';
+export type UserRole = 'hotel_owner' | 'laundry_manager' | 'operator' | 'driver' | 'packager' | 'ironer' | 'auditor' | 'system_admin';
 
 export interface User {
   id: string;

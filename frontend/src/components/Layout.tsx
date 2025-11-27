@@ -43,12 +43,47 @@ export function Layout() {
     localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(newState));
   };
 
+  // Role checks
   const isHotelOwner = user?.role === 'hotel_owner';
   const isDriver = user?.role === 'driver';
+  const isIroner = user?.role === 'ironer';
+  const isPackager = user?.role === 'packager';
+  const isAuditor = user?.role === 'auditor';
   const isAdmin = user?.role === 'system_admin' || user?.role === 'laundry_manager';
 
-  // Navigation for laundry staff (not hotel owners or drivers)
-  const laundryNavigation = [
+  // Navigation for ironer (Utu Etiketi only)
+  const ironerNavigation = [
+    { name: 'Utu Etiketi', href: '/ironer-interface', icon: Printer },
+  ];
+
+  // Navigation for packager (Paketleme only)
+  const packagerNavigation = [
+    { name: 'Paketleme', href: '/packaging', icon: Box },
+  ];
+
+  // Navigation for auditor (Irsaliye only)
+  const auditorNavigation = [
+    { name: 'Irsaliye', href: '/irsaliye', icon: FileText },
+  ];
+
+  // Navigation for drivers
+  const driverNavigation = [
+    { name: 'Kirli Toplama', href: '/driver/dirty-pickup', icon: ArrowUp },
+    { name: 'Camasirhane Toplama', href: '/driver/laundry-pickup', icon: Package },
+    { name: 'Otel Teslimati', href: '/driver/hotel-delivery', icon: Truck },
+  ];
+
+  // Navigation for hotel owners
+  const hotelNavigation = [
+    { name: 'Kontrol Paneli', href: '/dashboard', icon: LayoutDashboard },
+    { name: 'Urunlerim', href: '/items', icon: Tag },
+    { name: 'Mutabakat', href: '/reconciliation', icon: FileText },
+    { name: 'Uyarilar', href: '/alerts', icon: Bell },
+    { name: 'Raporlar', href: '/reports', icon: BarChart3 },
+  ];
+
+  // Navigation for admin/laundry manager (full access)
+  const adminFullNavigation = [
     { name: 'Kontrol Paneli', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Camasir Isleme', href: '/laundry-processing', icon: Sparkles },
     { name: 'Utu Etiketi', href: '/ironer-interface', icon: Printer },
@@ -62,23 +97,7 @@ export function Layout() {
     { name: 'Mutabakat', href: '/reconciliation', icon: FileText },
   ];
 
-  // Navigation for hotel owners - only relevant pages
-  const hotelNavigation = [
-    { name: 'Kontrol Paneli', href: '/dashboard', icon: LayoutDashboard },
-    { name: 'Urunlerim', href: '/items', icon: Tag },
-    { name: 'Mutabakat', href: '/reconciliation', icon: FileText },
-    { name: 'Uyarilar', href: '/alerts', icon: Bell },
-    { name: 'Raporlar', href: '/reports', icon: BarChart3 },
-  ];
-
-  // Navigation for drivers - simple and clear
-  const driverNavigation = [
-    { name: 'Kirli Toplama', href: '/driver/dirty-pickup', icon: ArrowUp },
-    { name: 'Camasirhane Toplama', href: '/driver/laundry-pickup', icon: Package },
-    { name: 'Otel Teslimati', href: '/driver/hotel-delivery', icon: Truck },
-  ];
-
-  // Admin navigation (only for system_admin and laundry_manager)
+  // Admin management section
   const adminNavigation = [
     { name: 'Otel Yonetimi', href: '/hotels', icon: Building2 },
     { name: 'Kullanici Yonetimi', href: '/users', icon: Users },
@@ -87,7 +106,15 @@ export function Layout() {
   ];
 
   // Choose navigation based on role
-  const navigation = isDriver ? driverNavigation : (isHotelOwner ? hotelNavigation : laundryNavigation);
+  const getNavigation = () => {
+    if (isIroner) return ironerNavigation;
+    if (isPackager) return packagerNavigation;
+    if (isAuditor) return auditorNavigation;
+    if (isDriver) return driverNavigation;
+    if (isHotelOwner) return hotelNavigation;
+    return adminFullNavigation; // admin, laundry_manager, operator
+  };
+  const navigation = getNavigation();
 
   // Format role name for display in Turkish
   const formatRole = (role: string | undefined) => {
@@ -99,6 +126,8 @@ export function Layout() {
       'operator': 'Operator',
       'driver': 'Surucu',
       'packager': 'Paketleyici',
+      'ironer': 'Utucu',
+      'auditor': 'Irsaliye Sorumlusu',
     };
     return roleNames[role] || role;
   };
@@ -119,6 +148,9 @@ export function Layout() {
           <h1 className="text-lg font-bold text-white">RFID Camasirhane</h1>
           {isDriver && <span className="text-xs bg-green-600 text-white px-2 py-0.5 rounded-full">Surucu</span>}
           {isHotelOwner && <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full">Otel</span>}
+          {isIroner && <span className="text-xs bg-orange-600 text-white px-2 py-0.5 rounded-full">Utucu</span>}
+          {isPackager && <span className="text-xs bg-indigo-600 text-white px-2 py-0.5 rounded-full">Paketci</span>}
+          {isAuditor && <span className="text-xs bg-teal-600 text-white px-2 py-0.5 rounded-full">Irsaliye</span>}
         </div>
         <div className="w-10" /> {/* Spacer for centering */}
       </div>
@@ -148,6 +180,15 @@ export function Layout() {
               )}
               {isDriver && (
                 <p className="text-xs text-green-400 mt-1">Surucu Portali</p>
+              )}
+              {isIroner && (
+                <p className="text-xs text-orange-400 mt-1">Utu Istasyonu</p>
+              )}
+              {isPackager && (
+                <p className="text-xs text-indigo-400 mt-1">Paketleme Istasyonu</p>
+              )}
+              {isAuditor && (
+                <p className="text-xs text-teal-400 mt-1">Irsaliye Istasyonu</p>
               )}
             </div>
             {/* Collapse toggle button - desktop only */}

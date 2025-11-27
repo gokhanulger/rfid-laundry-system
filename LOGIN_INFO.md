@@ -24,6 +24,21 @@ After running the seed script, you can use these credentials to log in:
 - **Password:** `operator123`
 - **Role:** Day-to-day laundry operations
 
+### Ironer (Utu Etiketi)
+- **Email:** `ironer@laundry.com`
+- **Password:** `ironer123`
+- **Role:** Iron station label printing only
+
+### Packager (Paketleme)
+- **Email:** `packager@laundry.com`
+- **Password:** `packager123`
+- **Role:** Packaging station only
+
+### Auditor (Irsaliye)
+- **Email:** `auditor@laundry.com`
+- **Password:** `auditor123`
+- **Role:** Waybill/Irsaliye station only
+
 ## How to Create Users
 
 ### Option 1: Run Seed Script (Recommended for Testing)
@@ -71,6 +86,8 @@ Once the frontend is running, go to:
 - `laundry_manager` - Laundry operations management
 - `operator` - Day-to-day operations
 - `driver` - Pickup and delivery
-- `packager` - Packaging operations
+- `ironer` - Utu Etiketi (Iron station) only
+- `packager` - Paketleme (Packaging station) only
+- `auditor` - Irsaliye (Waybill station) only
 - `hotel_owner` - Hotel-specific access
 
