@@ -15,7 +15,7 @@ const createUserSchema = z.object({
   password: z.string().min(6, 'Password must be at least 6 characters'),
   firstName: z.string().min(1, 'First name is required'),
   lastName: z.string().min(1, 'Last name is required'),
-  role: z.enum(['hotel_owner', 'laundry_manager', 'operator', 'driver', 'packager', 'system_admin']),
+  role: z.enum(['hotel_owner', 'laundry_manager', 'operator', 'driver', 'packager', 'ironer', 'auditor', 'system_admin']),
   tenantId: z.string().uuid().optional(),
 });
 
@@ -23,7 +23,7 @@ const updateUserSchema = z.object({
   email: z.string().email().optional(),
   firstName: z.string().min(1).optional(),
   lastName: z.string().min(1).optional(),
-  role: z.enum(['hotel_owner', 'laundry_manager', 'operator', 'driver', 'packager', 'system_admin']).optional(),
+  role: z.enum(['hotel_owner', 'laundry_manager', 'operator', 'driver', 'packager', 'ironer', 'auditor', 'system_admin']).optional(),
   tenantId: z.string().uuid().nullable().optional(),
   isActive: z.boolean().optional(),
 });
