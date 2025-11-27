@@ -202,13 +202,13 @@ function generateSingleLabel(
           if (extraData.discardCount > 0) {
             doc.setFontSize(6);
             doc.setFont('helvetica', 'normal');
-            doc.text(`  Discard: ${extraData.discardCount}`, margin, yPos);
+            doc.text(`  Discord: ${extraData.discardCount}`, margin, yPos);
             yPos += 3;
           }
           if (extraData.hasarliCount > 0) {
             doc.setFontSize(6);
             doc.setFont('helvetica', 'normal');
-            doc.text(`  Hasarli: ${extraData.hasarliCount}`, margin, yPos);
+            doc.text(`  Lekeli: ${extraData.hasarliCount}`, margin, yPos);
             yPos += 3;
           }
         }
@@ -250,11 +250,11 @@ function generateSingleLabel(
     doc.setFontSize(6);
     doc.setFont('helvetica', 'bold');
     if (totalDiscard > 0) {
-      doc.text(`Discard: ${totalDiscard}`, margin, yPos);
+      doc.text(`Discord: ${totalDiscard}`, margin, yPos);
       yPos += 3;
     }
     if (totalHasarli > 0) {
-      doc.text(`Hasarli Urun: ${totalHasarli}`, margin, yPos);
+      doc.text(`Lekeli Urun: ${totalHasarli}`, margin, yPos);
       yPos += 3;
     }
     yPos += 1;
