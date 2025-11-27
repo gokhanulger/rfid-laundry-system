@@ -871,23 +871,19 @@ export function IronerInterfacePage() {
                                   </select>
                                 </div>
 
-                              </div>
-
-                              {/* Right side: Adet, Add Button, Discord/Lekeli, Numpad */}
-                              <div className="flex flex-col gap-2 self-end">
-                                {/* Adet and Add Button row */}
-                                <div className="flex gap-2 items-end">
+                                {/* Adet Input */}
+                                <div className="flex items-end gap-3">
                                   <div
                                     onClick={() => setActiveNumpadTarget(prev => ({ ...prev, [hotelId]: 'count' }))}
                                     className={`cursor-pointer p-2 rounded-lg transition-all border-2 ${activeNumpadTarget[hotelId] === 'count' || !activeNumpadTarget[hotelId] ? 'bg-purple-100 border-purple-500 ring-2 ring-purple-500' : 'bg-purple-50 border-purple-200'}`}
                                   >
-                                    <label className="block text-xs font-medium text-purple-700 mb-1">
+                                    <label className="block text-sm font-medium text-purple-700 mb-2">
                                       Adet
                                     </label>
                                     <div className="flex items-center">
                                       <button
                                         onClick={(e) => { e.stopPropagation(); setAddingCount(prev => ({ ...prev, [hotelId]: Math.max(1, (prev[hotelId] || 1) - 1) })); }}
-                                        className="w-8 h-10 bg-white border border-purple-300 rounded-l text-lg font-bold hover:bg-purple-50"
+                                        className="w-10 h-12 bg-white border-2 border-r-0 border-purple-300 rounded-l-lg text-xl font-bold hover:bg-purple-50"
                                       >
                                         -
                                       </button>
@@ -915,11 +911,11 @@ export function IronerInterfacePage() {
                                           }
                                         }}
                                         placeholder="1"
-                                        className="w-12 h-10 text-center text-lg font-bold border-y border-purple-300 focus:ring-2 focus:ring-purple-500"
+                                        className="w-16 h-12 text-center text-xl font-bold border-2 border-purple-300 focus:ring-2 focus:ring-purple-500"
                                       />
                                       <button
                                         onClick={(e) => { e.stopPropagation(); setAddingCount(prev => ({ ...prev, [hotelId]: ((prev[hotelId] || 0) + 1) })); }}
-                                        className="w-8 h-10 bg-white border border-purple-300 rounded-r text-lg font-bold hover:bg-purple-50"
+                                        className="w-10 h-12 bg-white border-2 border-l-0 border-purple-300 rounded-r-lg text-xl font-bold hover:bg-purple-50"
                                       >
                                         +
                                       </button>
@@ -930,13 +926,16 @@ export function IronerInterfacePage() {
                                   <button
                                     onClick={() => handleAddToPrintList(hotelId, itemsByType)}
                                     disabled={!addingTypeId[hotelId]}
-                                    className="h-10 px-4 flex items-center gap-1 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-bold transition-all"
+                                    className="h-12 px-6 flex items-center gap-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-bold transition-all self-end"
                                   >
-                                    <Plus className="w-4 h-4" />
+                                    <Plus className="w-5 h-5" />
                                     Ekle
                                   </button>
                                 </div>
+                              </div>
 
+                              {/* Right side: Discord/Lekeli and Numpad */}
+                              <div className="flex flex-col gap-2 self-end">
                                 {/* Discord and Lekeli boxes */}
                                 <div className="flex gap-2">
                                   {/* Discord Input - Blue */}
