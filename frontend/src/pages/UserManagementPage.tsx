@@ -35,7 +35,9 @@ const roles = [
   { value: 'laundry_manager', label: 'Camasirhane Muduru' },
   { value: 'operator', label: 'Operator' },
   { value: 'driver', label: 'Surucu' },
+  { value: 'ironer', label: 'Utucu' },
   { value: 'packager', label: 'Paketleyici' },
+  { value: 'auditor', label: 'Irsaliye Sorumlusu' },
   { value: 'system_admin', label: 'Sistem Yoneticisi' },
 ];
 
