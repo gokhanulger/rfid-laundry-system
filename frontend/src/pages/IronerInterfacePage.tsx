@@ -9,6 +9,7 @@ import type { Item, Delivery, Tenant } from '../types';
 // Storage keys
 const SELECTED_HOTELS_KEY = 'laundry_selected_hotels';
 const BATCH_THRESHOLDS_KEY = 'laundry_batch_thresholds';
+const LAST_PRINTED_TYPE_KEY = 'laundry_last_printed_type';
 
 // Default batch threshold
 const DEFAULT_BATCH_SIZE = 10;
@@ -17,6 +18,8 @@ const DEFAULT_BATCH_SIZE = 10;
 interface PrintItem {
   typeId: string;
   count: number;
+  discardCount: number;
+  hasarliCount: number;
 }
 
 export function IronerInterfacePage() {
@@ -29,8 +32,15 @@ export function IronerInterfacePage() {
   // For the add item form per hotel
   const [addingTypeId, setAddingTypeId] = useState<Record<string, string>>({});
   const [addingCount, setAddingCount] = useState<Record<string, number>>({});
+  // Discard and hasarli state per hotel
+  const [addingDiscard, setAddingDiscard] = useState<Record<string, boolean>>({});
+  const [addingDiscardCount, setAddingDiscardCount] = useState<Record<string, number>>({});
+  const [addingHasarli, setAddingHasarli] = useState<Record<string, boolean>>({});
+  const [addingHasarliCount, setAddingHasarliCount] = useState<Record<string, number>>({});
   // Items to print per hotel (list of type+count)
   const [printItems, setPrintItems] = useState<Record<string, PrintItem[]>>({});
+  // Last printed item type per hotel for dropdown sorting
+  const [lastPrintedType, setLastPrintedType] = useState<Record<string, string>>({});
   const queryClient = useQueryClient();
   const toast = useToast();
 
@@ -53,6 +63,15 @@ export function IronerInterfacePage() {
     if (savedThresholds) {
       try {
         setBatchThresholds(JSON.parse(savedThresholds));
+      } catch {
+        // Ignore parse errors
+      }
+    }
+
+    const savedLastPrintedType = localStorage.getItem(LAST_PRINTED_TYPE_KEY);
+    if (savedLastPrintedType) {
+      try {
+        setLastPrintedType(JSON.parse(savedLastPrintedType));
       } catch {
         // Ignore parse errors
       }
@@ -120,9 +139,16 @@ export function IronerInterfacePage() {
     queryFn: () => deliveriesApi.getAll({ status: 'label_printed', limit: 10 }),
   });
 
+  // Type for label extra data
+  interface LabelExtraItem {
+    typeId: string;
+    discardCount: number;
+    hasarliCount: number;
+  }
+
   // Mark items clean and create delivery mutation
   const processAndPrintMutation = useMutation({
-    mutationFn: async ({ hotelId, itemIds, labelCount }: { hotelId: string; itemIds: string[]; labelCount: number }) => {
+    mutationFn: async ({ hotelId, itemIds, labelCount, labelExtraData }: { hotelId: string; itemIds: string[]; labelCount: number; labelExtraData?: LabelExtraItem[] }) => {
       // First mark items as ready for delivery
       await itemsApi.markClean(itemIds);
 
@@ -136,8 +162,8 @@ export function IronerInterfacePage() {
       // Get full delivery details for label generation
       const fullDelivery = await deliveriesApi.getById(delivery.id);
 
-      // Generate and print labels
-      generateDeliveryLabel(fullDelivery);
+      // Generate and print labels with extra data
+      generateDeliveryLabel(fullDelivery, labelExtraData);
 
       // Update status to label_printed
       await deliveriesApi.printLabel(delivery.id);
@@ -198,15 +224,19 @@ export function IronerInterfacePage() {
   const handleAddToPrintList = (hotelId: string, itemsByType: Record<string, Item[]>) => {
     const typeId = addingTypeId[hotelId];
     const count = addingCount[hotelId] || 1;
+    const hasDiscard = addingDiscard[hotelId] || false;
+    const discardCount = hasDiscard ? (addingDiscardCount[hotelId] || 0) : 0;
+    const hasHasarli = addingHasarli[hotelId] || false;
+    const hasarliCount = hasHasarli ? (addingHasarliCount[hotelId] || 0) : 0;
 
     if (!typeId) {
-      toast.warning('Please select an item type');
+      toast.warning('Lutfen urun turu secin');
       return;
     }
 
     const availableItems = itemsByType[typeId] || [];
     if (availableItems.length === 0) {
-      toast.warning('No items available for this type');
+      toast.warning('Bu tur icin mevcut urun yok');
       return;
     }
 
@@ -218,20 +248,29 @@ export function IronerInterfacePage() {
       // Update existing entry
       const newCount = Math.min(currentList[existingIndex].count + count, availableItems.length);
       const newList = [...currentList];
-      newList[existingIndex] = { ...newList[existingIndex], count: newCount };
+      newList[existingIndex] = {
+        ...newList[existingIndex],
+        count: newCount,
+        discardCount: currentList[existingIndex].discardCount + discardCount,
+        hasarliCount: currentList[existingIndex].hasarliCount + hasarliCount
+      };
       setPrintItems(prev => ({ ...prev, [hotelId]: newList }));
     } else {
       // Add new entry
       const validCount = Math.min(count, availableItems.length);
       setPrintItems(prev => ({
         ...prev,
-        [hotelId]: [...(prev[hotelId] || []), { typeId, count: validCount }]
+        [hotelId]: [...(prev[hotelId] || []), { typeId, count: validCount, discardCount, hasarliCount }]
       }));
     }
 
     // Reset form
     setAddingTypeId(prev => ({ ...prev, [hotelId]: '' }));
     setAddingCount(prev => ({ ...prev, [hotelId]: 1 }));
+    setAddingDiscard(prev => ({ ...prev, [hotelId]: false }));
+    setAddingDiscardCount(prev => ({ ...prev, [hotelId]: 0 }));
+    setAddingHasarli(prev => ({ ...prev, [hotelId]: false }));
+    setAddingHasarliCount(prev => ({ ...prev, [hotelId]: 0 }));
   };
 
   // Remove item from print list
@@ -251,7 +290,7 @@ export function IronerInterfacePage() {
     const currentPrintItems = printItems[hotelId] || [];
 
     if (currentPrintItems.length === 0) {
-      toast.warning('Please add at least one item type');
+      toast.warning('En az bir urun turu ekleyin');
       return;
     }
 
@@ -264,11 +303,25 @@ export function IronerInterfacePage() {
     }
 
     if (itemIds.length === 0) {
-      toast.warning('No items to print');
+      toast.warning('Yazdirilacak urun yok');
       return;
     }
 
-    processAndPrintMutation.mutate({ hotelId, itemIds, labelCount: 1 });
+    // Save last printed type for this hotel (use the first item type)
+    if (currentPrintItems.length > 0) {
+      const newLastPrintedType = { ...lastPrintedType, [hotelId]: currentPrintItems[0].typeId };
+      setLastPrintedType(newLastPrintedType);
+      localStorage.setItem(LAST_PRINTED_TYPE_KEY, JSON.stringify(newLastPrintedType));
+    }
+
+    // Pass extra data for label (discard/hasarli counts)
+    const labelExtraData = currentPrintItems.map(item => ({
+      typeId: item.typeId,
+      discardCount: item.discardCount,
+      hasarliCount: item.hasarliCount
+    }));
+
+    processAndPrintMutation.mutate({ hotelId, itemIds, labelCount: 1, labelExtraData });
   };
 
   // Calculate total items in print list
@@ -625,84 +678,184 @@ export function IronerInterfacePage() {
                           </h4>
 
                           {/* Add Item Form */}
-                          <div className="flex flex-wrap gap-3 items-end mb-4">
-                            {/* Item Type Dropdown */}
-                            <div className="flex-1 min-w-[200px]">
-                              <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Urun Turu
-                              </label>
-                              <select
-                                value={addingTypeId[hotelId] || ''}
-                                onChange={(e) => setAddingTypeId(prev => ({ ...prev, [hotelId]: e.target.value }))}
-                                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                          <div className="space-y-4 mb-4">
+                            <div className="flex flex-wrap gap-3 items-end">
+                              {/* Item Type Dropdown - sorted with last printed at top */}
+                              <div className="flex-1 min-w-[200px]">
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                  Urun Turu
+                                </label>
+                                <select
+                                  value={addingTypeId[hotelId] || ''}
+                                  onChange={(e) => setAddingTypeId(prev => ({ ...prev, [hotelId]: e.target.value }))}
+                                  className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                                >
+                                  <option value="">Tur secin...</option>
+                                  {/* Sort entries: last printed type first */}
+                                  {Object.entries(itemsByType)
+                                    .sort(([aTypeId], [bTypeId]) => {
+                                      const lastType = lastPrintedType[hotelId];
+                                      if (lastType === aTypeId) return -1;
+                                      if (lastType === bTypeId) return 1;
+                                      return 0;
+                                    })
+                                    .map(([typeId, typeItems]) => {
+                                      const itemType = itemTypes?.find((t: { id: string }) => t.id === typeId);
+                                      const isLastPrinted = lastPrintedType[hotelId] === typeId;
+                                      return (
+                                        <option key={typeId} value={typeId}>
+                                          {isLastPrinted ? '★ ' : ''}{itemType?.name} ({typeItems.length} mevcut)
+                                        </option>
+                                      );
+                                    })}
+                                </select>
+                              </div>
+
+                              {/* Count Input */}
+                              <div className="w-40">
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                  Adet
+                                </label>
+                                <div className="flex items-center">
+                                  <button
+                                    onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: Math.max(1, (prev[hotelId] || 1) - 1) }))}
+                                    className="w-10 h-12 bg-gray-100 border-2 border-r-0 border-gray-300 rounded-l-lg text-xl font-bold hover:bg-gray-200 transition-colors"
+                                  >
+                                    -
+                                  </button>
+                                  <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    pattern="[0-9]*"
+                                    value={addingCount[hotelId] === undefined ? '' : addingCount[hotelId]}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      if (val === '') {
+                                        setAddingCount(prev => ({ ...prev, [hotelId]: undefined as any }));
+                                      } else {
+                                        const num = parseInt(val);
+                                        if (!isNaN(num) && num >= 0) {
+                                          setAddingCount(prev => ({ ...prev, [hotelId]: num }));
+                                        }
+                                      }
+                                    }}
+                                    onBlur={(e) => {
+                                      const val = parseInt(e.target.value);
+                                      if (isNaN(val) || val < 1) {
+                                        setAddingCount(prev => ({ ...prev, [hotelId]: 1 }));
+                                      }
+                                    }}
+                                    placeholder="1"
+                                    className="w-16 h-12 text-center text-xl font-bold border-2 border-gray-300 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 focus:z-10"
+                                  />
+                                  <button
+                                    onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: ((prev[hotelId] || 0) + 1) }))}
+                                    className="w-10 h-12 bg-gray-100 border-2 border-l-0 border-gray-300 rounded-r-lg text-xl font-bold hover:bg-gray-200 transition-colors"
+                                  >
+                                    +
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Add Button */}
+                              <button
+                                onClick={() => handleAddToPrintList(hotelId, itemsByType)}
+                                disabled={!addingTypeId[hotelId]}
+                                className="h-12 px-6 flex items-center gap-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-bold transition-all"
                               >
-                                <option value="">Tur secin...</option>
-                                {Object.entries(itemsByType).map(([typeId, typeItems]) => {
-                                  const itemType = itemTypes?.find((t: { id: string }) => t.id === typeId);
-                                  return (
-                                    <option key={typeId} value={typeId}>
-                                      {itemType?.name} ({typeItems.length} mevcut)
-                                    </option>
-                                  );
-                                })}
-                              </select>
+                                <Plus className="w-5 h-5" />
+                                Ekle
+                              </button>
                             </div>
 
-                            {/* Count Input */}
-                            <div className="w-40">
-                              <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Adet
-                              </label>
-                              <div className="flex items-center">
-                                <button
-                                  onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: Math.max(1, (prev[hotelId] || 1) - 1) }))}
-                                  className="w-10 h-12 bg-gray-100 border-2 border-r-0 border-gray-300 rounded-l-lg text-xl font-bold hover:bg-gray-200 transition-colors"
-                                >
-                                  -
-                                </button>
-                                <input
-                                  type="text"
-                                  inputMode="numeric"
-                                  pattern="[0-9]*"
-                                  value={addingCount[hotelId] === undefined ? '' : addingCount[hotelId]}
-                                  onChange={(e) => {
-                                    const val = e.target.value;
-                                    if (val === '') {
-                                      setAddingCount(prev => ({ ...prev, [hotelId]: undefined as any }));
-                                    } else {
-                                      const num = parseInt(val);
-                                      if (!isNaN(num) && num >= 0) {
-                                        setAddingCount(prev => ({ ...prev, [hotelId]: num }));
+                            {/* Discard and Hasarli Checkboxes */}
+                            <div className="flex flex-wrap gap-6 bg-gray-50 rounded-lg p-4 border border-gray-200">
+                              {/* Discard (Fire/Atik) */}
+                              <div className="flex items-center gap-3">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={addingDiscard[hotelId] || false}
+                                    onChange={(e) => {
+                                      setAddingDiscard(prev => ({ ...prev, [hotelId]: e.target.checked }));
+                                      if (!e.target.checked) {
+                                        setAddingDiscardCount(prev => ({ ...prev, [hotelId]: 0 }));
+                                      } else if (!addingDiscardCount[hotelId]) {
+                                        setAddingDiscardCount(prev => ({ ...prev, [hotelId]: 1 }));
                                       }
-                                    }
-                                  }}
-                                  onBlur={(e) => {
-                                    const val = parseInt(e.target.value);
-                                    if (isNaN(val) || val < 1) {
-                                      setAddingCount(prev => ({ ...prev, [hotelId]: 1 }));
-                                    }
-                                  }}
-                                  placeholder="1"
-                                  className="w-16 h-12 text-center text-xl font-bold border-2 border-gray-300 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 focus:z-10"
-                                />
-                                <button
-                                  onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: ((prev[hotelId] || 0) + 1) }))}
-                                  className="w-10 h-12 bg-gray-100 border-2 border-l-0 border-gray-300 rounded-r-lg text-xl font-bold hover:bg-gray-200 transition-colors"
-                                >
-                                  +
-                                </button>
+                                    }}
+                                    className="w-5 h-5 text-red-600 rounded border-gray-300 focus:ring-red-500"
+                                  />
+                                  <span className="font-medium text-gray-700">Fire (Atik)</span>
+                                </label>
+                                {addingDiscard[hotelId] && (
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      onClick={() => setAddingDiscardCount(prev => ({ ...prev, [hotelId]: Math.max(0, (prev[hotelId] || 1) - 1) }))}
+                                      className="w-8 h-8 bg-white border border-gray-300 rounded text-lg font-bold hover:bg-gray-100"
+                                    >
+                                      -
+                                    </button>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      value={addingDiscardCount[hotelId] || 0}
+                                      onChange={(e) => setAddingDiscardCount(prev => ({ ...prev, [hotelId]: Math.max(0, parseInt(e.target.value) || 0) }))}
+                                      className="w-14 h-8 text-center border border-gray-300 rounded focus:ring-2 focus:ring-red-500"
+                                    />
+                                    <button
+                                      onClick={() => setAddingDiscardCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) + 1 }))}
+                                      className="w-8 h-8 bg-white border border-gray-300 rounded text-lg font-bold hover:bg-gray-100"
+                                    >
+                                      +
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Hasarli (Damaged) */}
+                              <div className="flex items-center gap-3">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={addingHasarli[hotelId] || false}
+                                    onChange={(e) => {
+                                      setAddingHasarli(prev => ({ ...prev, [hotelId]: e.target.checked }));
+                                      if (!e.target.checked) {
+                                        setAddingHasarliCount(prev => ({ ...prev, [hotelId]: 0 }));
+                                      } else if (!addingHasarliCount[hotelId]) {
+                                        setAddingHasarliCount(prev => ({ ...prev, [hotelId]: 1 }));
+                                      }
+                                    }}
+                                    className="w-5 h-5 text-orange-600 rounded border-gray-300 focus:ring-orange-500"
+                                  />
+                                  <span className="font-medium text-gray-700">Hasarli Urun</span>
+                                </label>
+                                {addingHasarli[hotelId] && (
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      onClick={() => setAddingHasarliCount(prev => ({ ...prev, [hotelId]: Math.max(0, (prev[hotelId] || 1) - 1) }))}
+                                      className="w-8 h-8 bg-white border border-gray-300 rounded text-lg font-bold hover:bg-gray-100"
+                                    >
+                                      -
+                                    </button>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      value={addingHasarliCount[hotelId] || 0}
+                                      onChange={(e) => setAddingHasarliCount(prev => ({ ...prev, [hotelId]: Math.max(0, parseInt(e.target.value) || 0) }))}
+                                      className="w-14 h-8 text-center border border-gray-300 rounded focus:ring-2 focus:ring-orange-500"
+                                    />
+                                    <button
+                                      onClick={() => setAddingHasarliCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) + 1 }))}
+                                      className="w-8 h-8 bg-white border border-gray-300 rounded text-lg font-bold hover:bg-gray-100"
+                                    >
+                                      +
+                                    </button>
+                                  </div>
+                                )}
                               </div>
                             </div>
-
-                            {/* Add Button */}
-                            <button
-                              onClick={() => handleAddToPrintList(hotelId, itemsByType)}
-                              disabled={!addingTypeId[hotelId]}
-                              className="h-12 px-6 flex items-center gap-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-bold transition-all"
-                            >
-                              <Plus className="w-5 h-5" />
-                              Ekle
-                            </button>
                           </div>
 
                           {/* Items List */}
@@ -712,9 +865,19 @@ export function IronerInterfacePage() {
                                 const itemType = itemTypes?.find((t: { id: string }) => t.id === item.typeId);
                                 return (
                                   <div key={index} className="flex items-center justify-between px-4 py-3">
-                                    <div className="flex items-center gap-3">
+                                    <div className="flex items-center gap-3 flex-wrap">
                                       <span className="text-2xl font-bold text-purple-600">{item.count}x</span>
                                       <span className="text-lg font-medium text-gray-800">{itemType?.name}</span>
+                                      {item.discardCount > 0 && (
+                                        <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full text-sm font-medium">
+                                          Fire: {item.discardCount}
+                                        </span>
+                                      )}
+                                      {item.hasarliCount > 0 && (
+                                        <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded-full text-sm font-medium">
+                                          Hasarli: {item.hasarliCount}
+                                        </span>
+                                      )}
                                     </div>
                                     <button
                                       onClick={() => handleRemoveFromPrintList(hotelId, index)}

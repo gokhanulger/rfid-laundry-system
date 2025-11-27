@@ -5,7 +5,14 @@ import type { Delivery, DeliveryPackage } from '../types';
 const LABEL_WIDTH = 60;
 const LABEL_HEIGHT = 80;
 
-export function generateDeliveryLabel(delivery: Delivery) {
+// Type for extra label data (discard/hasarli counts)
+export interface LabelExtraItem {
+  typeId: string;
+  discardCount: number;
+  hasarliCount: number;
+}
+
+export function generateDeliveryLabel(delivery: Delivery, labelExtraData?: LabelExtraItem[]) {
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -34,7 +41,7 @@ export function generateDeliveryLabel(delivery: Delivery) {
       doc.addPage([LABEL_WIDTH, LABEL_HEIGHT]);
     }
 
-    generateSingleLabel(doc, delivery, pkg, labelsToGenerate.length);
+    generateSingleLabel(doc, delivery, pkg, labelsToGenerate.length, labelExtraData);
   });
 
   // Generate filename
@@ -84,7 +91,8 @@ function generateSingleLabel(
   doc: jsPDF,
   delivery: Delivery,
   pkg: DeliveryPackage,
-  totalPackages: number
+  totalPackages: number,
+  labelExtraData?: LabelExtraItem[]
 ) {
   // All black and white - no colors
   const black = '#000000';
@@ -151,7 +159,7 @@ function generateSingleLabel(
   yPos += 3;
 
   // Group items by type
-  const itemsByType: Record<string, { name: string; count: number }> = {};
+  const itemsByType: Record<string, { name: string; count: number; typeId: string }> = {};
 
   if (delivery.deliveryItems && delivery.deliveryItems.length > 0) {
     delivery.deliveryItems.forEach((di: any) => {
@@ -160,13 +168,13 @@ function generateSingleLabel(
       const typeId = item?.itemTypeId || 'unknown';
 
       if (!itemsByType[typeId]) {
-        itemsByType[typeId] = { name: typeName, count: 0 };
+        itemsByType[typeId] = { name: typeName, count: 0, typeId };
       }
       itemsByType[typeId].count++;
     });
   }
 
-  const itemTypeEntries = Object.values(itemsByType);
+  const itemTypeEntries = Object.entries(itemsByType);
   const totalItems = delivery.deliveryItems?.length || 0;
 
   // Display items in compact format
@@ -174,7 +182,7 @@ function generateSingleLabel(
   doc.setFont('helvetica', 'normal');
 
   if (itemTypeEntries.length > 0) {
-    itemTypeEntries.forEach((itemType) => {
+    itemTypeEntries.forEach(([typeId, itemType]) => {
       // Truncate name if needed
       const maxNameLen = 20;
       const displayName = itemType.name.length > maxNameLen
@@ -186,6 +194,26 @@ function generateSingleLabel(
       doc.text(`x${itemType.count}`, LABEL_WIDTH - margin, yPos, { align: 'right' });
       doc.setFont('helvetica', 'normal');
       yPos += 4;
+
+      // Check if there's extra data (discard/hasarli) for this type
+      if (labelExtraData) {
+        const extraData = labelExtraData.find(e => e.typeId === typeId);
+        if (extraData) {
+          if (extraData.discardCount > 0) {
+            doc.setFontSize(6);
+            doc.setFont('helvetica', 'normal');
+            doc.text(`  Fire (Atik): ${extraData.discardCount}`, margin, yPos);
+            yPos += 3;
+          }
+          if (extraData.hasarliCount > 0) {
+            doc.setFontSize(6);
+            doc.setFont('helvetica', 'normal');
+            doc.text(`  Hasarli: ${extraData.hasarliCount}`, margin, yPos);
+            yPos += 3;
+          }
+        }
+      }
+      doc.setFontSize(7);
     });
   } else {
     doc.setFont('helvetica', 'italic');
@@ -194,6 +222,16 @@ function generateSingleLabel(
   }
 
   yPos += 2;
+
+  // Calculate total discard and hasarli counts
+  let totalDiscard = 0;
+  let totalHasarli = 0;
+  if (labelExtraData) {
+    labelExtraData.forEach(e => {
+      totalDiscard += e.discardCount;
+      totalHasarli += e.hasarliCount;
+    });
+  }
 
   // Total bar
   doc.setFillColor(0, 0, 0);
@@ -205,6 +243,22 @@ function generateSingleLabel(
   doc.text(`TOTAL: ${totalItems} ITEMS`, LABEL_WIDTH / 2, yPos + 4, { align: 'center' });
 
   yPos += 10;
+
+  // Display total discard and hasarli if any
+  doc.setTextColor(black);
+  if (totalDiscard > 0 || totalHasarli > 0) {
+    doc.setFontSize(6);
+    doc.setFont('helvetica', 'bold');
+    if (totalDiscard > 0) {
+      doc.text(`Fire (Atik): ${totalDiscard}`, margin, yPos);
+      yPos += 3;
+    }
+    if (totalHasarli > 0) {
+      doc.text(`Hasarli Urun: ${totalHasarli}`, margin, yPos);
+      yPos += 3;
+    }
+    yPos += 1;
+  }
 
   // Date
   doc.setTextColor(black);
