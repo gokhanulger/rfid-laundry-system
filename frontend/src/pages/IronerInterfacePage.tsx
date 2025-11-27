@@ -358,7 +358,7 @@ export function IronerInterfacePage() {
 
   const HotelSelectionDialog = () => (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-4xl mx-4 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
             <Building2 className="w-6 h-6 text-blue-600" />
@@ -399,146 +399,173 @@ export function IronerInterfacePage() {
           </div>
         </div>
 
-        {/* On-screen Keyboard */}
-        <div className="mb-4 bg-gray-50 rounded-lg p-3 border border-gray-200">
-          <div className="grid grid-cols-10 gap-1 mb-1">
-            {['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'].map((key) => (
-              <button
-                key={key}
-                onClick={() => handleKeyboardPress(key)}
-                className="h-10 bg-white border border-gray-300 rounded font-bold text-gray-700 hover:bg-gray-100 active:bg-gray-200 transition-colors"
-              >
-                {key}
-              </button>
-            ))}
-          </div>
-          <div className="grid grid-cols-10 gap-1 mb-1">
-            <div className="col-span-1" />
-            {['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'].map((key) => (
-              <button
-                key={key}
-                onClick={() => handleKeyboardPress(key)}
-                className="h-10 bg-white border border-gray-300 rounded font-bold text-gray-700 hover:bg-gray-100 active:bg-gray-200 transition-colors"
-              >
-                {key}
-              </button>
-            ))}
-          </div>
-          <div className="grid grid-cols-10 gap-1 mb-1">
-            <div className="col-span-1" />
-            {['Z', 'X', 'C', 'V', 'B', 'N', 'M'].map((key) => (
-              <button
-                key={key}
-                onClick={() => handleKeyboardPress(key)}
-                className="h-10 bg-white border border-gray-300 rounded font-bold text-gray-700 hover:bg-gray-100 active:bg-gray-200 transition-colors"
-              >
-                {key}
-              </button>
-            ))}
-            <button
-              onClick={() => handleKeyboardPress('backspace')}
-              className="h-10 col-span-2 bg-red-100 border border-red-300 rounded font-bold text-red-700 hover:bg-red-200 active:bg-red-300 transition-colors flex items-center justify-center"
-            >
-              <Delete className="w-5 h-5" />
-            </button>
-          </div>
-          <div className="grid grid-cols-10 gap-1">
-            <button
-              onClick={() => handleKeyboardPress('clear')}
-              className="h-10 col-span-3 bg-gray-200 border border-gray-400 rounded font-bold text-gray-700 hover:bg-gray-300 active:bg-gray-400 transition-colors"
-            >
-              Temizle
-            </button>
-            <button
-              onClick={() => handleKeyboardPress('space')}
-              className="h-10 col-span-4 bg-white border border-gray-300 rounded font-bold text-gray-500 hover:bg-gray-100 active:bg-gray-200 transition-colors"
-            >
-              Bosluk
-            </button>
-            <button
-              onClick={() => handleKeyboardPress('Ü')}
-              className="h-10 bg-white border border-gray-300 rounded font-bold text-gray-700 hover:bg-gray-100 active:bg-gray-200 transition-colors"
-            >
-              Ü
-            </button>
-            <button
-              onClick={() => handleKeyboardPress('Ş')}
-              className="h-10 bg-white border border-gray-300 rounded font-bold text-gray-700 hover:bg-gray-100 active:bg-gray-200 transition-colors"
-            >
-              Ş
-            </button>
-            <button
-              onClick={() => handleKeyboardPress('İ')}
-              className="h-10 bg-white border border-gray-300 rounded font-bold text-gray-700 hover:bg-gray-100 active:bg-gray-200 transition-colors"
-            >
-              İ
-            </button>
-          </div>
-        </div>
-
-        {/* Scrollable hotel list */}
-        <div className="max-h-[250px] overflow-y-auto border rounded-lg divide-y mb-4">
-          {filteredTenants.length === 0 ? (
-            <div className="p-4 text-center text-gray-500">
-              Otel bulunamadi
+        {/* Main content: Hotel list on left, Keyboard on right */}
+        <div className="flex gap-4 mb-4">
+          {/* Left side: Hotel list */}
+          <div className="flex-1">
+            {/* Scrollable hotel list */}
+            <div className="max-h-[350px] overflow-y-auto border rounded-lg divide-y">
+              {filteredTenants.length === 0 ? (
+                <div className="p-4 text-center text-gray-500">
+                  Otel bulunamadi
+                </div>
+              ) : (
+                filteredTenants.map((tenant: Tenant) => {
+                  const isSelected = selectedHotelIds.includes(tenant.id);
+                  const hotelDirtyCount = (dirtyItems || []).filter((i: Item) => i.tenantId === tenant.id).length;
+                  return (
+                    <label
+                      key={tenant.id}
+                      className={`flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors ${
+                        isSelected ? 'bg-blue-50' : ''
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleHotelSelection(tenant.id)}
+                          className="w-5 h-5 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                        />
+                        <span className={`font-medium ${isSelected ? 'text-blue-900' : 'text-gray-900'}`}>
+                          {tenant.name}
+                        </span>
+                      </div>
+                      {hotelDirtyCount > 0 ? (
+                        <span className={`px-2 py-1 rounded-full text-sm font-bold ${
+                          hotelDirtyCount > 10 ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
+                        }`}>
+                          {hotelDirtyCount}
+                        </span>
+                      ) : (
+                        <span className="text-sm text-gray-400">0</span>
+                      )}
+                    </label>
+                  );
+                })
+              )}
             </div>
-          ) : (
-            filteredTenants.map((tenant: Tenant) => {
-              const isSelected = selectedHotelIds.includes(tenant.id);
-              const hotelDirtyCount = (dirtyItems || []).filter((i: Item) => i.tenantId === tenant.id).length;
-              return (
-                <label
-                  key={tenant.id}
-                  className={`flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors ${
-                    isSelected ? 'bg-blue-50' : ''
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => toggleHotelSelection(tenant.id)}
-                      className="w-5 h-5 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
-                    />
-                    <span className={`font-medium ${isSelected ? 'text-blue-900' : 'text-gray-900'}`}>
-                      {tenant.name}
-                    </span>
-                  </div>
-                  {hotelDirtyCount > 0 ? (
-                    <span className={`px-2 py-1 rounded-full text-sm font-bold ${
-                      hotelDirtyCount > 10 ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
-                    }`}>
-                      {hotelDirtyCount}
-                    </span>
-                  ) : (
-                    <span className="text-sm text-gray-400">0</span>
-                  )}
-                </label>
-              );
-            })
-          )}
-        </div>
 
-        {/* Action buttons */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={selectAllHotels}
-              className="text-sm text-blue-600 hover:text-blue-700 font-medium"
-            >
-              Tumunu Sec
-            </button>
-            <span className="text-gray-300">|</span>
-            <button
-              onClick={clearHotelSelection}
-              className="text-sm text-gray-600 hover:text-gray-700 font-medium"
-            >
-              Temizle
-            </button>
+            {/* Action buttons */}
+            <div className="flex items-center justify-between mt-3">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={selectAllHotels}
+                  className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                >
+                  Tumunu Sec
+                </button>
+                <span className="text-gray-300">|</span>
+                <button
+                  onClick={clearHotelSelection}
+                  className="text-sm text-gray-600 hover:text-gray-700 font-medium"
+                >
+                  Temizle
+                </button>
+              </div>
+              <span className="text-sm text-gray-600">
+                {selectedHotelIds.length} secildi
+              </span>
+            </div>
           </div>
-          <span className="text-sm text-gray-600">
-            {selectedHotelIds.length} secildi
-          </span>
+
+          {/* Right side: On-screen Keyboard */}
+          <div className="w-80 bg-gray-50 rounded-lg p-3 border border-gray-200">
+            <p className="text-sm font-medium text-gray-600 mb-2 text-center">Klavye</p>
+            <div className="grid grid-cols-10 gap-1 mb-1">
+              {['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'].map((key) => (
+                <button
+                  key={key}
+                  onClick={() => handleKeyboardPress(key)}
+                  className="h-9 bg-white border border-gray-300 rounded font-bold text-sm text-gray-700 hover:bg-gray-100 active:bg-gray-200 transition-colors"
+                >
+                  {key}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-10 gap-1 mb-1">
+              <div className="col-span-1" />
+              {['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'].map((key) => (
+                <button
+                  key={key}
+                  onClick={() => handleKeyboardPress(key)}
+                  className="h-9 bg-white border border-gray-300 rounded font-bold text-sm text-gray-700 hover:bg-gray-100 active:bg-gray-200 transition-colors"
+                >
+                  {key}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-10 gap-1 mb-1">
+              <div className="col-span-1" />
+              {['Z', 'X', 'C', 'V', 'B', 'N', 'M'].map((key) => (
+                <button
+                  key={key}
+                  onClick={() => handleKeyboardPress(key)}
+                  className="h-9 bg-white border border-gray-300 rounded font-bold text-sm text-gray-700 hover:bg-gray-100 active:bg-gray-200 transition-colors"
+                >
+                  {key}
+                </button>
+              ))}
+              <button
+                onClick={() => handleKeyboardPress('backspace')}
+                className="h-9 col-span-2 bg-red-100 border border-red-300 rounded font-bold text-red-700 hover:bg-red-200 active:bg-red-300 transition-colors flex items-center justify-center"
+              >
+                <Delete className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="grid grid-cols-10 gap-1 mb-2">
+              <button
+                onClick={() => handleKeyboardPress('clear')}
+                className="h-9 col-span-3 bg-gray-200 border border-gray-400 rounded font-bold text-xs text-gray-700 hover:bg-gray-300 active:bg-gray-400 transition-colors"
+              >
+                Temizle
+              </button>
+              <button
+                onClick={() => handleKeyboardPress('space')}
+                className="h-9 col-span-4 bg-white border border-gray-300 rounded font-bold text-xs text-gray-500 hover:bg-gray-100 active:bg-gray-200 transition-colors"
+              >
+                Bosluk
+              </button>
+              <button
+                onClick={() => handleKeyboardPress('Ü')}
+                className="h-9 bg-white border border-gray-300 rounded font-bold text-sm text-gray-700 hover:bg-gray-100 active:bg-gray-200 transition-colors"
+              >
+                Ü
+              </button>
+              <button
+                onClick={() => handleKeyboardPress('Ş')}
+                className="h-9 bg-white border border-gray-300 rounded font-bold text-sm text-gray-700 hover:bg-gray-100 active:bg-gray-200 transition-colors"
+              >
+                Ş
+              </button>
+            </div>
+            <div className="grid grid-cols-4 gap-1">
+              <button
+                onClick={() => handleKeyboardPress('İ')}
+                className="h-9 bg-white border border-gray-300 rounded font-bold text-sm text-gray-700 hover:bg-gray-100 active:bg-gray-200 transition-colors"
+              >
+                İ
+              </button>
+              <button
+                onClick={() => handleKeyboardPress('Ö')}
+                className="h-9 bg-white border border-gray-300 rounded font-bold text-sm text-gray-700 hover:bg-gray-100 active:bg-gray-200 transition-colors"
+              >
+                Ö
+              </button>
+              <button
+                onClick={() => handleKeyboardPress('Ç')}
+                className="h-9 bg-white border border-gray-300 rounded font-bold text-sm text-gray-700 hover:bg-gray-100 active:bg-gray-200 transition-colors"
+              >
+                Ç
+              </button>
+              <button
+                onClick={() => handleKeyboardPress('Ğ')}
+                className="h-9 bg-white border border-gray-300 rounded font-bold text-sm text-gray-700 hover:bg-gray-100 active:bg-gray-200 transition-colors"
+              >
+                Ğ
+              </button>
+            </div>
+          </div>
         </div>
 
         <button
