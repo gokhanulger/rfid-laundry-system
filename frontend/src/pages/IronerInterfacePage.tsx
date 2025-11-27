@@ -768,6 +768,32 @@ export function IronerInterfacePage() {
                               </button>
                             </div>
 
+                            {/* Number Pad for easy count entry */}
+                            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                              <p className="text-sm font-medium text-gray-600 mb-3">Hizli Sayi Girisi</p>
+                              <div className="grid grid-cols-6 gap-2">
+                                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20, 25, 30, 50, 100].map((num) => (
+                                  <button
+                                    key={num}
+                                    onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: num }))}
+                                    className={`h-10 rounded-lg font-bold transition-all ${
+                                      addingCount[hotelId] === num
+                                        ? 'bg-purple-600 text-white'
+                                        : 'bg-white border-2 border-gray-300 text-gray-700 hover:bg-purple-50 hover:border-purple-400'
+                                    }`}
+                                  >
+                                    {num}
+                                  </button>
+                                ))}
+                                <button
+                                  onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: 0 }))}
+                                  className="h-10 col-span-2 rounded-lg font-bold bg-red-100 text-red-700 border-2 border-red-300 hover:bg-red-200 transition-all"
+                                >
+                                  Temizle
+                                </button>
+                              </div>
+                            </div>
+
                             {/* Discard and Hasarli Checkboxes */}
                             <div className="flex flex-wrap gap-6 bg-gray-50 rounded-lg p-4 border border-gray-200">
                               {/* Discard */}
