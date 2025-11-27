@@ -202,7 +202,7 @@ function generateSingleLabel(
           if (extraData.discardCount > 0) {
             doc.setFontSize(6);
             doc.setFont('helvetica', 'normal');
-            doc.text(`  Fire (Atik): ${extraData.discardCount}`, margin, yPos);
+            doc.text(`  Discard: ${extraData.discardCount}`, margin, yPos);
             yPos += 3;
           }
           if (extraData.hasarliCount > 0) {
@@ -250,7 +250,7 @@ function generateSingleLabel(
     doc.setFontSize(6);
     doc.setFont('helvetica', 'bold');
     if (totalDiscard > 0) {
-      doc.text(`Fire (Atik): ${totalDiscard}`, margin, yPos);
+      doc.text(`Discard: ${totalDiscard}`, margin, yPos);
       yPos += 3;
     }
     if (totalHasarli > 0) {
