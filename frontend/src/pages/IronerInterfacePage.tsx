@@ -964,9 +964,9 @@ export function IronerInterfacePage() {
                             </div>
 
                             {/* Discard and Hasarli Checkboxes */}
-                            <div className="flex flex-wrap gap-6 bg-gray-50 rounded-lg p-4 border border-gray-200">
+                            <div className="flex flex-wrap gap-4 bg-gray-50 rounded-lg p-4 border border-gray-200">
                               {/* Discard */}
-                              <div className="flex items-center gap-3">
+                              <div className="flex flex-col gap-2">
                                 <label className="flex items-center gap-2 cursor-pointer">
                                   <input
                                     type="checkbox"
@@ -984,32 +984,65 @@ export function IronerInterfacePage() {
                                   <span className="font-medium text-gray-700">Discord</span>
                                 </label>
                                 {addingDiscard[hotelId] && (
-                                  <div className="flex items-center gap-1">
-                                    <button
-                                      onClick={() => setAddingDiscardCount(prev => ({ ...prev, [hotelId]: Math.max(0, (prev[hotelId] || 1) - 1) }))}
-                                      className="w-8 h-8 bg-white border border-gray-300 rounded text-lg font-bold hover:bg-gray-100"
-                                    >
-                                      -
-                                    </button>
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      value={addingDiscardCount[hotelId] || 0}
-                                      onChange={(e) => setAddingDiscardCount(prev => ({ ...prev, [hotelId]: Math.max(0, parseInt(e.target.value) || 0) }))}
-                                      className="w-14 h-8 text-center border border-gray-300 rounded focus:ring-2 focus:ring-red-500"
-                                    />
-                                    <button
-                                      onClick={() => setAddingDiscardCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) + 1 }))}
-                                      className="w-8 h-8 bg-white border border-gray-300 rounded text-lg font-bold hover:bg-gray-100"
-                                    >
-                                      +
-                                    </button>
+                                  <div className="flex gap-2">
+                                    <div className="flex items-center gap-1">
+                                      <button
+                                        onClick={() => setAddingDiscardCount(prev => ({ ...prev, [hotelId]: Math.max(0, (prev[hotelId] || 1) - 1) }))}
+                                        className="w-8 h-8 bg-white border border-gray-300 rounded text-lg font-bold hover:bg-gray-100"
+                                      >
+                                        -
+                                      </button>
+                                      <input
+                                        type="text"
+                                        inputMode="numeric"
+                                        value={addingDiscardCount[hotelId] || 0}
+                                        onChange={(e) => {
+                                          const num = parseInt(e.target.value);
+                                          if (!isNaN(num) && num >= 0) {
+                                            setAddingDiscardCount(prev => ({ ...prev, [hotelId]: num }));
+                                          }
+                                        }}
+                                        className="w-14 h-8 text-center border border-gray-300 rounded focus:ring-2 focus:ring-red-500"
+                                      />
+                                      <button
+                                        onClick={() => setAddingDiscardCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) + 1 }))}
+                                        className="w-8 h-8 bg-white border border-gray-300 rounded text-lg font-bold hover:bg-gray-100"
+                                      >
+                                        +
+                                      </button>
+                                    </div>
+                                    {/* Discord Number Pad */}
+                                    <div className="bg-white rounded p-1 border border-gray-200">
+                                      <div className="grid grid-cols-4 gap-0.5">
+                                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 0].map((num) => (
+                                          <button
+                                            key={num}
+                                            onClick={() => setAddingDiscardCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) * 10 + num }))}
+                                            className="w-6 h-6 rounded text-xs font-bold bg-gray-50 border border-gray-200 text-gray-700 hover:bg-red-50 hover:border-red-300 active:bg-red-100 transition-all"
+                                          >
+                                            {num}
+                                          </button>
+                                        ))}
+                                        <button
+                                          onClick={() => setAddingDiscardCount(prev => ({ ...prev, [hotelId]: 0 }))}
+                                          className="w-6 h-6 rounded text-xs font-bold bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 transition-all"
+                                        >
+                                          C
+                                        </button>
+                                        <button
+                                          onClick={() => setAddingDiscardCount(prev => ({ ...prev, [hotelId]: Math.floor((prev[hotelId] || 0) / 10) }))}
+                                          className="w-6 h-6 rounded text-xs font-bold bg-gray-100 border border-gray-300 text-gray-600 hover:bg-gray-200 transition-all"
+                                        >
+                                          ←
+                                        </button>
+                                      </div>
+                                    </div>
                                   </div>
                                 )}
                               </div>
 
                               {/* Hasarli (Damaged) */}
-                              <div className="flex items-center gap-3">
+                              <div className="flex flex-col gap-2">
                                 <label className="flex items-center gap-2 cursor-pointer">
                                   <input
                                     type="checkbox"
@@ -1027,26 +1060,59 @@ export function IronerInterfacePage() {
                                   <span className="font-medium text-gray-700">Lekeli Urun</span>
                                 </label>
                                 {addingHasarli[hotelId] && (
-                                  <div className="flex items-center gap-1">
-                                    <button
-                                      onClick={() => setAddingHasarliCount(prev => ({ ...prev, [hotelId]: Math.max(0, (prev[hotelId] || 1) - 1) }))}
-                                      className="w-8 h-8 bg-white border border-gray-300 rounded text-lg font-bold hover:bg-gray-100"
-                                    >
-                                      -
-                                    </button>
-                                    <input
-                                      type="number"
-                                      min="0"
-                                      value={addingHasarliCount[hotelId] || 0}
-                                      onChange={(e) => setAddingHasarliCount(prev => ({ ...prev, [hotelId]: Math.max(0, parseInt(e.target.value) || 0) }))}
-                                      className="w-14 h-8 text-center border border-gray-300 rounded focus:ring-2 focus:ring-orange-500"
-                                    />
-                                    <button
-                                      onClick={() => setAddingHasarliCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) + 1 }))}
-                                      className="w-8 h-8 bg-white border border-gray-300 rounded text-lg font-bold hover:bg-gray-100"
-                                    >
-                                      +
-                                    </button>
+                                  <div className="flex gap-2">
+                                    <div className="flex items-center gap-1">
+                                      <button
+                                        onClick={() => setAddingHasarliCount(prev => ({ ...prev, [hotelId]: Math.max(0, (prev[hotelId] || 1) - 1) }))}
+                                        className="w-8 h-8 bg-white border border-gray-300 rounded text-lg font-bold hover:bg-gray-100"
+                                      >
+                                        -
+                                      </button>
+                                      <input
+                                        type="text"
+                                        inputMode="numeric"
+                                        value={addingHasarliCount[hotelId] || 0}
+                                        onChange={(e) => {
+                                          const num = parseInt(e.target.value);
+                                          if (!isNaN(num) && num >= 0) {
+                                            setAddingHasarliCount(prev => ({ ...prev, [hotelId]: num }));
+                                          }
+                                        }}
+                                        className="w-14 h-8 text-center border border-gray-300 rounded focus:ring-2 focus:ring-orange-500"
+                                      />
+                                      <button
+                                        onClick={() => setAddingHasarliCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) + 1 }))}
+                                        className="w-8 h-8 bg-white border border-gray-300 rounded text-lg font-bold hover:bg-gray-100"
+                                      >
+                                        +
+                                      </button>
+                                    </div>
+                                    {/* Lekeli Number Pad */}
+                                    <div className="bg-white rounded p-1 border border-gray-200">
+                                      <div className="grid grid-cols-4 gap-0.5">
+                                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 0].map((num) => (
+                                          <button
+                                            key={num}
+                                            onClick={() => setAddingHasarliCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) * 10 + num }))}
+                                            className="w-6 h-6 rounded text-xs font-bold bg-gray-50 border border-gray-200 text-gray-700 hover:bg-orange-50 hover:border-orange-300 active:bg-orange-100 transition-all"
+                                          >
+                                            {num}
+                                          </button>
+                                        ))}
+                                        <button
+                                          onClick={() => setAddingHasarliCount(prev => ({ ...prev, [hotelId]: 0 }))}
+                                          className="w-6 h-6 rounded text-xs font-bold bg-orange-50 border border-orange-200 text-orange-600 hover:bg-orange-100 transition-all"
+                                        >
+                                          C
+                                        </button>
+                                        <button
+                                          onClick={() => setAddingHasarliCount(prev => ({ ...prev, [hotelId]: Math.floor((prev[hotelId] || 0) / 10) }))}
+                                          className="w-6 h-6 rounded text-xs font-bold bg-gray-100 border border-gray-300 text-gray-600 hover:bg-gray-200 transition-all"
+                                        >
+                                          ←
+                                        </button>
+                                      </div>
+                                    </div>
                                   </div>
                                 )}
                               </div>
