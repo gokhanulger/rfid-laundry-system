@@ -922,7 +922,23 @@ export function IronerInterfacePage() {
                                     </div>
                                   </div>
 
-                                  {/* Discord Input */}
+                                  {/* Add Button */}
+                                  <button
+                                    onClick={() => handleAddToPrintList(hotelId, itemsByType)}
+                                    disabled={!addingTypeId[hotelId]}
+                                    className="h-12 px-6 flex items-center gap-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-bold transition-all self-end"
+                                  >
+                                    <Plus className="w-5 h-5" />
+                                    Ekle
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Right side: Number Pad with Discord/Lekeli */}
+                              <div className="flex flex-col gap-2 self-end">
+                                {/* Discord and Lekeli boxes */}
+                                <div className="flex gap-2">
+                                  {/* Discord Input - Blue */}
                                   <div
                                     onClick={() => {
                                       if (!addingDiscard[hotelId]) {
@@ -931,9 +947,9 @@ export function IronerInterfacePage() {
                                       }
                                       setActiveNumpadTarget(prev => ({ ...prev, [hotelId]: 'discord' }));
                                     }}
-                                    className={`cursor-pointer p-2 rounded-lg transition-all ${activeNumpadTarget[hotelId] === 'discord' ? 'bg-red-100 ring-2 ring-red-500' : ''}`}
+                                    className={`cursor-pointer p-2 rounded-lg transition-all border-2 ${activeNumpadTarget[hotelId] === 'discord' ? 'bg-blue-100 border-blue-500 ring-2 ring-blue-500' : 'bg-blue-50 border-blue-200'}`}
                                   >
-                                    <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-2">
+                                    <label className="flex items-center gap-2 text-sm font-medium text-blue-700 mb-1">
                                       <input
                                         type="checkbox"
                                         checked={addingDiscard[hotelId] || false}
@@ -947,7 +963,7 @@ export function IronerInterfacePage() {
                                             setActiveNumpadTarget(prev => ({ ...prev, [hotelId]: 'discord' }));
                                           }
                                         }}
-                                        className="w-4 h-4 text-red-600 rounded border-gray-300 focus:ring-red-500"
+                                        className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
                                       />
                                       Discord
                                     </label>
@@ -955,7 +971,7 @@ export function IronerInterfacePage() {
                                       <div className="flex items-center gap-1">
                                         <button
                                           onClick={(e) => { e.stopPropagation(); setAddingDiscardCount(prev => ({ ...prev, [hotelId]: Math.max(0, (prev[hotelId] || 1) - 1) })); }}
-                                          className="w-8 h-10 bg-white border border-gray-300 rounded-l text-lg font-bold hover:bg-gray-100"
+                                          className="w-7 h-8 bg-white border border-blue-300 rounded-l text-sm font-bold hover:bg-blue-50"
                                         >
                                           -
                                         </button>
@@ -970,11 +986,11 @@ export function IronerInterfacePage() {
                                               setAddingDiscardCount(prev => ({ ...prev, [hotelId]: num }));
                                             }
                                           }}
-                                          className="w-12 h-10 text-center text-lg font-bold border-y border-gray-300 focus:ring-2 focus:ring-red-500"
+                                          className="w-10 h-8 text-center text-sm font-bold border-y border-blue-300 focus:ring-2 focus:ring-blue-500"
                                         />
                                         <button
                                           onClick={(e) => { e.stopPropagation(); setAddingDiscardCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) + 1 })); }}
-                                          className="w-8 h-10 bg-white border border-gray-300 rounded-r text-lg font-bold hover:bg-gray-100"
+                                          className="w-7 h-8 bg-white border border-blue-300 rounded-r text-sm font-bold hover:bg-blue-50"
                                         >
                                           +
                                         </button>
@@ -982,7 +998,7 @@ export function IronerInterfacePage() {
                                     )}
                                   </div>
 
-                                  {/* Lekeli Input */}
+                                  {/* Lekeli Input - Red */}
                                   <div
                                     onClick={() => {
                                       if (!addingHasarli[hotelId]) {
@@ -991,9 +1007,9 @@ export function IronerInterfacePage() {
                                       }
                                       setActiveNumpadTarget(prev => ({ ...prev, [hotelId]: 'lekeli' }));
                                     }}
-                                    className={`cursor-pointer p-2 rounded-lg transition-all ${activeNumpadTarget[hotelId] === 'lekeli' ? 'bg-orange-100 ring-2 ring-orange-500' : ''}`}
+                                    className={`cursor-pointer p-2 rounded-lg transition-all border-2 ${activeNumpadTarget[hotelId] === 'lekeli' ? 'bg-red-100 border-red-500 ring-2 ring-red-500' : 'bg-red-50 border-red-200'}`}
                                   >
-                                    <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-2">
+                                    <label className="flex items-center gap-2 text-sm font-medium text-red-700 mb-1">
                                       <input
                                         type="checkbox"
                                         checked={addingHasarli[hotelId] || false}
@@ -1007,7 +1023,7 @@ export function IronerInterfacePage() {
                                             setActiveNumpadTarget(prev => ({ ...prev, [hotelId]: 'lekeli' }));
                                           }
                                         }}
-                                        className="w-4 h-4 text-orange-600 rounded border-gray-300 focus:ring-orange-500"
+                                        className="w-4 h-4 text-red-600 rounded border-gray-300 focus:ring-red-500"
                                       />
                                       Lekeli
                                     </label>
@@ -1015,7 +1031,7 @@ export function IronerInterfacePage() {
                                       <div className="flex items-center gap-1">
                                         <button
                                           onClick={(e) => { e.stopPropagation(); setAddingHasarliCount(prev => ({ ...prev, [hotelId]: Math.max(0, (prev[hotelId] || 1) - 1) })); }}
-                                          className="w-8 h-10 bg-white border border-gray-300 rounded-l text-lg font-bold hover:bg-gray-100"
+                                          className="w-7 h-8 bg-white border border-red-300 rounded-l text-sm font-bold hover:bg-red-50"
                                         >
                                           -
                                         </button>
@@ -1030,120 +1046,110 @@ export function IronerInterfacePage() {
                                               setAddingHasarliCount(prev => ({ ...prev, [hotelId]: num }));
                                             }
                                           }}
-                                          className="w-12 h-10 text-center text-lg font-bold border-y border-gray-300 focus:ring-2 focus:ring-orange-500"
+                                          className="w-10 h-8 text-center text-sm font-bold border-y border-red-300 focus:ring-2 focus:ring-red-500"
                                         />
                                         <button
                                           onClick={(e) => { e.stopPropagation(); setAddingHasarliCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) + 1 })); }}
-                                          className="w-8 h-10 bg-white border border-gray-300 rounded-r text-lg font-bold hover:bg-gray-100"
+                                          className="w-7 h-8 bg-white border border-red-300 rounded-r text-sm font-bold hover:bg-red-50"
                                         >
                                           +
                                         </button>
                                       </div>
                                     )}
                                   </div>
-
-                                  {/* Add Button */}
-                                  <button
-                                    onClick={() => handleAddToPrintList(hotelId, itemsByType)}
-                                    disabled={!addingTypeId[hotelId]}
-                                    className="h-12 px-6 flex items-center gap-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-bold transition-all self-end"
-                                  >
-                                    <Plus className="w-5 h-5" />
-                                    Ekle
-                                  </button>
                                 </div>
-                              </div>
 
-                              {/* Right side: Shared Number Pad */}
-                              <div className={`rounded-lg p-3 border-2 w-36 self-end transition-all ${
-                                activeNumpadTarget[hotelId] === 'discord' ? 'bg-red-50 border-red-300' :
-                                activeNumpadTarget[hotelId] === 'lekeli' ? 'bg-orange-50 border-orange-300' :
-                                'bg-gray-50 border-gray-200'
-                              }`}>
-                                <p className={`text-xs font-medium mb-2 text-center ${
-                                  activeNumpadTarget[hotelId] === 'discord' ? 'text-red-600' :
-                                  activeNumpadTarget[hotelId] === 'lekeli' ? 'text-orange-600' :
-                                  'text-gray-600'
+                                {/* Shared Number Pad */}
+                                <div className={`rounded-lg p-3 border-2 w-full transition-all ${
+                                  activeNumpadTarget[hotelId] === 'discord' ? 'bg-blue-50 border-blue-300' :
+                                  activeNumpadTarget[hotelId] === 'lekeli' ? 'bg-red-50 border-red-300' :
+                                  'bg-gray-50 border-gray-200'
                                 }`}>
-                                  {activeNumpadTarget[hotelId] === 'discord' ? 'Discord' :
-                                   activeNumpadTarget[hotelId] === 'lekeli' ? 'Lekeli' : 'Adet'}
-                                </p>
-                                <div className="grid grid-cols-3 gap-1">
-                                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
+                                  <p className={`text-xs font-medium mb-2 text-center ${
+                                    activeNumpadTarget[hotelId] === 'discord' ? 'text-blue-600' :
+                                    activeNumpadTarget[hotelId] === 'lekeli' ? 'text-red-600' :
+                                    'text-gray-600'
+                                  }`}>
+                                    {activeNumpadTarget[hotelId] === 'discord' ? 'Discord' :
+                                     activeNumpadTarget[hotelId] === 'lekeli' ? 'Lekeli' : 'Adet'}
+                                  </p>
+                                  <div className="grid grid-cols-3 gap-1">
+                                    {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
+                                      <button
+                                        key={num}
+                                        onClick={() => {
+                                          const target = activeNumpadTarget[hotelId] || 'count';
+                                          if (target === 'count') {
+                                            setAddingCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) * 10 + num }));
+                                          } else if (target === 'discord') {
+                                            setAddingDiscardCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) * 10 + num }));
+                                          } else {
+                                            setAddingHasarliCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) * 10 + num }));
+                                          }
+                                        }}
+                                        className={`h-8 rounded font-bold text-base bg-white border text-gray-700 transition-all ${
+                                          activeNumpadTarget[hotelId] === 'discord' ? 'border-blue-200 hover:bg-blue-50 hover:border-blue-400 active:bg-blue-100' :
+                                          activeNumpadTarget[hotelId] === 'lekeli' ? 'border-red-200 hover:bg-red-50 hover:border-red-400 active:bg-red-100' :
+                                          'border-gray-300 hover:bg-purple-50 hover:border-purple-400 active:bg-purple-100'
+                                        }`}
+                                      >
+                                        {num}
+                                      </button>
+                                    ))}
                                     <button
-                                      key={num}
                                       onClick={() => {
                                         const target = activeNumpadTarget[hotelId] || 'count';
                                         if (target === 'count') {
-                                          setAddingCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) * 10 + num }));
+                                          setAddingCount(prev => ({ ...prev, [hotelId]: 0 }));
                                         } else if (target === 'discord') {
-                                          setAddingDiscardCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) * 10 + num }));
+                                          setAddingDiscardCount(prev => ({ ...prev, [hotelId]: 0 }));
                                         } else {
-                                          setAddingHasarliCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) * 10 + num }));
+                                          setAddingHasarliCount(prev => ({ ...prev, [hotelId]: 0 }));
+                                        }
+                                      }}
+                                      className={`h-8 rounded font-bold text-xs border transition-all ${
+                                        activeNumpadTarget[hotelId] === 'discord' ? 'bg-blue-100 text-blue-700 border-blue-300 hover:bg-blue-200' :
+                                        activeNumpadTarget[hotelId] === 'lekeli' ? 'bg-red-100 text-red-700 border-red-300 hover:bg-red-200' :
+                                        'bg-red-100 text-red-700 border-red-300 hover:bg-red-200'
+                                      }`}
+                                    >
+                                      C
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        const target = activeNumpadTarget[hotelId] || 'count';
+                                        if (target === 'count') {
+                                          setAddingCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) * 10 }));
+                                        } else if (target === 'discord') {
+                                          setAddingDiscardCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) * 10 }));
+                                        } else {
+                                          setAddingHasarliCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) * 10 }));
                                         }
                                       }}
                                       className={`h-8 rounded font-bold text-base bg-white border text-gray-700 transition-all ${
-                                        activeNumpadTarget[hotelId] === 'discord' ? 'border-red-200 hover:bg-red-50 hover:border-red-400 active:bg-red-100' :
-                                        activeNumpadTarget[hotelId] === 'lekeli' ? 'border-orange-200 hover:bg-orange-50 hover:border-orange-400 active:bg-orange-100' :
-                                        'border-gray-300 hover:bg-purple-50 hover:border-purple-400 active:bg-purple-100'
+                                        activeNumpadTarget[hotelId] === 'discord' ? 'border-blue-200 hover:bg-blue-50 hover:border-blue-400' :
+                                        activeNumpadTarget[hotelId] === 'lekeli' ? 'border-red-200 hover:bg-red-50 hover:border-red-400' :
+                                        'border-gray-300 hover:bg-purple-50 hover:border-purple-400'
                                       }`}
                                     >
-                                      {num}
+                                      0
                                     </button>
-                                  ))}
-                                  <button
-                                    onClick={() => {
-                                      const target = activeNumpadTarget[hotelId] || 'count';
-                                      if (target === 'count') {
-                                        setAddingCount(prev => ({ ...prev, [hotelId]: 0 }));
-                                      } else if (target === 'discord') {
-                                        setAddingDiscardCount(prev => ({ ...prev, [hotelId]: 0 }));
-                                      } else {
-                                        setAddingHasarliCount(prev => ({ ...prev, [hotelId]: 0 }));
-                                      }
-                                    }}
-                                    className={`h-8 rounded font-bold text-xs border transition-all ${
-                                      activeNumpadTarget[hotelId] === 'discord' ? 'bg-red-100 text-red-700 border-red-300 hover:bg-red-200' :
-                                      activeNumpadTarget[hotelId] === 'lekeli' ? 'bg-orange-100 text-orange-700 border-orange-300 hover:bg-orange-200' :
-                                      'bg-red-100 text-red-700 border-red-300 hover:bg-red-200'
-                                    }`}
-                                  >
-                                    C
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      const target = activeNumpadTarget[hotelId] || 'count';
-                                      if (target === 'count') {
-                                        setAddingCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) * 10 }));
-                                      } else if (target === 'discord') {
-                                        setAddingDiscardCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) * 10 }));
-                                      } else {
-                                        setAddingHasarliCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) * 10 }));
-                                      }
-                                    }}
-                                    className={`h-8 rounded font-bold text-base bg-white border text-gray-700 transition-all ${
-                                      activeNumpadTarget[hotelId] === 'discord' ? 'border-red-200 hover:bg-red-50 hover:border-red-400' :
-                                      activeNumpadTarget[hotelId] === 'lekeli' ? 'border-orange-200 hover:bg-orange-50 hover:border-orange-400' :
-                                      'border-gray-300 hover:bg-purple-50 hover:border-purple-400'
-                                    }`}
-                                  >
-                                    0
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      const target = activeNumpadTarget[hotelId] || 'count';
-                                      if (target === 'count') {
-                                        setAddingCount(prev => ({ ...prev, [hotelId]: Math.floor((prev[hotelId] || 0) / 10) }));
-                                      } else if (target === 'discord') {
-                                        setAddingDiscardCount(prev => ({ ...prev, [hotelId]: Math.floor((prev[hotelId] || 0) / 10) }));
-                                      } else {
-                                        setAddingHasarliCount(prev => ({ ...prev, [hotelId]: Math.floor((prev[hotelId] || 0) / 10) }));
-                                      }
-                                    }}
-                                    className="h-8 rounded font-bold text-sm bg-gray-200 border border-gray-400 text-gray-700 hover:bg-gray-300 active:bg-gray-400 transition-all flex items-center justify-center"
-                                  >
-                                    <Delete className="w-3 h-3" />
-                                  </button>
+                                    <button
+                                      onClick={() => {
+                                        const target = activeNumpadTarget[hotelId] || 'count';
+                                        if (target === 'count') {
+                                          setAddingCount(prev => ({ ...prev, [hotelId]: Math.floor((prev[hotelId] || 0) / 10) }));
+                                        } else if (target === 'discord') {
+                                          setAddingDiscardCount(prev => ({ ...prev, [hotelId]: Math.floor((prev[hotelId] || 0) / 10) }));
+                                        } else {
+                                          setAddingHasarliCount(prev => ({ ...prev, [hotelId]: Math.floor((prev[hotelId] || 0) / 10) }));
+                                        }
+                                      }}
+                                      className="h-8 rounded font-bold text-sm bg-gray-200 border border-gray-400 text-gray-700 hover:bg-gray-300 active:bg-gray-400 transition-all flex items-center justify-center"
+                                    >
+                                      <Delete className="w-3 h-3" />
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
                             </div>
