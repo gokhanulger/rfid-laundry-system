@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Printer, CheckCircle, RefreshCw, Package, Tag, Sparkles, ChevronDown, ChevronRight, Building2, X, Plus, Trash2 } from 'lucide-react';
+import { Printer, CheckCircle, RefreshCw, Package, Tag, Sparkles, ChevronDown, ChevronRight, Building2, X, Plus, Trash2, Search, Delete } from 'lucide-react';
 import { itemsApi, deliveriesApi, settingsApi, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/Toast';
 import { generateDeliveryLabel } from '../lib/pdfGenerator';
@@ -41,6 +41,8 @@ export function IronerInterfacePage() {
   const [printItems, setPrintItems] = useState<Record<string, PrintItem[]>>({});
   // Last printed item type per hotel for dropdown sorting
   const [lastPrintedType, setLastPrintedType] = useState<Record<string, string>>({});
+  // Hotel search filter
+  const [hotelSearchFilter, setHotelSearchFilter] = useState('');
   const queryClient = useQueryClient();
   const toast = useToast();
 
@@ -336,9 +338,27 @@ export function IronerInterfacePage() {
   const filteredItemCount = Object.values(itemsByHotel).flat().length;
 
   // Hotel Selection Dialog
+  // Filter tenants by search
+  const filteredTenants = tenants?.filter((tenant: Tenant) =>
+    hotelSearchFilter === '' || tenant.name.toLowerCase().includes(hotelSearchFilter.toLowerCase())
+  ) || [];
+
+  // On-screen keyboard handler
+  const handleKeyboardPress = (key: string) => {
+    if (key === 'backspace') {
+      setHotelSearchFilter(prev => prev.slice(0, -1));
+    } else if (key === 'clear') {
+      setHotelSearchFilter('');
+    } else if (key === 'space') {
+      setHotelSearchFilter(prev => prev + ' ');
+    } else {
+      setHotelSearchFilter(prev => prev + key);
+    }
+  };
+
   const HotelSelectionDialog = () => (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-lg mx-4">
+      <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
             <Building2 className="w-6 h-6 text-blue-600" />
@@ -346,7 +366,10 @@ export function IronerInterfacePage() {
           </h2>
           {isWorking && (
             <button
-              onClick={() => setShowHotelSelector(false)}
+              onClick={() => {
+                setShowHotelSelector(false);
+                setHotelSearchFilter('');
+              }}
               className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg"
             >
               <X className="w-5 h-5" />
@@ -354,41 +377,146 @@ export function IronerInterfacePage() {
           )}
         </div>
 
-        {/* Scrollable hotel list */}
-        <div className="max-h-[350px] overflow-y-auto border rounded-lg divide-y mb-4">
-          {tenants?.map((tenant: Tenant) => {
-            const isSelected = selectedHotelIds.includes(tenant.id);
-            const hotelDirtyCount = (dirtyItems || []).filter((i: Item) => i.tenantId === tenant.id).length;
-            return (
-              <label
-                key={tenant.id}
-                className={`flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors ${
-                  isSelected ? 'bg-blue-50' : ''
-                }`}
+        {/* Search Input */}
+        <div className="mb-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input
+              type="text"
+              value={hotelSearchFilter}
+              onChange={(e) => setHotelSearchFilter(e.target.value)}
+              placeholder="Otel ara..."
+              className="w-full pl-10 pr-4 py-3 border-2 border-gray-300 rounded-lg text-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+            {hotelSearchFilter && (
+              <button
+                onClick={() => setHotelSearchFilter('')}
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600"
               >
-                <div className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    checked={isSelected}
-                    onChange={() => toggleHotelSelection(tenant.id)}
-                    className="w-5 h-5 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
-                  />
-                  <span className={`font-medium ${isSelected ? 'text-blue-900' : 'text-gray-900'}`}>
-                    {tenant.name}
-                  </span>
-                </div>
-                {hotelDirtyCount > 0 ? (
-                  <span className={`px-2 py-1 rounded-full text-sm font-bold ${
-                    hotelDirtyCount > 10 ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
-                  }`}>
-                    {hotelDirtyCount}
-                  </span>
-                ) : (
-                  <span className="text-sm text-gray-400">0</span>
-                )}
-              </label>
-            );
-          })}
+                <X className="w-5 h-5" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* On-screen Keyboard */}
+        <div className="mb-4 bg-gray-50 rounded-lg p-3 border border-gray-200">
+          <div className="grid grid-cols-10 gap-1 mb-1">
+            {['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'].map((key) => (
+              <button
+                key={key}
+                onClick={() => handleKeyboardPress(key)}
+                className="h-10 bg-white border border-gray-300 rounded font-bold text-gray-700 hover:bg-gray-100 active:bg-gray-200 transition-colors"
+              >
+                {key}
+              </button>
+            ))}
+          </div>
+          <div className="grid grid-cols-10 gap-1 mb-1">
+            <div className="col-span-1" />
+            {['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'].map((key) => (
+              <button
+                key={key}
+                onClick={() => handleKeyboardPress(key)}
+                className="h-10 bg-white border border-gray-300 rounded font-bold text-gray-700 hover:bg-gray-100 active:bg-gray-200 transition-colors"
+              >
+                {key}
+              </button>
+            ))}
+          </div>
+          <div className="grid grid-cols-10 gap-1 mb-1">
+            <div className="col-span-1" />
+            {['Z', 'X', 'C', 'V', 'B', 'N', 'M'].map((key) => (
+              <button
+                key={key}
+                onClick={() => handleKeyboardPress(key)}
+                className="h-10 bg-white border border-gray-300 rounded font-bold text-gray-700 hover:bg-gray-100 active:bg-gray-200 transition-colors"
+              >
+                {key}
+              </button>
+            ))}
+            <button
+              onClick={() => handleKeyboardPress('backspace')}
+              className="h-10 col-span-2 bg-red-100 border border-red-300 rounded font-bold text-red-700 hover:bg-red-200 active:bg-red-300 transition-colors flex items-center justify-center"
+            >
+              <Delete className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="grid grid-cols-10 gap-1">
+            <button
+              onClick={() => handleKeyboardPress('clear')}
+              className="h-10 col-span-3 bg-gray-200 border border-gray-400 rounded font-bold text-gray-700 hover:bg-gray-300 active:bg-gray-400 transition-colors"
+            >
+              Temizle
+            </button>
+            <button
+              onClick={() => handleKeyboardPress('space')}
+              className="h-10 col-span-4 bg-white border border-gray-300 rounded font-bold text-gray-500 hover:bg-gray-100 active:bg-gray-200 transition-colors"
+            >
+              Bosluk
+            </button>
+            <button
+              onClick={() => handleKeyboardPress('Ü')}
+              className="h-10 bg-white border border-gray-300 rounded font-bold text-gray-700 hover:bg-gray-100 active:bg-gray-200 transition-colors"
+            >
+              Ü
+            </button>
+            <button
+              onClick={() => handleKeyboardPress('Ş')}
+              className="h-10 bg-white border border-gray-300 rounded font-bold text-gray-700 hover:bg-gray-100 active:bg-gray-200 transition-colors"
+            >
+              Ş
+            </button>
+            <button
+              onClick={() => handleKeyboardPress('İ')}
+              className="h-10 bg-white border border-gray-300 rounded font-bold text-gray-700 hover:bg-gray-100 active:bg-gray-200 transition-colors"
+            >
+              İ
+            </button>
+          </div>
+        </div>
+
+        {/* Scrollable hotel list */}
+        <div className="max-h-[250px] overflow-y-auto border rounded-lg divide-y mb-4">
+          {filteredTenants.length === 0 ? (
+            <div className="p-4 text-center text-gray-500">
+              Otel bulunamadi
+            </div>
+          ) : (
+            filteredTenants.map((tenant: Tenant) => {
+              const isSelected = selectedHotelIds.includes(tenant.id);
+              const hotelDirtyCount = (dirtyItems || []).filter((i: Item) => i.tenantId === tenant.id).length;
+              return (
+                <label
+                  key={tenant.id}
+                  className={`flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors ${
+                    isSelected ? 'bg-blue-50' : ''
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleHotelSelection(tenant.id)}
+                      className="w-5 h-5 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                    />
+                    <span className={`font-medium ${isSelected ? 'text-blue-900' : 'text-gray-900'}`}>
+                      {tenant.name}
+                    </span>
+                  </div>
+                  {hotelDirtyCount > 0 ? (
+                    <span className={`px-2 py-1 rounded-full text-sm font-bold ${
+                      hotelDirtyCount > 10 ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
+                    }`}>
+                      {hotelDirtyCount}
+                    </span>
+                  ) : (
+                    <span className="text-sm text-gray-400">0</span>
+                  )}
+                </label>
+              );
+            })
+          )}
         </div>
 
         {/* Action buttons */}
@@ -419,6 +547,7 @@ export function IronerInterfacePage() {
               saveSelectedHotels(selectedHotelIds);
               setIsWorking(true);
               setShowHotelSelector(false);
+              setHotelSearchFilter('');
             }
           }}
           disabled={selectedHotelIds.length === 0}
