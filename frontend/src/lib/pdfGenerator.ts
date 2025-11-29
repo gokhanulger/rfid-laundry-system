@@ -36,6 +36,16 @@ export function generateDeliveryLabel(delivery: Delivery, labelExtraData?: Label
         createdAt: new Date().toISOString(),
       } as DeliveryPackage));
 
+  // Check if there's any discord or lekeli in the extra data
+  let hasDiscord = false;
+  let hasLekeli = false;
+  if (labelExtraData) {
+    labelExtraData.forEach(e => {
+      if (e.discardCount > 0) hasDiscord = true;
+      if (e.hasarliCount > 0) hasLekeli = true;
+    });
+  }
+
   labelsToGenerate.forEach((pkg, index) => {
     if (index > 0) {
       doc.addPage([LABEL_WIDTH, LABEL_HEIGHT]);
@@ -44,6 +54,12 @@ export function generateDeliveryLabel(delivery: Delivery, labelExtraData?: Label
     generateSingleLabel(doc, delivery, pkg, labelsToGenerate.length, labelExtraData);
   });
 
+  // If discord or lekeli is selected, add a second special label
+  if (hasDiscord || hasLekeli) {
+    doc.addPage([LABEL_WIDTH, LABEL_HEIGHT]);
+    generateSpecialLabel(doc, delivery, hasDiscord ? 'DISCORD' : 'LEKELI');
+  }
+
   // Generate filename
   const filename = `delivery-${delivery.barcode}-${Date.now()}.pdf`;
 
@@ -51,6 +67,90 @@ export function generateDeliveryLabel(delivery: Delivery, labelExtraData?: Label
   doc.save(filename);
 
   return filename;
+}
+
+// Generate a special label with big text for DISCORD or LEKELI
+function generateSpecialLabel(doc: jsPDF, delivery: Delivery, labelType: 'DISCORD' | 'LEKELI') {
+  const black = '#000000';
+  const white = '#FFFFFF';
+  const margin = 3;
+
+  // White background
+  doc.setFillColor(255, 255, 255);
+  doc.rect(0, 0, LABEL_WIDTH, LABEL_HEIGHT, 'F');
+
+  // Colored header bar based on type
+  if (labelType === 'DISCORD') {
+    doc.setFillColor(59, 130, 246); // Blue
+  } else {
+    doc.setFillColor(239, 68, 68); // Red
+  }
+  doc.rect(0, 0, LABEL_WIDTH, 12, 'F');
+
+  // Title in white
+  doc.setTextColor(white);
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'bold');
+  doc.text('SPECIAL LABEL', LABEL_WIDTH / 2, 7, { align: 'center' });
+
+  // Reset to black text
+  doc.setTextColor(black);
+
+  let yPos = 18;
+
+  // Hotel Name
+  doc.setFontSize(5);
+  doc.setFont('helvetica', 'normal');
+  doc.text('HOTEL', margin, yPos);
+
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'bold');
+  const hotelName = delivery.tenant?.name || 'Unknown Hotel';
+  const maxHotelLen = 18;
+  const displayHotel = hotelName.length > maxHotelLen ? hotelName.substring(0, maxHotelLen) + '...' : hotelName;
+  doc.text(displayHotel, margin, yPos + 4);
+
+  yPos += 12;
+
+  // Big label type text - center of the label
+  const bigTextY = LABEL_HEIGHT / 2;
+
+  // Draw a big colored box for the label type
+  if (labelType === 'DISCORD') {
+    doc.setFillColor(59, 130, 246); // Blue
+  } else {
+    doc.setFillColor(239, 68, 68); // Red
+  }
+  doc.rect(margin, bigTextY - 12, LABEL_WIDTH - (margin * 2), 24, 'F');
+
+  // Big text in white
+  doc.setTextColor(white);
+  doc.setFontSize(24);
+  doc.setFont('helvetica', 'bold');
+  doc.text(labelType, LABEL_WIDTH / 2, bigTextY + 4, { align: 'center' });
+
+  // Reset to black text
+  doc.setTextColor(black);
+
+  // Barcode at the bottom
+  const barcodeY = LABEL_HEIGHT - 25;
+  doc.setDrawColor(0, 0, 0);
+  doc.setLineWidth(0.2);
+  doc.rect(margin, barcodeY, LABEL_WIDTH - (margin * 2), 15, 'S');
+
+  // Draw barcode
+  drawBarcode(doc, delivery.barcode, margin + 2, barcodeY + 2, LABEL_WIDTH - (margin * 2) - 4, 8);
+
+  // Barcode text
+  doc.setFontSize(6);
+  doc.setFont('courier', 'bold');
+  doc.text(delivery.barcode, LABEL_WIDTH / 2, barcodeY + 13, { align: 'center' });
+
+  // Date at the very bottom
+  doc.setFontSize(5);
+  doc.setFont('helvetica', 'normal');
+  const date = new Date(delivery.createdAt || Date.now()).toLocaleDateString('tr-TR');
+  doc.text(`Tarih: ${date}`, margin, LABEL_HEIGHT - 3);
 }
 
 // Generate a simple barcode pattern (Code 128 style visual representation)
