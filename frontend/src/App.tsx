@@ -25,6 +25,7 @@ import { UserManagementPage } from './pages/UserManagementPage';
 import { ItemManagementPage } from './pages/ItemManagementPage';
 import { ReconciliationPage } from './pages/ReconciliationPage';
 import { IrsaliyePage } from './pages/IrsaliyePage';
+import { PrintedIrsaliyelerPage } from './pages/PrintedIrsaliyelerPage';
 
 // Driver Pages
 import { DirtyPickupPage } from './pages/driver/DirtyPickupPage';
@@ -88,6 +89,7 @@ function App() {
                 <Route path="ironer-interface" element={<IronerInterfacePage />} />
                 <Route path="packaging" element={<PackagingPage />} />
                 <Route path="irsaliye" element={<IrsaliyePage />} />
+                <Route path="irsaliye/printed" element={<PrintedIrsaliyelerPage />} />
 
                 {/* Admin Pages */}
                 <Route path="hotels" element={<HotelManagementPage />} />
