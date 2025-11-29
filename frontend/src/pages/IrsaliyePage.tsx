@@ -801,59 +801,109 @@ export function IrsaliyePage() {
                           </div>
                         </div>
 
-                        {/* Expanded Content */}
+                        {/* Expanded Content - Document Preview */}
                         {isExpanded && (
-                          <div className="border-t bg-gray-50 p-4">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              {/* Details */}
-                              <div className="space-y-3">
-                                <h4 className="font-semibold text-gray-700">Detaylar</h4>
-                                <div className="bg-white rounded-lg p-3 space-y-2 text-sm">
-                                  <div className="flex justify-between">
-                                    <span className="text-gray-500">Belge No:</span>
-                                    <span className="font-mono font-medium">A-{delivery.barcode.slice(-9)}</span>
+                          <div className="border-t bg-gray-100 p-6">
+                            <div className="flex gap-6">
+                              {/* Document Preview */}
+                              <div className="flex-1 bg-white rounded-lg shadow-lg p-6 border max-w-md mx-auto" style={{ fontFamily: 'serif' }}>
+                                {/* Document Header */}
+                                <div className="flex justify-between items-start mb-4 pb-2 border-b-2 border-gray-800">
+                                  <div>
+                                    <p className="text-xs text-gray-500">Sayin:</p>
+                                    <p className="text-lg font-bold">{delivery.tenant?.name}</p>
                                   </div>
-                                  <div className="flex justify-between">
-                                    <span className="text-gray-500">Tarih:</span>
-                                    <span>{formatDate(delivery.labelPrintedAt || delivery.createdAt)}</span>
-                                  </div>
-                                  <div className="flex justify-between">
-                                    <span className="text-gray-500">Paket Sayisi:</span>
-                                    <span className="font-bold">{delivery.packageCount || 1}</span>
-                                  </div>
-                                  <div className="flex justify-between">
-                                    <span className="text-gray-500">Toplam Urun:</span>
-                                    <span className="font-bold">{delivery.deliveryItems?.length || 0}</span>
+                                  <div className="text-right">
+                                    <p className="text-lg font-bold">TEMIZ IRSALIYESI</p>
                                   </div>
                                 </div>
-                              </div>
 
-                              {/* Items */}
-                              <div className="space-y-3">
-                                <h4 className="font-semibold text-gray-700">Urunler</h4>
-                                <div className="bg-white rounded-lg p-3 space-y-2">
+                                {/* Document Info */}
+                                <div className="flex justify-between text-sm mb-4">
+                                  <div>
+                                    <p className="text-gray-500">Belge No:</p>
+                                    <p className="font-mono font-bold">A-{delivery.barcode.slice(-9)}</p>
+                                  </div>
+                                  <div className="text-right">
+                                    <p className="text-gray-500">Tarih:</p>
+                                    <p className="font-medium">{new Date(delivery.labelPrintedAt || delivery.createdAt).toLocaleDateString('tr-TR')}</p>
+                                  </div>
+                                </div>
+
+                                {/* Items Table */}
+                                <div className="border-t border-b border-gray-300 py-2 mb-4">
+                                  <div className="flex justify-between font-bold text-sm border-b border-gray-200 pb-1 mb-2">
+                                    <span>CINSI</span>
+                                    <span>MIKTARI</span>
+                                  </div>
                                   {itemTotals.map((item, idx) => (
-                                    <div key={idx} className="flex justify-between text-sm">
-                                      <span>{item.name}</span>
-                                      <span className="font-bold text-teal-600">{item.count}</span>
+                                    <div key={idx} className="flex justify-between text-sm py-1">
+                                      <span>{item.name.toUpperCase()}</span>
+                                      <span className="font-bold">{item.count}</span>
                                     </div>
                                   ))}
                                 </div>
-                              </div>
-                            </div>
 
-                            {/* Reprint Button */}
-                            <div className="mt-4 pt-4 border-t flex justify-end">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleReprintIrsaliye(delivery);
-                                }}
-                                className="px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-medium flex items-center gap-2"
-                              >
-                                <Printer className="w-4 h-4" />
-                                Yeniden Yazdir
-                              </button>
+                                {/* Totals */}
+                                <div className="space-y-2 mb-4">
+                                  <div className="flex justify-between font-bold text-lg">
+                                    <span>PAKET SAYISI:</span>
+                                    <span>{delivery.packageCount || 1}</span>
+                                  </div>
+                                  <div className="flex justify-between text-sm">
+                                    <span>TOPLAM URUN:</span>
+                                    <span className="font-bold">{delivery.deliveryItems?.length || 0}</span>
+                                  </div>
+                                </div>
+
+                                {/* Barcode */}
+                                <div className="text-center py-2 bg-gray-50 rounded text-xs text-gray-500 mb-4">
+                                  Barkod: {delivery.barcode}
+                                </div>
+
+                                {/* Signature Section */}
+                                <div className="border-t border-gray-300 pt-4">
+                                  <div className="flex justify-between">
+                                    <div className="text-center flex-1">
+                                      <p className="text-xs text-gray-500 mb-6">Teslim Eden</p>
+                                      <div className="border-t border-gray-400 w-24 mx-auto"></div>
+                                    </div>
+                                    <div className="text-center flex-1">
+                                      <p className="text-xs text-gray-500 mb-6">Teslim Alan</p>
+                                      <div className="border-t border-gray-400 w-24 mx-auto"></div>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Footer */}
+                                <div className="text-center text-xs text-gray-400 mt-4 pt-2 border-t">
+                                  RFID Camasirhane Sistemi
+                                </div>
+                              </div>
+
+                              {/* Actions Panel */}
+                              <div className="w-48 space-y-4">
+                                <div className="bg-white rounded-lg p-4 shadow">
+                                  <h4 className="font-semibold text-gray-700 mb-3">Durum</h4>
+                                  <div className="mb-3">
+                                    {getStatusBadge(delivery.status)}
+                                  </div>
+                                  <p className="text-xs text-gray-500">
+                                    {delivery.status === 'picked_up' ? 'Bu irsaliye teslim edildi' : 'Teslim bekleniyor'}
+                                  </p>
+                                </div>
+
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleReprintIrsaliye(delivery);
+                                  }}
+                                  className="w-full py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-medium flex items-center justify-center gap-2 shadow"
+                                >
+                                  <Printer className="w-5 h-5" />
+                                  Yazdir
+                                </button>
+                              </div>
                             </div>
                           </div>
                         )}
