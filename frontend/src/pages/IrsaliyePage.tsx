@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { FileText, QrCode, Printer, RefreshCw, CheckCircle, Package, X, Trash2, History, Search, Building2, ChevronDown, ChevronUp } from 'lucide-react';
+import { FileText, QrCode, Printer, RefreshCw, CheckCircle, Package, X, Trash2, History, Search, Building2 } from 'lucide-react';
 import { deliveriesApi, settingsApi, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/Toast';
 import type { Delivery, DeliveryPackage } from '../types';
@@ -751,167 +751,170 @@ export function IrsaliyePage() {
                 </div>
               </div>
 
-              {/* Deliveries List - Expandable */}
-              {filteredDeliveries.length === 0 ? (
-                <div className="p-12 text-center bg-gray-50 rounded-xl">
-                  <FileText className="w-16 h-16 mx-auto text-gray-300 mb-4" />
-                  <p className="text-xl text-gray-500">Irsaliye bulunamadi</p>
-                  <p className="text-gray-400 mt-2">Filtreleri degistirmeyi deneyin</p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {filteredDeliveries.map(delivery => {
-                    const isExpanded = expandedDeliveryId === delivery.id;
-                    const itemTotals = getItemTotals(delivery);
+              {/* Main Content - List on left, Preview on right */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Deliveries List */}
+                <div className="space-y-2 max-h-[600px] overflow-y-auto">
+                  {filteredDeliveries.length === 0 ? (
+                    <div className="p-12 text-center bg-gray-50 rounded-xl">
+                      <FileText className="w-16 h-16 mx-auto text-gray-300 mb-4" />
+                      <p className="text-xl text-gray-500">Irsaliye bulunamadi</p>
+                      <p className="text-gray-400 mt-2">Filtreleri degistirmeyi deneyin</p>
+                    </div>
+                  ) : (
+                    filteredDeliveries.map(delivery => {
+                      const isSelected = expandedDeliveryId === delivery.id;
 
-                    return (
-                      <div
-                        key={delivery.id}
-                        className="bg-white border rounded-xl overflow-hidden"
-                      >
-                        {/* Header - Clickable */}
+                      return (
                         <div
-                          className="p-4 cursor-pointer hover:bg-gray-50 transition-colors"
-                          onClick={() => setExpandedDeliveryId(isExpanded ? null : delivery.id)}
+                          key={delivery.id}
+                          className={`bg-white border rounded-xl overflow-hidden cursor-pointer transition-all ${
+                            isSelected ? 'border-teal-500 ring-2 ring-teal-200' : 'hover:border-gray-300'
+                          }`}
+                          onClick={() => setExpandedDeliveryId(isSelected ? null : delivery.id)}
                         >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-4">
-                              <div className="p-2 bg-teal-100 rounded-lg">
-                                {isExpanded ? (
-                                  <ChevronUp className="w-5 h-5 text-teal-600" />
-                                ) : (
-                                  <ChevronDown className="w-5 h-5 text-teal-600" />
-                                )}
-                              </div>
-                              <div>
-                                <p className="font-mono font-bold text-lg">{delivery.barcode}</p>
-                                <div className="flex items-center gap-2 text-sm text-gray-500">
-                                  <Building2 className="w-4 h-4" />
-                                  <span>{delivery.tenant?.name}</span>
+                          <div className="p-4">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <div className={`p-2 rounded-lg ${isSelected ? 'bg-teal-500 text-white' : 'bg-gray-100'}`}>
+                                  <FileText className="w-5 h-5" />
+                                </div>
+                                <div>
+                                  <p className="font-mono font-bold">{delivery.barcode}</p>
+                                  <div className="flex items-center gap-2 text-sm text-gray-500">
+                                    <Building2 className="w-3 h-3" />
+                                    <span>{delivery.tenant?.name}</span>
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                            <div className="flex items-center gap-4">
                               <div className="text-right">
-                                <p className="text-sm text-gray-500">{formatDate(delivery.labelPrintedAt || delivery.createdAt)}</p>
-                                <p className="text-sm">{delivery.deliveryItems?.length || 0} urun, {delivery.packageCount || 1} paket</p>
+                                <p className="text-xs text-gray-500">{formatDate(delivery.labelPrintedAt || delivery.createdAt)}</p>
+                                <div className="mt-1">{getStatusBadge(delivery.status)}</div>
                               </div>
-                              {getStatusBadge(delivery.status)}
                             </div>
                           </div>
                         </div>
+                      );
+                    })
+                  )}
+                </div>
 
-                        {/* Expanded Content - Document Preview */}
-                        {isExpanded && (
-                          <div className="border-t bg-gray-100 p-6">
-                            <div className="flex gap-6">
-                              {/* Document Preview */}
-                              <div className="flex-1 bg-white rounded-lg shadow-lg p-6 border max-w-md mx-auto" style={{ fontFamily: 'serif' }}>
-                                {/* Document Header */}
-                                <div className="flex justify-between items-start mb-4 pb-2 border-b-2 border-gray-800">
-                                  <div>
-                                    <p className="text-xs text-gray-500">Sayin:</p>
-                                    <p className="text-lg font-bold">{delivery.tenant?.name}</p>
-                                  </div>
-                                  <div className="text-right">
-                                    <p className="text-lg font-bold">TEMIZ IRSALIYESI</p>
-                                  </div>
-                                </div>
+                {/* Preview Panel - Right Side */}
+                <div className="bg-gray-100 rounded-xl p-6 sticky top-0">
+                  {!expandedDeliveryId ? (
+                    <div className="h-full flex flex-col items-center justify-center text-gray-400 py-20">
+                      <FileText className="w-20 h-20 mb-4" />
+                      <p className="text-lg">Onizleme icin bir irsaliye secin</p>
+                    </div>
+                  ) : (
+                    (() => {
+                      const selectedDelivery = filteredDeliveries.find(d => d.id === expandedDeliveryId);
+                      if (!selectedDelivery) return null;
+                      const itemTotals = getItemTotals(selectedDelivery);
 
-                                {/* Document Info */}
-                                <div className="flex justify-between text-sm mb-4">
-                                  <div>
-                                    <p className="text-gray-500">Belge No:</p>
-                                    <p className="font-mono font-bold">A-{delivery.barcode.slice(-9)}</p>
-                                  </div>
-                                  <div className="text-right">
-                                    <p className="text-gray-500">Tarih:</p>
-                                    <p className="font-medium">{new Date(delivery.labelPrintedAt || delivery.createdAt).toLocaleDateString('tr-TR')}</p>
-                                  </div>
-                                </div>
-
-                                {/* Items Table */}
-                                <div className="border-t border-b border-gray-300 py-2 mb-4">
-                                  <div className="flex justify-between font-bold text-sm border-b border-gray-200 pb-1 mb-2">
-                                    <span>CINSI</span>
-                                    <span>MIKTARI</span>
-                                  </div>
-                                  {itemTotals.map((item, idx) => (
-                                    <div key={idx} className="flex justify-between text-sm py-1">
-                                      <span>{item.name.toUpperCase()}</span>
-                                      <span className="font-bold">{item.count}</span>
-                                    </div>
-                                  ))}
-                                </div>
-
-                                {/* Totals */}
-                                <div className="space-y-2 mb-4">
-                                  <div className="flex justify-between font-bold text-lg">
-                                    <span>PAKET SAYISI:</span>
-                                    <span>{delivery.packageCount || 1}</span>
-                                  </div>
-                                  <div className="flex justify-between text-sm">
-                                    <span>TOPLAM URUN:</span>
-                                    <span className="font-bold">{delivery.deliveryItems?.length || 0}</span>
-                                  </div>
-                                </div>
-
-                                {/* Barcode */}
-                                <div className="text-center py-2 bg-gray-50 rounded text-xs text-gray-500 mb-4">
-                                  Barkod: {delivery.barcode}
-                                </div>
-
-                                {/* Signature Section */}
-                                <div className="border-t border-gray-300 pt-4">
-                                  <div className="flex justify-between">
-                                    <div className="text-center flex-1">
-                                      <p className="text-xs text-gray-500 mb-6">Teslim Eden</p>
-                                      <div className="border-t border-gray-400 w-24 mx-auto"></div>
-                                    </div>
-                                    <div className="text-center flex-1">
-                                      <p className="text-xs text-gray-500 mb-6">Teslim Alan</p>
-                                      <div className="border-t border-gray-400 w-24 mx-auto"></div>
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {/* Footer */}
-                                <div className="text-center text-xs text-gray-400 mt-4 pt-2 border-t">
-                                  RFID Camasirhane Sistemi
-                                </div>
+                      return (
+                        <div className="space-y-4">
+                          {/* Document Preview */}
+                          <div className="bg-white rounded-lg shadow-lg p-6 border" style={{ fontFamily: 'serif' }}>
+                            {/* Document Header */}
+                            <div className="flex justify-between items-start mb-4 pb-2 border-b-2 border-gray-800">
+                              <div>
+                                <p className="text-xs text-gray-500">Sayin:</p>
+                                <p className="text-lg font-bold">{selectedDelivery.tenant?.name}</p>
                               </div>
-
-                              {/* Actions Panel */}
-                              <div className="w-48 space-y-4">
-                                <div className="bg-white rounded-lg p-4 shadow">
-                                  <h4 className="font-semibold text-gray-700 mb-3">Durum</h4>
-                                  <div className="mb-3">
-                                    {getStatusBadge(delivery.status)}
-                                  </div>
-                                  <p className="text-xs text-gray-500">
-                                    {delivery.status === 'picked_up' ? 'Bu irsaliye teslim edildi' : 'Teslim bekleniyor'}
-                                  </p>
-                                </div>
-
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleReprintIrsaliye(delivery);
-                                  }}
-                                  className="w-full py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-medium flex items-center justify-center gap-2 shadow"
-                                >
-                                  <Printer className="w-5 h-5" />
-                                  Yazdir
-                                </button>
+                              <div className="text-right">
+                                <p className="text-lg font-bold">TEMIZ IRSALIYESI</p>
                               </div>
                             </div>
+
+                            {/* Document Info */}
+                            <div className="flex justify-between text-sm mb-4">
+                              <div>
+                                <p className="text-gray-500">Belge No:</p>
+                                <p className="font-mono font-bold">A-{selectedDelivery.barcode.slice(-9)}</p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-gray-500">Tarih:</p>
+                                <p className="font-medium">{new Date(selectedDelivery.labelPrintedAt || selectedDelivery.createdAt).toLocaleDateString('tr-TR')}</p>
+                              </div>
+                            </div>
+
+                            {/* Items Table */}
+                            <div className="border-t border-b border-gray-300 py-2 mb-4">
+                              <div className="flex justify-between font-bold text-sm border-b border-gray-200 pb-1 mb-2">
+                                <span>CINSI</span>
+                                <span>MIKTARI</span>
+                              </div>
+                              {itemTotals.map((item, idx) => (
+                                <div key={idx} className="flex justify-between text-sm py-1">
+                                  <span>{item.name.toUpperCase()}</span>
+                                  <span className="font-bold">{item.count}</span>
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* Totals */}
+                            <div className="space-y-2 mb-4">
+                              <div className="flex justify-between font-bold text-lg">
+                                <span>PAKET SAYISI:</span>
+                                <span>{selectedDelivery.packageCount || 1}</span>
+                              </div>
+                              <div className="flex justify-between text-sm">
+                                <span>TOPLAM URUN:</span>
+                                <span className="font-bold">{selectedDelivery.deliveryItems?.length || 0}</span>
+                              </div>
+                            </div>
+
+                            {/* Barcode */}
+                            <div className="text-center py-2 bg-gray-50 rounded text-xs text-gray-500 mb-4">
+                              Barkod: {selectedDelivery.barcode}
+                            </div>
+
+                            {/* Signature Section */}
+                            <div className="border-t border-gray-300 pt-4">
+                              <div className="flex justify-between">
+                                <div className="text-center flex-1">
+                                  <p className="text-xs text-gray-500 mb-6">Teslim Eden</p>
+                                  <div className="border-t border-gray-400 w-24 mx-auto"></div>
+                                </div>
+                                <div className="text-center flex-1">
+                                  <p className="text-xs text-gray-500 mb-6">Teslim Alan</p>
+                                  <div className="border-t border-gray-400 w-24 mx-auto"></div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Footer */}
+                            <div className="text-center text-xs text-gray-400 mt-4 pt-2 border-t">
+                              RFID Camasirhane Sistemi
+                            </div>
                           </div>
-                        )}
-                      </div>
-                    );
-                  })}
+
+                          {/* Actions */}
+                          <div className="flex gap-3">
+                            <div className="flex-1 bg-white rounded-lg p-3 shadow flex items-center gap-3">
+                              {getStatusBadge(selectedDelivery.status)}
+                              <span className="text-sm text-gray-500">
+                                {selectedDelivery.status === 'picked_up' ? 'Teslim edildi' : 'Bekliyor'}
+                              </span>
+                            </div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleReprintIrsaliye(selectedDelivery);
+                              }}
+                              className="px-6 py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-medium flex items-center gap-2 shadow"
+                            >
+                              <Printer className="w-5 h-5" />
+                              Yazdir
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()
+                  )}
                 </div>
-              )}
+              </div>
             </div>
           )}
         </div>
