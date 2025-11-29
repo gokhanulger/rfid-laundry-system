@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Sparkles, CheckCircle, RefreshCw, AlertTriangle, Tag } from 'lucide-react';
+import { Sparkles, CheckCircle, RefreshCw, AlertTriangle, Tag, Calendar, Building2 } from 'lucide-react';
 import { itemsApi, settingsApi, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/Toast';
 import type { Item } from '../types';
@@ -51,14 +51,14 @@ export function LaundryProcessingPage() {
     );
   };
 
-  const handleSelectAllForHotel = (hotelItems: Item[]) => {
-    const hotelItemIds = hotelItems.map(item => item.id);
-    const allSelected = hotelItemIds.every(id => selectedItems.includes(id));
+  const handleSelectAllForDate = (dateItems: Item[]) => {
+    const dateItemIds = dateItems.map(item => item.id);
+    const allSelected = dateItemIds.every(id => selectedItems.includes(id));
 
     if (allSelected) {
-      setSelectedItems(prev => prev.filter(id => !hotelItemIds.includes(id)));
+      setSelectedItems(prev => prev.filter(id => !dateItemIds.includes(id)));
     } else {
-      setSelectedItems(prev => [...new Set([...prev, ...hotelItemIds])]);
+      setSelectedItems(prev => [...new Set([...prev, ...dateItemIds])]);
     }
   };
 
@@ -78,20 +78,53 @@ export function LaundryProcessingPage() {
     markCleanMutation.mutate(selectedItems);
   };
 
-  // Group items by hotel, then by type
-  const itemsByHotel = (dirtyItems || []).reduce((acc: Record<string, Record<string, Item[]>>, item: Item) => {
-    const hotelId = item.tenantId;
+  // Format date for grouping (YYYY-MM-DD)
+  const getDateKey = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toISOString().split('T')[0];
+  };
+
+  // Format date for display
+  const formatDateDisplay = (dateKey: string) => {
+    const date = new Date(dateKey);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    const todayKey = today.toISOString().split('T')[0];
+    const yesterdayKey = yesterday.toISOString().split('T')[0];
+
+    if (dateKey === todayKey) {
+      return 'Bugun';
+    } else if (dateKey === yesterdayKey) {
+      return 'Dun';
+    } else {
+      return date.toLocaleDateString('tr-TR', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric'
+      });
+    }
+  };
+
+  // Group items by date, then by type
+  const itemsByDate = (dirtyItems || []).reduce((acc: Record<string, Record<string, Item[]>>, item: Item) => {
+    const dateKey = getDateKey(item.updatedAt || item.createdAt);
     const typeId = item.itemTypeId;
 
-    if (!acc[hotelId]) {
-      acc[hotelId] = {};
+    if (!acc[dateKey]) {
+      acc[dateKey] = {};
     }
-    if (!acc[hotelId][typeId]) {
-      acc[hotelId][typeId] = [];
+    if (!acc[dateKey][typeId]) {
+      acc[dateKey][typeId] = [];
     }
-    acc[hotelId][typeId].push(item);
+    acc[dateKey][typeId].push(item);
     return acc;
   }, {});
+
+  // Sort dates descending (newest first)
+  const sortedDates = Object.keys(itemsByDate).sort((a, b) => b.localeCompare(a));
 
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
@@ -102,6 +135,9 @@ export function LaundryProcessingPage() {
     };
     return colors[status] || 'bg-gray-100 text-gray-800';
   };
+
+  // Get unique hotels count
+  const uniqueHotels = new Set((dirtyItems || []).map((item: Item) => item.tenantId)).size;
 
   return (
     <div className="p-8 space-y-6 animate-fade-in">
@@ -147,8 +183,8 @@ export function LaundryProcessingPage() {
       {/* Stats */}
       <div className="grid grid-cols-4 gap-4">
         <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-3xl font-bold text-purple-600">{Object.keys(itemsByHotel).length}</p>
-          <p className="text-sm text-gray-500">Kirli Urunlu Otel Sayisi</p>
+          <p className="text-3xl font-bold text-purple-600">{sortedDates.length}</p>
+          <p className="text-sm text-gray-500">Farkli Gun</p>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <p className="text-3xl font-bold text-blue-600">{dirtyItems?.length || 0}</p>
@@ -159,73 +195,72 @@ export function LaundryProcessingPage() {
           <p className="text-sm text-gray-500">Secili</p>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-3xl font-bold text-orange-600">
-            {dirtyItems?.filter((item: Item) => item.isDamaged || item.isStained).length || 0}
-          </p>
-          <p className="text-sm text-gray-500">Dikkat Gerektirenler</p>
+          <p className="text-3xl font-bold text-orange-600">{uniqueHotels}</p>
+          <p className="text-sm text-gray-500">Farkli Otel</p>
         </div>
       </div>
 
-      {/* Items Grouped by Hotel */}
+      {/* Items Grouped by Date */}
       <div className="space-y-6">
         {isLoading ? (
           <div className="flex items-center justify-center h-64 bg-white rounded-lg shadow">
             <RefreshCw className="w-10 h-10 animate-spin text-green-500" />
           </div>
-        ) : Object.keys(itemsByHotel).length === 0 ? (
+        ) : sortedDates.length === 0 ? (
           <div className="p-16 text-center bg-white rounded-lg shadow">
             <Sparkles className="w-20 h-20 mx-auto text-gray-300 mb-4" />
             <p className="text-2xl font-semibold text-gray-500">Islenecek kirli urun yok</p>
             <p className="text-lg text-gray-400 mt-2">Tum urunler temiz!</p>
           </div>
         ) : (
-          Object.entries(itemsByHotel).map(([hotelId, itemsByType]) => {
-            const hotel = tenants?.find((t) => t.id === hotelId);
-            const hotelItems = Object.values(itemsByType).flat();
-            const totalItemsForHotel = hotelItems.length;
-            const selectedForHotel = hotelItems.filter(item => selectedItems.includes(item.id)).length;
-            const hotelSectionKey = `hotel-${hotelId}`;
-            const hotelExpanded = expandedSections[hotelSectionKey] !== false; // Default expanded
+          sortedDates.map((dateKey) => {
+            const itemsByType = itemsByDate[dateKey];
+            const dateItems = Object.values(itemsByType).flat();
+            const totalItemsForDate = dateItems.length;
+            const selectedForDate = dateItems.filter(item => selectedItems.includes(item.id)).length;
+            const dateSectionKey = `date-${dateKey}`;
+            const dateExpanded = expandedSections[dateSectionKey] !== false; // Default expanded
 
             return (
-              <div key={hotelId} className="bg-white rounded-xl shadow-lg overflow-hidden border-2 border-green-100">
-                {/* Hotel Header - Clickable */}
+              <div key={dateKey} className="bg-white rounded-xl shadow-lg overflow-hidden border-2 border-green-100">
+                {/* Date Header - Clickable */}
                 <button
-                  onClick={() => toggleSection(hotelSectionKey)}
+                  onClick={() => toggleSection(dateSectionKey)}
                   className="w-full bg-gradient-to-r from-green-600 to-green-500 hover:from-green-700 hover:to-green-600 px-8 py-6 transition-colors"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                      <span className={`text-white text-2xl transform transition-transform ${hotelExpanded ? 'rotate-90' : ''}`}>
+                      <span className={`text-white text-2xl transform transition-transform ${dateExpanded ? 'rotate-90' : ''}`}>
                         &#9654;
                       </span>
+                      <Calendar className="w-8 h-8 text-white" />
                       <h2 className="text-3xl font-bold text-white">
-                        {hotel?.name || 'Bilinmeyen Otel'}
+                        {formatDateDisplay(dateKey)}
                       </h2>
                     </div>
                     <div className="flex items-center gap-4">
                       <span className="px-4 py-2 bg-white bg-opacity-25 text-white rounded-full text-lg font-bold">
-                        {selectedForHotel}/{totalItemsForHotel} Secili
+                        {selectedForDate}/{totalItemsForDate} Secili
                       </span>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleSelectAllForHotel(hotelItems);
+                          handleSelectAllForDate(dateItems);
                         }}
                         className="px-4 py-2 bg-white text-green-600 rounded-lg font-semibold hover:bg-green-50 transition-colors"
                       >
-                        {selectedForHotel === totalItemsForHotel ? 'Tum Secimleri Kaldir' : 'Tumu Sec'}
+                        {selectedForDate === totalItemsForDate ? 'Tum Secimleri Kaldir' : 'Tumu Sec'}
                       </button>
                     </div>
                   </div>
                 </button>
 
                 {/* Item Types - Conditionally Rendered */}
-                {hotelExpanded && (
+                {dateExpanded && (
                   <div className="p-6 space-y-4">
                     {Object.entries(itemsByType).map(([typeId, typeItems]) => {
                       const itemType = itemTypes?.find((t) => t.id === typeId);
-                      const sectionKey = `${hotelId}-${typeId}`;
+                      const sectionKey = `${dateKey}-${typeId}`;
                       const expanded = expandedSections[sectionKey] || false;
                       const selectedForType = typeItems.filter(item => selectedItems.includes(item.id)).length;
 
@@ -279,54 +314,64 @@ export function LaundryProcessingPage() {
                                 </button>
                               </div>
                               <div className="divide-y divide-gray-100">
-                                {typeItems.map((item) => (
-                                  <label
-                                    key={item.id}
-                                    className="flex items-center gap-4 px-6 py-4 hover:bg-green-50 cursor-pointer transition-colors"
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={selectedItems.includes(item.id)}
-                                      onChange={() => handleToggleItem(item.id)}
-                                      className="w-6 h-6 text-green-600 rounded focus:ring-green-500"
-                                    />
-                                    <div className="flex-1 grid grid-cols-4 gap-4">
-                                      <div>
-                                        <p className="text-xs text-gray-500 mb-1">RFID Etiketi</p>
-                                        <p className="font-mono font-semibold text-gray-900">{item.rfidTag}</p>
-                                      </div>
-                                      <div>
-                                        <p className="text-xs text-gray-500 mb-1">Durum</p>
-                                        <span className={`px-2 py-1 text-xs rounded-full ${getStatusColor(item.status)}`}>
-                                          {item.status.replace('_', ' ')}
-                                        </span>
-                                      </div>
-                                      <div>
-                                        <p className="text-xs text-gray-500 mb-1">Yikama Sayisi</p>
-                                        <p className="text-sm font-medium text-gray-900">{item.washCount}x</p>
-                                      </div>
-                                      <div>
-                                        <p className="text-xs text-gray-500 mb-1">Isaretler</p>
-                                        <div className="flex gap-2">
-                                          {item.isDamaged && (
-                                            <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs flex items-center gap-1">
-                                              <AlertTriangle className="w-3 h-3" />
-                                              Hasarli
-                                            </span>
-                                          )}
-                                          {item.isStained && (
-                                            <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs">
-                                              Lekeli
-                                            </span>
-                                          )}
-                                          {!item.isDamaged && !item.isStained && (
-                                            <span className="text-sm text-gray-400">-</span>
-                                          )}
+                                {typeItems.map((item) => {
+                                  const hotel = tenants?.find((t) => t.id === item.tenantId);
+                                  return (
+                                    <label
+                                      key={item.id}
+                                      className="flex items-center gap-4 px-6 py-4 hover:bg-green-50 cursor-pointer transition-colors"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={selectedItems.includes(item.id)}
+                                        onChange={() => handleToggleItem(item.id)}
+                                        className="w-6 h-6 text-green-600 rounded focus:ring-green-500"
+                                      />
+                                      <div className="flex-1 grid grid-cols-5 gap-4">
+                                        <div>
+                                          <p className="text-xs text-gray-500 mb-1">Otel</p>
+                                          <div className="flex items-center gap-1">
+                                            <Building2 className="w-4 h-4 text-blue-500" />
+                                            <p className="font-semibold text-gray-900">{hotel?.name || 'Bilinmeyen'}</p>
+                                          </div>
+                                        </div>
+                                        <div>
+                                          <p className="text-xs text-gray-500 mb-1">RFID Etiketi</p>
+                                          <p className="font-mono font-semibold text-gray-900">{item.rfidTag}</p>
+                                        </div>
+                                        <div>
+                                          <p className="text-xs text-gray-500 mb-1">Durum</p>
+                                          <span className={`px-2 py-1 text-xs rounded-full ${getStatusColor(item.status)}`}>
+                                            {item.status.replace('_', ' ')}
+                                          </span>
+                                        </div>
+                                        <div>
+                                          <p className="text-xs text-gray-500 mb-1">Yikama Sayisi</p>
+                                          <p className="text-sm font-medium text-gray-900">{item.washCount}x</p>
+                                        </div>
+                                        <div>
+                                          <p className="text-xs text-gray-500 mb-1">Isaretler</p>
+                                          <div className="flex gap-2">
+                                            {item.isDamaged && (
+                                              <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs flex items-center gap-1">
+                                                <AlertTriangle className="w-3 h-3" />
+                                                Hasarli
+                                              </span>
+                                            )}
+                                            {item.isStained && (
+                                              <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs">
+                                                Lekeli
+                                              </span>
+                                            )}
+                                            {!item.isDamaged && !item.isStained && (
+                                              <span className="text-sm text-gray-400">-</span>
+                                            )}
+                                          </div>
                                         </div>
                                       </div>
-                                    </div>
-                                  </label>
-                                ))}
+                                    </label>
+                                  );
+                                })}
                               </div>
                             </div>
                           )}
