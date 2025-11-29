@@ -23,7 +23,6 @@ import {
   FileText,
   ChevronLeft,
   ChevronRight,
-  History,
 } from 'lucide-react';
 
 // Storage key for sidebar state
@@ -65,7 +64,6 @@ export function Layout() {
   // Navigation for auditor (Irsaliye only)
   const auditorNavigation = [
     { name: 'Irsaliye', href: '/irsaliye', icon: FileText },
-    { name: 'Basilan Irsaliyeler', href: '/irsaliye/printed', icon: History },
   ];
 
   // Navigation for drivers
@@ -91,7 +89,6 @@ export function Layout() {
     { name: 'Utu Etiketi', href: '/ironer-interface', icon: Printer },
     { name: 'Paketleme', href: '/packaging', icon: Box },
     { name: 'Irsaliye', href: '/irsaliye', icon: FileText },
-    { name: 'Basilan Irsaliyeler', href: '/irsaliye/printed', icon: History },
     { name: 'Surucu Aktiviteleri', href: '/driver-activities', icon: Shield },
     { name: 'Teslimat Yonetimi', href: '/delivery-management', icon: Truck },
     { name: 'Yeniden Yikama', href: '/rewash-queue', icon: RotateCcw },
