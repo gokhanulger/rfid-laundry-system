@@ -521,11 +521,12 @@ deliveriesRouter.post('/:id/pickup', requireRole('driver', 'laundry_manager', 's
   }
 });
 
-// Deliver to hotel
+// Deliver to hotel with location tracking
 deliveriesRouter.post('/:id/deliver', requireRole('driver', 'laundry_manager', 'system_admin'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const { latitude, longitude, address } = req.body;
+    console.log('📍 Deliver request with location:', { id, latitude, longitude, address });
 
     // Verify delivery exists
     const existingDelivery = await db.query.deliveries.findFirst({
