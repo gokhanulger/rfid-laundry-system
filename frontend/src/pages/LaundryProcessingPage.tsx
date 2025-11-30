@@ -1,22 +1,22 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Sparkles, CheckCircle, RefreshCw, AlertTriangle, Search } from 'lucide-react';
-import { itemsApi, settingsApi, getErrorMessage } from '../lib/api';
+import { Sparkles, CheckCircle, RefreshCw, AlertTriangle, Search, ChevronDown, ChevronUp, Package, Building2, User, Calendar, Tag } from 'lucide-react';
+import { pickupsApi, itemsApi, settingsApi, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/Toast';
-import type { Item } from '../types';
+import type { Pickup } from '../types';
 
 export function LaundryProcessingPage() {
-  const [selectedItems, setSelectedItems] = useState<string[]>([]);
+  const [selectedPickups, setSelectedPickups] = useState<string[]>([]);
+  const [expandedPickup, setExpandedPickup] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterHotel, setFilterHotel] = useState('');
-  const [filterType, setFilterType] = useState('');
-  const [filterDate, setFilterDate] = useState('');
   const queryClient = useQueryClient();
   const toast = useToast();
 
-  const { data: dirtyItems, isLoading, refetch } = useQuery({
-    queryKey: ['dirty-items'],
-    queryFn: () => itemsApi.getDirty(),
+  // Get pickups with status 'received' (at laundry, ready to process)
+  const { data: pickupsData, isLoading, refetch } = useQuery({
+    queryKey: ['pickups', { status: 'received' }],
+    queryFn: () => pickupsApi.getAll({ status: 'received', limit: 100 }),
   });
 
   const { data: tenants } = useQuery({
@@ -29,51 +29,80 @@ export function LaundryProcessingPage() {
     queryFn: settingsApi.getItemTypes,
   });
 
-  const markCleanMutation = useMutation({
-    mutationFn: (itemIds: string[]) => itemsApi.markClean(itemIds),
+  // Mark items as clean (process pickup)
+  const processPickupMutation = useMutation({
+    mutationFn: async (pickupIds: string[]) => {
+      // Get all item IDs from selected pickups
+      const itemIds: string[] = [];
+      pickupIds.forEach(pickupId => {
+        const pickup = pickups.find(p => p.id === pickupId);
+        if (pickup?.pickupItems) {
+          pickup.pickupItems.forEach(pi => {
+            if (pi.itemId) itemIds.push(pi.itemId);
+          });
+        }
+      });
+
+      if (itemIds.length > 0) {
+        return itemsApi.markClean(itemIds);
+      }
+      return { count: 0 };
+    },
     onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['pickups'] });
       queryClient.invalidateQueries({ queryKey: ['dirty-items'] });
-      setSelectedItems([]);
+      setSelectedPickups([]);
       toast.success(`${data.count} urun temiz olarak isaretlendi!`);
     },
-    onError: (err) => toast.error('Urunler temiz olarak isaretle islemi basarisiz', getErrorMessage(err)),
+    onError: (err) => toast.error('Islem basarisiz', getErrorMessage(err)),
   });
 
-  const handleToggleItem = (itemId: string) => {
-    setSelectedItems((prev) =>
-      prev.includes(itemId)
-        ? prev.filter((id) => id !== itemId)
-        : [...prev, itemId]
+  const pickups = pickupsData?.data || [];
+
+  // Filter pickups
+  const filteredPickups = pickups.filter((pickup: Pickup) => {
+    const hotel = tenants?.find((t) => t.id === pickup.tenantId);
+
+    const matchesSearch = searchTerm === '' ||
+      pickup.bagCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      pickup.sealNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      hotel?.name.toLowerCase().includes(searchTerm.toLowerCase());
+
+    const matchesHotel = filterHotel === '' || pickup.tenantId === filterHotel;
+
+    return matchesSearch && matchesHotel;
+  });
+
+  // Sort by date descending
+  const sortedPickups = [...filteredPickups].sort((a, b) => {
+    return new Date(b.pickupDate).getTime() - new Date(a.pickupDate).getTime();
+  });
+
+  const handleTogglePickup = (pickupId: string) => {
+    setSelectedPickups((prev) =>
+      prev.includes(pickupId)
+        ? prev.filter((id) => id !== pickupId)
+        : [...prev, pickupId]
     );
   };
 
   const handleSelectAll = () => {
-    if (filteredItems.length === selectedItems.length) {
-      setSelectedItems([]);
+    if (sortedPickups.length === selectedPickups.length) {
+      setSelectedPickups([]);
     } else {
-      setSelectedItems(filteredItems.map((item: Item) => item.id));
+      setSelectedPickups(sortedPickups.map((p: Pickup) => p.id));
     }
   };
 
-  const handleMarkClean = () => {
-    if (selectedItems.length === 0) {
-      toast.warning('Lutfen en az bir urun secin');
+  const handleProcessSelected = () => {
+    if (selectedPickups.length === 0) {
+      toast.warning('Lutfen en az bir toplama secin');
       return;
     }
-    markCleanMutation.mutate(selectedItems);
+    processPickupMutation.mutate(selectedPickups);
   };
 
-  // Format date for display
   const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('tr-TR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-    });
-  };
-
-  const formatDateFull = (dateStr: string) => {
     const date = new Date(dateStr);
     const today = new Date();
     const yesterday = new Date(today);
@@ -88,53 +117,46 @@ export function LaundryProcessingPage() {
     } else if (dateOnly === yesterdayOnly) {
       return 'Dun';
     } else {
-      return formatDate(dateStr);
+      return date.toLocaleDateString('tr-TR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+      });
     }
   };
 
-  // Get unique dates for filter
-  const uniqueDates = [...new Set((dirtyItems || []).map((item: Item) => {
-    const date = new Date(item.updatedAt || item.createdAt);
-    return date.toISOString().split('T')[0];
-  }))].sort((a, b) => b.localeCompare(a));
+  const formatTime = (dateStr: string) => {
+    return new Date(dateStr).toLocaleTimeString('tr-TR', {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
 
-  // Filter items
-  const filteredItems = (dirtyItems || []).filter((item: Item) => {
-    const hotel = tenants?.find((t) => t.id === item.tenantId);
-    const itemType = itemTypes?.find((t) => t.id === item.itemTypeId);
-    const itemDate = new Date(item.updatedAt || item.createdAt).toISOString().split('T')[0];
+  // Get item counts by type for a pickup
+  const getItemSummary = (pickup: Pickup) => {
+    const summary: Record<string, { name: string; count: number; damaged: number; stained: number }> = {};
 
-    const matchesSearch = searchTerm === '' ||
-      item.rfidTag.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      hotel?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      itemType?.name.toLowerCase().includes(searchTerm.toLowerCase());
+    pickup.pickupItems?.forEach(pi => {
+      const item = pi.item;
+      if (item) {
+        const typeId = item.itemTypeId;
+        const typeName = itemTypes?.find(t => t.id === typeId)?.name || 'Bilinmeyen';
 
-    const matchesHotel = filterHotel === '' || item.tenantId === filterHotel;
-    const matchesType = filterType === '' || item.itemTypeId === filterType;
-    const matchesDate = filterDate === '' || itemDate === filterDate;
+        if (!summary[typeId]) {
+          summary[typeId] = { name: typeName, count: 0, damaged: 0, stained: 0 };
+        }
+        summary[typeId].count++;
+        if (item.isDamaged) summary[typeId].damaged++;
+        if (item.isStained) summary[typeId].stained++;
+      }
+    });
 
-    return matchesSearch && matchesHotel && matchesType && matchesDate;
-  });
-
-  // Sort by date descending
-  const sortedItems = [...filteredItems].sort((a, b) => {
-    const dateA = new Date(a.updatedAt || a.createdAt).getTime();
-    const dateB = new Date(b.updatedAt || b.createdAt).getTime();
-    return dateB - dateA;
-  });
-
-  const getStatusColor = (status: string) => {
-    const colors: Record<string, string> = {
-      at_hotel: 'bg-blue-100 text-blue-800',
-      at_laundry: 'bg-yellow-100 text-yellow-800',
-      processing: 'bg-orange-100 text-orange-800',
-      ready_for_delivery: 'bg-green-100 text-green-800',
-    };
-    return colors[status] || 'bg-gray-100 text-gray-800';
+    return Object.values(summary);
   };
 
   // Get unique hotels count
-  const uniqueHotels = new Set((dirtyItems || []).map((item: Item) => item.tenantId)).size;
+  const uniqueHotels = new Set(pickups.map((p: Pickup) => p.tenantId)).size;
+  const totalItems = pickups.reduce((sum: number, p: Pickup) => sum + (p.pickupItems?.length || 0), 0);
 
   return (
     <div className="p-8 space-y-6 animate-fade-in">
@@ -144,8 +166,8 @@ export function LaundryProcessingPage() {
             <Sparkles className="w-8 h-8 text-green-600" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Gelen Kirli Urunler</h1>
-            <p className="text-gray-500">Kirli urunleri isle ve temiz olarak isaretle</p>
+            <h1 className="text-2xl font-bold text-gray-900">Gelen Kirli Toplamalar</h1>
+            <p className="text-gray-500">Surucu toplamalarini isle ve temiz olarak isaretle</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -157,14 +179,14 @@ export function LaundryProcessingPage() {
             Yenile
           </button>
           <button
-            onClick={handleMarkClean}
-            disabled={selectedItems.length === 0 || markCleanMutation.isPending}
+            onClick={handleProcessSelected}
+            disabled={selectedPickups.length === 0 || processPickupMutation.isPending}
             className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
           >
             <CheckCircle className="w-5 h-5" />
-            {markCleanMutation.isPending
+            {processPickupMutation.isPending
               ? 'Isleniyor...'
-              : `${selectedItems.length} Urunu Temiz Isaretle`}
+              : `${selectedPickups.length} Toplamayi Isaretle`}
           </button>
         </div>
       </div>
@@ -172,16 +194,16 @@ export function LaundryProcessingPage() {
       {/* Stats */}
       <div className="grid grid-cols-4 gap-4">
         <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-3xl font-bold text-purple-600">{uniqueDates.length}</p>
-          <p className="text-sm text-gray-500">Farkli Gun</p>
+          <p className="text-3xl font-bold text-purple-600">{pickups.length}</p>
+          <p className="text-sm text-gray-500">Toplam Toplama</p>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-3xl font-bold text-blue-600">{dirtyItems?.length || 0}</p>
-          <p className="text-sm text-gray-500">Toplam Kirli Urun</p>
+          <p className="text-3xl font-bold text-blue-600">{totalItems}</p>
+          <p className="text-sm text-gray-500">Toplam Urun</p>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-3xl font-bold text-green-600">{selectedItems.length}</p>
-          <p className="text-sm text-gray-500">Secili</p>
+          <p className="text-3xl font-bold text-green-600">{selectedPickups.length}</p>
+          <p className="text-sm text-gray-500">Secili Toplama</p>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <p className="text-3xl font-bold text-orange-600">{uniqueHotels}</p>
@@ -200,23 +222,11 @@ export function LaundryProcessingPage() {
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="RFID, otel veya urun tipi ara..."
+                placeholder="Canta kodu, muhr no veya otel ara..."
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
               />
             </div>
           </div>
-
-          {/* Date Filter */}
-          <select
-            value={filterDate}
-            onChange={(e) => setFilterDate(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-          >
-            <option value="">Tum Tarihler</option>
-            {uniqueDates.map(date => (
-              <option key={date} value={date}>{formatDateFull(date)}</option>
-            ))}
-          </select>
 
           {/* Hotel Filter */}
           <select
@@ -229,180 +239,318 @@ export function LaundryProcessingPage() {
               <option key={tenant.id} value={tenant.id}>{tenant.name}</option>
             ))}
           </select>
-
-          {/* Type Filter */}
-          <select
-            value={filterType}
-            onChange={(e) => setFilterType(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-          >
-            <option value="">Tum Tipler</option>
-            {itemTypes?.map(type => (
-              <option key={type.id} value={type.id}>{type.name}</option>
-            ))}
-          </select>
         </div>
       </div>
 
-      {/* Table */}
+      {/* Pickups Table */}
       <div className="bg-white rounded-xl shadow-lg overflow-hidden">
         {isLoading ? (
           <div className="flex items-center justify-center h-64">
             <RefreshCw className="w-10 h-10 animate-spin text-green-500" />
           </div>
-        ) : sortedItems.length === 0 ? (
+        ) : sortedPickups.length === 0 ? (
           <div className="p-16 text-center">
             <Sparkles className="w-20 h-20 mx-auto text-gray-300 mb-4" />
-            <p className="text-2xl font-semibold text-gray-500">Islenecek kirli urun yok</p>
-            <p className="text-lg text-gray-400 mt-2">Tum urunler temiz!</p>
+            <p className="text-2xl font-semibold text-gray-500">Islenecek toplama yok</p>
+            <p className="text-lg text-gray-400 mt-2">Tum toplamalar islendi!</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b-2 border-gray-200">
-                <tr>
-                  <th className="px-4 py-4 text-left">
-                    <input
-                      type="checkbox"
-                      checked={sortedItems.length > 0 && selectedItems.length === sortedItems.length}
-                      onChange={handleSelectAll}
-                      className="w-5 h-5 text-green-600 rounded focus:ring-green-500"
-                    />
-                  </th>
-                  <th className="px-4 py-4 text-left text-sm font-bold text-gray-700 uppercase tracking-wider">
-                    Tarih
-                  </th>
-                  <th className="px-4 py-4 text-left text-sm font-bold text-gray-700 uppercase tracking-wider">
-                    Otel
-                  </th>
-                  <th className="px-4 py-4 text-left text-sm font-bold text-gray-700 uppercase tracking-wider">
-                    Urun Tipi
-                  </th>
-                  <th className="px-4 py-4 text-left text-sm font-bold text-gray-700 uppercase tracking-wider">
-                    RFID Etiketi
-                  </th>
-                  <th className="px-4 py-4 text-left text-sm font-bold text-gray-700 uppercase tracking-wider">
-                    Durum
-                  </th>
-                  <th className="px-4 py-4 text-left text-sm font-bold text-gray-700 uppercase tracking-wider">
-                    Yikama
-                  </th>
-                  <th className="px-4 py-4 text-left text-sm font-bold text-gray-700 uppercase tracking-wider">
-                    Isaretler
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {sortedItems.map((item) => {
-                  const hotel = tenants?.find((t) => t.id === item.tenantId);
-                  const itemType = itemTypes?.find((t) => t.id === item.itemTypeId);
-                  const isSelected = selectedItems.includes(item.id);
+          <div>
+            {/* Table Header */}
+            <div className="bg-gray-50 border-b-2 border-gray-200 px-6 py-4">
+              <div className="flex items-center gap-4">
+                <input
+                  type="checkbox"
+                  checked={sortedPickups.length > 0 && selectedPickups.length === sortedPickups.length}
+                  onChange={handleSelectAll}
+                  className="w-5 h-5 text-green-600 rounded focus:ring-green-500"
+                />
+                <div className="flex-1 grid grid-cols-6 gap-4 text-sm font-bold text-gray-700 uppercase tracking-wider">
+                  <span>Tarih</span>
+                  <span>Otel</span>
+                  <span>Canta / Muhur</span>
+                  <span>Urun Sayisi</span>
+                  <span>Surucu</span>
+                  <span>Detay</span>
+                </div>
+              </div>
+            </div>
 
-                  return (
-                    <tr
-                      key={item.id}
-                      className={`hover:bg-green-50 cursor-pointer transition-colors ${
+            {/* Table Body */}
+            <div className="divide-y divide-gray-100">
+              {sortedPickups.map((pickup: Pickup) => {
+                const hotel = tenants?.find((t) => t.id === pickup.tenantId);
+                const isSelected = selectedPickups.includes(pickup.id);
+                const isExpanded = expandedPickup === pickup.id;
+                const itemSummary = getItemSummary(pickup);
+                const totalItems = pickup.pickupItems?.length || 0;
+                const damagedCount = pickup.pickupItems?.filter(pi => pi.item?.isDamaged).length || 0;
+                const stainedCount = pickup.pickupItems?.filter(pi => pi.item?.isStained).length || 0;
+
+                return (
+                  <div key={pickup.id}>
+                    {/* Row */}
+                    <div
+                      className={`px-6 py-4 hover:bg-green-50 cursor-pointer transition-colors ${
                         isSelected ? 'bg-green-100' : ''
                       }`}
-                      onClick={() => handleToggleItem(item.id)}
                     >
-                      <td className="px-4 py-4">
+                      <div className="flex items-center gap-4">
                         <input
                           type="checkbox"
                           checked={isSelected}
-                          onChange={() => handleToggleItem(item.id)}
+                          onChange={() => handleTogglePickup(pickup.id)}
                           onClick={(e) => e.stopPropagation()}
                           className="w-5 h-5 text-green-600 rounded focus:ring-green-500"
                         />
-                      </td>
-                      <td className="px-4 py-4">
-                        <div className="text-sm font-medium text-gray-900">
-                          {formatDateFull(item.updatedAt || item.createdAt)}
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          {new Date(item.updatedAt || item.createdAt).toLocaleTimeString('tr-TR', {
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          })}
-                        </div>
-                      </td>
-                      <td className="px-4 py-4">
-                        <div className="text-sm font-semibold text-gray-900">
-                          {hotel?.name || 'Bilinmeyen'}
-                        </div>
-                      </td>
-                      <td className="px-4 py-4">
-                        <span className="px-3 py-1 bg-gray-100 text-gray-800 rounded-full text-sm font-medium">
-                          {itemType?.name || 'Bilinmeyen'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4">
-                        <span className="font-mono text-sm font-semibold text-gray-900">
-                          {item.rfidTag}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4">
-                        <span className={`px-2 py-1 text-xs rounded-full font-medium ${getStatusColor(item.status)}`}>
-                          {item.status.replace('_', ' ')}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4">
-                        <span className="text-sm font-bold text-gray-700">
-                          {item.washCount}x
-                        </span>
-                      </td>
-                      <td className="px-4 py-4">
-                        <div className="flex gap-2">
-                          {item.isDamaged && (
-                            <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs flex items-center gap-1 font-medium">
-                              <AlertTriangle className="w-3 h-3" />
-                              Hasarli
-                            </span>
-                          )}
-                          {item.isStained && (
-                            <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded text-xs font-medium">
-                              Lekeli
-                            </span>
-                          )}
-                          {!item.isDamaged && !item.isStained && (
-                            <span className="text-sm text-gray-400">-</span>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+                        <div
+                          className="flex-1 grid grid-cols-6 gap-4 items-center"
+                          onClick={() => handleTogglePickup(pickup.id)}
+                        >
+                          {/* Date */}
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <Calendar className="w-4 h-4 text-gray-400" />
+                              <span className="font-medium text-gray-900">{formatDate(pickup.pickupDate)}</span>
+                            </div>
+                            <span className="text-xs text-gray-500 ml-6">{formatTime(pickup.pickupDate)}</span>
+                          </div>
 
-        {/* Table Footer */}
-        {sortedItems.length > 0 && (
-          <div className="px-6 py-4 bg-gray-50 border-t flex items-center justify-between">
-            <div className="text-sm text-gray-600">
-              Toplam <span className="font-bold">{sortedItems.length}</span> urun gosteriliyor
-              {selectedItems.length > 0 && (
-                <span className="ml-2">
-                  (<span className="font-bold text-green-600">{selectedItems.length}</span> secili)
-                </span>
-              )}
+                          {/* Hotel */}
+                          <div className="flex items-center gap-2">
+                            <Building2 className="w-4 h-4 text-blue-500" />
+                            <span className="font-semibold text-gray-900">{hotel?.name || 'Bilinmeyen'}</span>
+                          </div>
+
+                          {/* Bag / Seal */}
+                          <div>
+                            <div className="font-mono text-sm font-semibold text-gray-900">{pickup.bagCode}</div>
+                            <div className="text-xs text-gray-500">Muhur: {pickup.sealNumber}</div>
+                          </div>
+
+                          {/* Item Count */}
+                          <div>
+                            <span className="text-2xl font-bold text-green-600">{totalItems}</span>
+                            <span className="text-sm text-gray-500 ml-1">urun</span>
+                            {(damagedCount > 0 || stainedCount > 0) && (
+                              <div className="flex gap-1 mt-1">
+                                {damagedCount > 0 && (
+                                  <span className="px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-xs">
+                                    {damagedCount} hasarli
+                                  </span>
+                                )}
+                                {stainedCount > 0 && (
+                                  <span className="px-1.5 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs">
+                                    {stainedCount} lekeli
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Driver */}
+                          <div className="flex items-center gap-2">
+                            <User className="w-4 h-4 text-gray-400" />
+                            <span className="text-sm text-gray-700">{pickup.driver ? `${pickup.driver.firstName} ${pickup.driver.lastName}` : '-'}</span>
+                          </div>
+
+                          {/* Expand Button */}
+                          <div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setExpandedPickup(isExpanded ? null : pickup.id);
+                              }}
+                              className="flex items-center gap-1 px-3 py-1.5 text-sm text-green-600 hover:bg-green-100 rounded-lg transition-colors"
+                            >
+                              {isExpanded ? (
+                                <>
+                                  <ChevronUp className="w-4 h-4" />
+                                  Gizle
+                                </>
+                              ) : (
+                                <>
+                                  <ChevronDown className="w-4 h-4" />
+                                  Detay
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Expanded Details */}
+                    {isExpanded && (
+                      <div className="bg-gray-50 border-t border-gray-200 px-6 py-4">
+                        <div className="grid grid-cols-2 gap-6">
+                          {/* Item Summary by Type */}
+                          <div>
+                            <h4 className="text-sm font-bold text-gray-700 uppercase mb-3 flex items-center gap-2">
+                              <Package className="w-4 h-4" />
+                              Urun Ozeti
+                            </h4>
+                            <div className="bg-white rounded-lg border overflow-hidden">
+                              <table className="w-full">
+                                <thead className="bg-gray-100">
+                                  <tr>
+                                    <th className="px-4 py-2 text-left text-xs font-bold text-gray-600">Tip</th>
+                                    <th className="px-4 py-2 text-center text-xs font-bold text-gray-600">Adet</th>
+                                    <th className="px-4 py-2 text-center text-xs font-bold text-gray-600">Hasarli</th>
+                                    <th className="px-4 py-2 text-center text-xs font-bold text-gray-600">Lekeli</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                  {itemSummary.map((item, idx) => (
+                                    <tr key={idx}>
+                                      <td className="px-4 py-2">
+                                        <span className="flex items-center gap-2">
+                                          <Tag className="w-4 h-4 text-green-500" />
+                                          {item.name}
+                                        </span>
+                                      </td>
+                                      <td className="px-4 py-2 text-center font-bold">{item.count}</td>
+                                      <td className="px-4 py-2 text-center">
+                                        {item.damaged > 0 ? (
+                                          <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-medium">
+                                            {item.damaged}
+                                          </span>
+                                        ) : (
+                                          <span className="text-gray-400">-</span>
+                                        )}
+                                      </td>
+                                      <td className="px-4 py-2 text-center">
+                                        {item.stained > 0 ? (
+                                          <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs font-medium">
+                                            {item.stained}
+                                          </span>
+                                        ) : (
+                                          <span className="text-gray-400">-</span>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                                <tfoot className="bg-gray-50">
+                                  <tr>
+                                    <td className="px-4 py-2 font-bold">TOPLAM</td>
+                                    <td className="px-4 py-2 text-center font-bold text-green-600">{totalItems}</td>
+                                    <td className="px-4 py-2 text-center font-bold text-red-600">{damagedCount || '-'}</td>
+                                    <td className="px-4 py-2 text-center font-bold text-yellow-600">{stainedCount || '-'}</td>
+                                  </tr>
+                                </tfoot>
+                              </table>
+                            </div>
+                          </div>
+
+                          {/* Individual Items */}
+                          <div>
+                            <h4 className="text-sm font-bold text-gray-700 uppercase mb-3">
+                              Urun Detaylari ({totalItems} urun)
+                            </h4>
+                            <div className="bg-white rounded-lg border max-h-64 overflow-y-auto">
+                              <table className="w-full">
+                                <thead className="bg-gray-100 sticky top-0">
+                                  <tr>
+                                    <th className="px-3 py-2 text-left text-xs font-bold text-gray-600">RFID</th>
+                                    <th className="px-3 py-2 text-left text-xs font-bold text-gray-600">Tip</th>
+                                    <th className="px-3 py-2 text-center text-xs font-bold text-gray-600">Yikama</th>
+                                    <th className="px-3 py-2 text-left text-xs font-bold text-gray-600">Durum</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                  {pickup.pickupItems?.map((pi) => {
+                                    const item = pi.item;
+                                    const itemType = itemTypes?.find(t => t.id === item?.itemTypeId);
+                                    return (
+                                      <tr key={pi.id} className="hover:bg-gray-50">
+                                        <td className="px-3 py-2 font-mono text-xs">{item?.rfidTag || '-'}</td>
+                                        <td className="px-3 py-2 text-xs">{itemType?.name || '-'}</td>
+                                        <td className="px-3 py-2 text-center text-xs font-medium">{item?.washCount || 0}x</td>
+                                        <td className="px-3 py-2">
+                                          <div className="flex gap-1">
+                                            {item?.isDamaged && (
+                                              <span className="px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-xs flex items-center gap-0.5">
+                                                <AlertTriangle className="w-3 h-3" />
+                                                Hasarli
+                                              </span>
+                                            )}
+                                            {item?.isStained && (
+                                              <span className="px-1.5 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs">
+                                                Lekeli
+                                              </span>
+                                            )}
+                                            {!item?.isDamaged && !item?.isStained && (
+                                              <span className="text-xs text-gray-400">Normal</span>
+                                            )}
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Notes */}
+                        {pickup.notes && (
+                          <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                            <p className="text-sm text-yellow-800">
+                              <strong>Not:</strong> {pickup.notes}
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Quick Action */}
+                        <div className="mt-4 flex justify-end">
+                          <button
+                            onClick={() => {
+                              setSelectedPickups([pickup.id]);
+                              processPickupMutation.mutate([pickup.id]);
+                            }}
+                            disabled={processPickupMutation.isPending}
+                            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400"
+                          >
+                            <CheckCircle className="w-4 h-4" />
+                            Bu Toplamayi Isaretle
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-            <div className="flex gap-2">
-              {selectedItems.length > 0 && (
+
+            {/* Table Footer */}
+            <div className="px-6 py-4 bg-gray-50 border-t flex items-center justify-between">
+              <div className="text-sm text-gray-600">
+                Toplam <span className="font-bold">{sortedPickups.length}</span> toplama,
+                <span className="font-bold ml-1">{totalItems}</span> urun
+                {selectedPickups.length > 0 && (
+                  <span className="ml-2">
+                    (<span className="font-bold text-green-600">{selectedPickups.length}</span> secili)
+                  </span>
+                )}
+              </div>
+              <div className="flex gap-2">
+                {selectedPickups.length > 0 && (
+                  <button
+                    onClick={() => setSelectedPickups([])}
+                    className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg text-sm"
+                  >
+                    Secimi Temizle
+                  </button>
+                )}
                 <button
-                  onClick={() => setSelectedItems([])}
-                  className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg text-sm"
+                  onClick={handleSelectAll}
+                  className="px-4 py-2 text-green-600 hover:bg-green-50 rounded-lg text-sm font-medium"
                 >
-                  Secimi Temizle
+                  {selectedPickups.length === sortedPickups.length ? 'Tum Secimleri Kaldir' : 'Tumu Sec'}
                 </button>
-              )}
-              <button
-                onClick={handleSelectAll}
-                className="px-4 py-2 text-green-600 hover:bg-green-50 rounded-lg text-sm font-medium"
-              >
-                {selectedItems.length === sortedItems.length ? 'Tum Secimleri Kaldir' : 'Tumu Sec'}
-              </button>
+              </div>
             </div>
           </div>
         )}
