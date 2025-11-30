@@ -19,6 +19,7 @@ import { SettingsPage } from './pages/SettingsPage';
 import { DeliveryManagementPage } from './pages/DeliveryManagementPage';
 import { DriverActivitiesPage } from './pages/DriverActivitiesPage';
 import { DeliveryLogsPage } from './pages/DeliveryLogsPage';
+import { LocationTestPage } from './pages/LocationTestPage';
 import { IronerInterfacePage } from './pages/IronerInterfacePage';
 import { PackagingPage } from './pages/PackagingPage';
 import { HotelManagementPage } from './pages/HotelManagementPage';
@@ -87,6 +88,7 @@ function App() {
                 <Route path="delivery-management" element={<DeliveryManagementPage />} />
                 <Route path="driver-activities" element={<DriverActivitiesPage />} />
                 <Route path="delivery-logs" element={<DeliveryLogsPage />} />
+                <Route path="location-test" element={<LocationTestPage />} />
                 <Route path="ironer-interface" element={<IronerInterfacePage />} />
                 <Route path="packaging" element={<PackagingPage />} />
                 <Route path="irsaliye" element={<IrsaliyePage />} />
