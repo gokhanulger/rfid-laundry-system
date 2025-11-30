@@ -1,14 +1,71 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Truck, Building2, CheckCircle, RefreshCw, Package, MapPin } from 'lucide-react';
+import { Truck, Building2, CheckCircle, RefreshCw, Package, MapPin, Navigation } from 'lucide-react';
 import { deliveriesApi, getErrorMessage } from '../../lib/api';
 import { useToast } from '../../components/Toast';
 import type { Delivery } from '../../types';
 
 export function HotelDeliveryPage() {
   const [selectedDeliveries, setSelectedDeliveries] = useState<string[]>([]);
+  const [locationPermission, setLocationPermission] = useState<'prompt' | 'granted' | 'denied' | 'checking'>('checking');
   const queryClient = useQueryClient();
   const toast = useToast();
+
+  // Check location permission on mount
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      setLocationPermission('denied');
+      return;
+    }
+
+    // Check current permission state
+    if (navigator.permissions) {
+      navigator.permissions.query({ name: 'geolocation' }).then((result) => {
+        setLocationPermission(result.state as 'prompt' | 'granted' | 'denied');
+
+        // Listen for permission changes
+        result.addEventListener('change', () => {
+          setLocationPermission(result.state as 'prompt' | 'granted' | 'denied');
+        });
+      }).catch(() => {
+        setLocationPermission('prompt');
+      });
+    } else {
+      setLocationPermission('prompt');
+    }
+  }, []);
+
+  // Request location permission proactively
+  const requestLocationPermission = () => {
+    if (!navigator.geolocation) {
+      toast.error('Tarayıcınız konum özelliğini desteklemiyor');
+      return;
+    }
+
+    toast.info('Konum izni isteniyor...');
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLocationPermission('granted');
+        toast.success('Konum erişimi onaylandı!');
+        console.log('📍 Location permission granted:', position.coords.latitude, position.coords.longitude);
+      },
+      (error) => {
+        setLocationPermission('denied');
+        let errorMsg = 'Konum erişimi reddedildi';
+        if (error.code === error.PERMISSION_DENIED) {
+          errorMsg = 'Konum izni reddedildi. Tarayıcı ayarlarından konum iznini açın.';
+        }
+        toast.error(errorMsg);
+        console.error('Geolocation error:', error);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
+      }
+    );
+  };
 
   // Get deliveries picked up (from laundry, ready for hotel delivery)
   const { data: inTransitDeliveries, isLoading, refetch } = useQuery({
@@ -18,7 +75,54 @@ export function HotelDeliveryPage() {
 
   const deliverMutation = useMutation({
     mutationFn: async (deliveryId: string) => {
-      return deliveriesApi.deliver(deliveryId);
+      return new Promise<Delivery>((resolve, reject) => {
+        if (!navigator.geolocation) {
+          toast.warning('Konum desteklenmiyor, konumsuz teslim ediliyor');
+          deliveriesApi.deliver(deliveryId).then(resolve).catch(reject);
+          return;
+        }
+
+        toast.info('Konum bilgisi alınıyor...');
+
+        navigator.geolocation.getCurrentPosition(
+          async (position) => {
+            try {
+              console.log('📍 Location captured:', position.coords.latitude, position.coords.longitude);
+              const delivery = await deliveriesApi.deliver(deliveryId, {
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+              });
+              console.log('✅ Delivery response:', delivery);
+              if (delivery.deliveryLatitude && delivery.deliveryLongitude) {
+                toast.success('Teslimat tamamlandı! Konum kaydedildi.');
+              } else {
+                toast.warning('Teslimat tamamlandı ama konum kaydedilmedi.');
+              }
+              setLocationPermission('granted');
+              resolve(delivery);
+            } catch (error) {
+              reject(error);
+            }
+          },
+          (error) => {
+            console.error('❌ Geolocation error:', error);
+            let errorMsg = 'Konum alınamadı';
+            if (error.code === error.PERMISSION_DENIED) {
+              setLocationPermission('denied');
+              errorMsg = 'Konum izni reddedildi. Ayarlardan konum iznini açın.';
+            } else if (error.code === error.TIMEOUT) {
+              errorMsg = 'Konum alınırken zaman aşımı. Konumsuz teslim ediliyor.';
+            }
+            toast.warning(errorMsg);
+            deliveriesApi.deliver(deliveryId).then(resolve).catch(reject);
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0,
+          }
+        );
+      });
     },
     onSuccess: () => {
       toast.success('Teslimat basariyla tamamlandi!');
@@ -76,6 +180,40 @@ export function HotelDeliveryPage() {
           <RefreshCw className="w-5 h-5 md:w-6 md:h-6" />
         </button>
       </div>
+
+      {/* Location Permission Banner */}
+      {locationPermission !== 'granted' && (
+        <div className="bg-yellow-50 border-2 border-yellow-300 rounded-xl p-4">
+          <div className="flex items-start gap-3">
+            <MapPin className="w-6 h-6 md:w-7 md:h-7 text-yellow-600 mt-0.5 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <h3 className="font-bold text-yellow-900 mb-1 text-sm md:text-base">⚠️ Konum İzni Gerekli</h3>
+              <p className="text-xs md:text-sm text-yellow-800 mb-3">
+                Teslimat sırasında konum bilgisi kaydedilmesi için tarayıcınızdan konum iznine ihtiyacımız var.
+                Lütfen aşağıdaki butona tıklayın ve tarayıcı izin istediğinde <strong>"İzin Ver"</strong> seçeneğini seçin.
+              </p>
+              <button
+                onClick={requestLocationPermission}
+                className="flex items-center gap-2 px-4 md:px-5 py-2 md:py-2.5 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 active:bg-yellow-800 text-sm md:text-base font-medium shadow-sm touch-manipulation"
+              >
+                <Navigation className="w-4 h-4 md:w-5 md:h-5" />
+                Konum İznini Aç
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {locationPermission === 'granted' && (
+        <div className="bg-green-50 border border-green-300 rounded-xl p-3 md:p-4">
+          <div className="flex items-center gap-2">
+            <CheckCircle className="w-5 h-5 md:w-6 md:h-6 text-green-600" />
+            <span className="text-xs md:text-sm text-green-800 font-medium">
+              ✅ Konum erişimi aktif - Teslimatlar konum bilgisiyle kaydedilecek
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-2 md:gap-4">
