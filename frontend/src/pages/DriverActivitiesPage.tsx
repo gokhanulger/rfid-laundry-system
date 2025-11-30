@@ -16,6 +16,7 @@ export function DriverActivitiesPage() {
   const [packageBarcodeInput, setPackageBarcodeInput] = useState('');
   const [deliveryBarcodeInput, setDeliveryBarcodeInput] = useState('');
   const [scannedDelivery, setScannedDelivery] = useState<Delivery | null>(null);
+  const [locationPermission, setLocationPermission] = useState<'prompt' | 'granted' | 'denied' | 'checking'>('checking');
 
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -30,11 +31,69 @@ export function DriverActivitiesPage() {
     }
   }, []);
 
+  // Check location permission on mount and when deliver tab is active
+  useEffect(() => {
+    if (activeTab !== 'deliver') return;
+
+    if (!navigator.geolocation) {
+      setLocationPermission('denied');
+      return;
+    }
+
+    // Check current permission state
+    if (navigator.permissions) {
+      navigator.permissions.query({ name: 'geolocation' }).then((result) => {
+        setLocationPermission(result.state as 'prompt' | 'granted' | 'denied');
+
+        // Listen for permission changes
+        result.addEventListener('change', () => {
+          setLocationPermission(result.state as 'prompt' | 'granted' | 'denied');
+        });
+      }).catch(() => {
+        setLocationPermission('prompt');
+      });
+    } else {
+      setLocationPermission('prompt');
+    }
+  }, [activeTab]);
+
   // Save selected driver to localStorage
   const selectDriver = (driverId: string) => {
     setSelectedDriverId(driverId);
     localStorage.setItem(DRIVER_ID_KEY, driverId);
     setShowDriverSelection(false);
+  };
+
+  // Request location permission proactively
+  const requestLocationPermission = () => {
+    if (!navigator.geolocation) {
+      toast.error('Tarayıcınız konum özelliğini desteklemiyor');
+      return;
+    }
+
+    toast.info('Konum izni isteniyor...');
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLocationPermission('granted');
+        toast.success(`Konum erişimi onaylandı!`);
+        console.log('📍 Location permission granted:', position.coords.latitude, position.coords.longitude);
+      },
+      (error) => {
+        setLocationPermission('denied');
+        let errorMsg = 'Konum erişimi reddedildi';
+        if (error.code === error.PERMISSION_DENIED) {
+          errorMsg = 'Konum izni reddedildi. Tarayıcı ayarlarından konum iznini açın.';
+        }
+        toast.error(errorMsg);
+        console.error('Geolocation error:', error);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
+      }
+    );
   };
 
   // Get all users with driver role
@@ -63,16 +122,16 @@ export function DriverActivitiesPage() {
   const scanPackageMutation = useMutation({
     mutationFn: deliveriesApi.scanPackage,
     onSuccess: (data) => {
-      toast.success(`Package scanned! ${data.scannedPackages}/${data.totalPackages} packages scanned`);
+      toast.success(`Paket tarandı! ${data.scannedPackages}/${data.totalPackages}`);
       if (data.allPackagesScanned) {
-        toast.success('All packages scanned! Delivery ready for transport.');
+        toast.success('Tüm paketler tarandı! Teslimat için hazır.');
       }
       setPackageBarcodeInput('');
       refetchPackaged();
       refetchInTransit();
       queryClient.invalidateQueries({ queryKey: ['deliveries'] });
     },
-    onError: (err) => toast.error('Failed to scan package', getErrorMessage(err)),
+    onError: (err) => toast.error('Paket taranamadı', getErrorMessage(err)),
   });
 
   // Get location and deliver mutation
@@ -80,33 +139,54 @@ export function DriverActivitiesPage() {
     mutationFn: async (deliveryId: string) => {
       return new Promise<Delivery>((resolve, reject) => {
         if (!navigator.geolocation) {
-          toast.warning('Geolocation not supported, delivering without location');
+          toast.warning('Konum desteklenmiyor, konumsuz teslim ediliyor');
           deliveriesApi.deliver(deliveryId).then(resolve).catch(reject);
           return;
         }
 
+        toast.info('Konum bilgisi alınıyor...');
+
         navigator.geolocation.getCurrentPosition(
           async (position) => {
             try {
+              console.log('📍 Location captured:', position.coords.latitude, position.coords.longitude);
               const delivery = await deliveriesApi.deliver(deliveryId, {
                 latitude: position.coords.latitude,
                 longitude: position.coords.longitude,
               });
+              console.log('✅ Delivery response:', delivery);
+              if (delivery.deliveryLatitude && delivery.deliveryLongitude) {
+                toast.success(`Teslimat tamamlandı! Konum kaydedildi.`);
+              } else {
+                toast.warning('Teslimat tamamlandı ama konum kaydedilmedi.');
+              }
+              setLocationPermission('granted');
               resolve(delivery);
             } catch (error) {
               reject(error);
             }
           },
           (error) => {
-            console.error('Geolocation error:', error);
-            toast.warning('Could not get location, delivering without it');
+            console.error('❌ Geolocation error:', error);
+            let errorMsg = 'Konum alınamadı';
+            if (error.code === error.PERMISSION_DENIED) {
+              setLocationPermission('denied');
+              errorMsg = 'Konum izni reddedildi. Ayarlardan konum iznini açın.';
+            } else if (error.code === error.TIMEOUT) {
+              errorMsg = 'Konum alınırken zaman aşımı. Konumsuz teslim ediliyor.';
+            }
+            toast.warning(errorMsg);
             deliveriesApi.deliver(deliveryId).then(resolve).catch(reject);
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0,
           }
         );
       });
     },
     onSuccess: () => {
-      toast.success('Teslimat tamamlandı!');
       queryClient.invalidateQueries({ queryKey: ['deliveries'] });
       setScannedDelivery(null);
       refetchInTransit();
@@ -330,6 +410,41 @@ export function DriverActivitiesPage() {
       {/* Deliver Tab */}
       {activeTab === 'deliver' && (
         <>
+          {/* Location Permission Status */}
+          {locationPermission !== 'granted' && (
+            <div className="bg-yellow-50 border-2 border-yellow-300 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <MapPin className="w-6 h-6 text-yellow-600 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <h3 className="font-semibold text-yellow-900 mb-1">⚠️ Konum İzni Gerekli</h3>
+                  <p className="text-sm text-yellow-800 mb-3">
+                    Teslimat sırasında konum bilgisi kaydedilmesi için tarayıcınızdan konum iznine ihtiyacımız var.
+                    <br />
+                    Lütfen aşağıdaki butona tıklayın ve tarayıcı izin istediğinde <strong>"İzin Ver"</strong> seçeneğini seçin.
+                  </p>
+                  <button
+                    onClick={requestLocationPermission}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 text-sm font-medium shadow-sm"
+                  >
+                    <Navigation className="w-4 h-4" />
+                    Konum İznini Aç
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {locationPermission === 'granted' && (
+            <div className="bg-green-50 border border-green-300 rounded-lg p-3">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="w-5 h-5 text-green-600" />
+                <span className="text-sm text-green-800 font-medium">
+                  ✅ Konum erişimi aktif - Teslimatlar konum bilgisiyle kaydedilecek
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Delivery Scanner */}
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
