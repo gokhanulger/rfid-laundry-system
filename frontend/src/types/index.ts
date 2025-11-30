@@ -127,6 +127,9 @@ export interface Delivery {
   packagedAt: string | null;
   pickedUpAt: string | null;
   deliveredAt: string | null;
+  deliveryLatitude: string | null;
+  deliveryLongitude: string | null;
+  deliveryAddress: string | null;
   notes: string | null;
   createdAt: string;
   updatedAt: string;

@@ -119,6 +119,7 @@ deliveriesRouter.get('/', async (req: AuthRequest, res) => {
     const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
     const offset = (page - 1) * limit;
     const status = req.query.status as string | undefined;
+    const driverId = req.query.driverId as string | undefined;
 
     // Build where conditions
     const conditions = [];
@@ -127,6 +128,9 @@ deliveriesRouter.get('/', async (req: AuthRequest, res) => {
     }
     if (status) {
       conditions.push(eq(deliveries.status, status as any));
+    }
+    if (driverId) {
+      conditions.push(eq(deliveries.driverId, driverId));
     }
 
     const allDeliveries = await db.query.deliveries.findMany({
@@ -379,7 +383,100 @@ deliveriesRouter.post('/:id/package', requireRole('packager', 'operator', 'laund
   }
 });
 
-// Pick up delivery (driver)
+// Scan package barcode (driver claims package for delivery)
+deliveriesRouter.post('/packages/:barcode/scan', requireRole('driver', 'laundry_manager', 'system_admin'), async (req: AuthRequest, res) => {
+  try {
+    const { barcode } = req.params;
+
+    // Find the package by barcode
+    const pkg = await db.query.deliveryPackages.findFirst({
+      where: eq(deliveryPackages.packageBarcode, barcode),
+      with: {
+        delivery: {
+          with: {
+            tenant: true,
+          },
+        },
+      },
+    });
+
+    if (!pkg) {
+      return res.status(404).json({ error: 'Package not found' });
+    }
+
+    // Check if package is in a delivery that's ready for pickup
+    if (pkg.delivery.status !== 'packaged') {
+      return res.status(400).json({ error: 'Package is not ready for pickup. Current status: ' + pkg.delivery.status });
+    }
+
+    // Update package with scanned info
+    const [updatedPackage] = await db.update(deliveryPackages)
+      .set({
+        status: 'scanned',
+        scannedAt: new Date(),
+        scannedBy: req.user!.id,
+      })
+      .where(eq(deliveryPackages.id, pkg.id))
+      .returning();
+
+    // Check if all packages for this delivery have been scanned
+    const allPackages = await db.query.deliveryPackages.findMany({
+      where: eq(deliveryPackages.deliveryId, pkg.deliveryId),
+    });
+
+    const allScanned = allPackages.every(p => p.status === 'scanned' || p.id === updatedPackage.id);
+
+    // If all packages scanned, update delivery status to picked_up
+    if (allScanned) {
+      await db.update(deliveries)
+        .set({
+          status: 'picked_up',
+          driverId: req.user!.id,
+          pickedUpAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(deliveries.id, pkg.deliveryId));
+
+      // Update items status
+      const deliveryItemsList = await db.query.deliveryItems.findMany({
+        where: eq(deliveryItems.deliveryId, pkg.deliveryId),
+      });
+
+      if (deliveryItemsList.length > 0) {
+        const itemIds = deliveryItemsList.map(di => di.itemId);
+        await db.update(items)
+          .set({ status: 'in_transit', updatedAt: new Date() })
+          .where(inArray(items.id, itemIds));
+      }
+    }
+
+    // Return updated package with delivery info
+    const packageWithRelations = await db.query.deliveryPackages.findFirst({
+      where: eq(deliveryPackages.id, updatedPackage.id),
+      with: {
+        delivery: {
+          with: {
+            tenant: true,
+            deliveryPackages: true,
+          },
+        },
+        scannedByUser: true,
+      },
+    });
+
+    res.json({
+      package: packageWithRelations,
+      allPackagesScanned: allScanned,
+      totalPackages: allPackages.length,
+      scannedPackages: allPackages.filter(p => p.status === 'scanned' || p.id === updatedPackage.id).length,
+    });
+  } catch (error) {
+    console.error('Scan package error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Pick up delivery (driver) - Legacy endpoint, kept for backward compatibility
 deliveriesRouter.post('/:id/pickup', requireRole('driver', 'laundry_manager', 'system_admin'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
@@ -428,6 +525,7 @@ deliveriesRouter.post('/:id/pickup', requireRole('driver', 'laundry_manager', 's
 deliveriesRouter.post('/:id/deliver', requireRole('driver', 'laundry_manager', 'system_admin'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
+    const { latitude, longitude, address } = req.body;
 
     // Verify delivery exists
     const existingDelivery = await db.query.deliveries.findFirst({
@@ -448,6 +546,9 @@ deliveriesRouter.post('/:id/deliver', requireRole('driver', 'laundry_manager', '
         status: 'delivered',
         driverId: req.user!.id,
         deliveredAt: new Date(),
+        deliveryLatitude: latitude ? String(latitude) : null,
+        deliveryLongitude: longitude ? String(longitude) : null,
+        deliveryAddress: address || null,
         updatedAt: new Date(),
       })
       .where(eq(deliveries.id, id))

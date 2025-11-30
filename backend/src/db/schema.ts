@@ -132,6 +132,9 @@ export const deliveries = pgTable('deliveries', {
   packagedAt: timestamp('packaged_at'),
   pickedUpAt: timestamp('picked_up_at'),
   deliveredAt: timestamp('delivered_at'),
+  deliveryLatitude: text('delivery_latitude'), // Location where delivery was completed
+  deliveryLongitude: text('delivery_longitude'),
+  deliveryAddress: text('delivery_address'), // Optional human-readable address
   notes: text('notes'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

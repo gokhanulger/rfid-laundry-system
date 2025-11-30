@@ -64,7 +64,7 @@ export function DeliveryManagementPage() {
   });
 
   const deliverMutation = useMutation({
-    mutationFn: deliveriesApi.deliver,
+    mutationFn: (id: string) => deliveriesApi.deliver(id),
     onSuccess: () => {
       toast.success('Teslimat tamamlandi');
       queryClient.invalidateQueries({ queryKey: ['deliveries'] });

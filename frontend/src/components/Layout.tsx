@@ -23,6 +23,7 @@ import {
   FileText,
   ChevronLeft,
   ChevronRight,
+  MapPin,
 } from 'lucide-react';
 
 // Storage key for sidebar state
@@ -91,6 +92,7 @@ export function Layout() {
     { name: 'Irsaliye', href: '/irsaliye', icon: FileText },
     { name: 'Surucu Aktiviteleri', href: '/driver-activities', icon: Shield },
     { name: 'Teslimat Yonetimi', href: '/delivery-management', icon: Truck },
+    { name: 'Teslimat Loglari', href: '/delivery-logs', icon: MapPin },
     { name: 'Yeniden Yikama', href: '/rewash-queue', icon: RotateCcw },
     { name: 'Uyarilar', href: '/alerts', icon: Bell },
     { name: 'Raporlar', href: '/reports', icon: BarChart3 },

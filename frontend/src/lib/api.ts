@@ -214,6 +214,7 @@ export const deliveriesApi = {
     page?: number;
     limit?: number;
     status?: string;
+    driverId?: string;
   }): Promise<PaginatedResponse<Delivery>> => {
     const { data } = await api.get<PaginatedResponse<Delivery>>('/deliveries', { params });
     return data;
@@ -249,8 +250,18 @@ export const deliveriesApi = {
     return data;
   },
 
-  deliver: async (id: string): Promise<Delivery> => {
-    const { data } = await api.post<Delivery>(`/deliveries/${id}/deliver`);
+  deliver: async (id: string, location?: { latitude: number; longitude: number; address?: string }): Promise<Delivery> => {
+    const { data } = await api.post<Delivery>(`/deliveries/${id}/deliver`, location);
+    return data;
+  },
+
+  scanPackage: async (barcode: string): Promise<{
+    package: any;
+    allPackagesScanned: boolean;
+    totalPackages: number;
+    scannedPackages: number;
+  }> => {
+    const { data } = await api.post(`/deliveries/packages/${barcode}/scan`);
     return data;
   },
 
@@ -356,6 +367,11 @@ export const settingsApi = {
     address?: string;
   }): Promise<Tenant> => {
     const { data } = await api.post<Tenant>('/tenants', tenant);
+    return data;
+  },
+
+  getUsers: async (): Promise<User[]> => {
+    const { data } = await api.get<User[]>('/users');
     return data;
   },
 

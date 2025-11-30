@@ -18,6 +18,7 @@ import { ReportsPage } from './pages/ReportsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { DeliveryManagementPage } from './pages/DeliveryManagementPage';
 import { DriverActivitiesPage } from './pages/DriverActivitiesPage';
+import { DeliveryLogsPage } from './pages/DeliveryLogsPage';
 import { IronerInterfacePage } from './pages/IronerInterfacePage';
 import { PackagingPage } from './pages/PackagingPage';
 import { HotelManagementPage } from './pages/HotelManagementPage';
@@ -85,6 +86,7 @@ function App() {
                 {/* Workflow Pages */}
                 <Route path="delivery-management" element={<DeliveryManagementPage />} />
                 <Route path="driver-activities" element={<DriverActivitiesPage />} />
+                <Route path="delivery-logs" element={<DeliveryLogsPage />} />
                 <Route path="ironer-interface" element={<IronerInterfacePage />} />
                 <Route path="packaging" element={<PackagingPage />} />
                 <Route path="irsaliye" element={<IrsaliyePage />} />
