@@ -9,6 +9,8 @@ export function LocationTestPage() {
   const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [selectedDeliveryId, setSelectedDeliveryId] = useState<string>('');
+  const [apiRequest, setApiRequest] = useState<any>(null);
+  const [apiResponse, setApiResponse] = useState<any>(null);
   const toast = useToast();
 
   // Get deliveries that can be delivered (picked_up status)
@@ -68,16 +70,42 @@ export function LocationTestPage() {
       if (!location) {
         throw new Error('No location data available');
       }
-      return deliveriesApi.deliver(deliveryId, location);
+      // Log the request
+      const requestData = {
+        deliveryId,
+        location,
+        endpoint: `POST /api/deliveries/${deliveryId}/deliver`,
+        timestamp: new Date().toISOString(),
+      };
+      setApiRequest(requestData);
+      console.log('🚀 Sending delivery request:', requestData);
+
+      const response = await deliveriesApi.deliver(deliveryId, location);
+
+      // Log the response
+      setApiResponse({
+        data: response,
+        timestamp: new Date().toISOString(),
+      });
+      console.log('✅ Delivery response:', response);
+
+      return response;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       toast.success('Delivery completed with location!');
-      setSelectedDeliveryId('');
-      setLocation(null);
-      setLocationStatus('idle');
+      console.log('📍 Location data in response:', {
+        latitude: data.deliveryLatitude,
+        longitude: data.deliveryLongitude,
+        address: data.deliveryAddress,
+      });
     },
     onError: (err) => {
+      console.error('❌ Delivery error:', err);
       toast.error('Delivery failed', getErrorMessage(err));
+      setApiResponse({
+        error: getErrorMessage(err),
+        timestamp: new Date().toISOString(),
+      });
     },
   });
 
@@ -271,6 +299,65 @@ export function LocationTestPage() {
           <li>Go to "Teslimat Loglari" page to see the delivery with location data</li>
         </ol>
       </div>
+
+      {/* API Request/Response Debug */}
+      {(apiRequest || apiResponse) && (
+        <div className="bg-purple-50 border border-purple-200 rounded-lg p-6">
+          <h2 className="text-lg font-semibold mb-3 text-purple-900">API Debug Info:</h2>
+
+          {apiRequest && (
+            <div className="mb-4">
+              <p className="font-medium text-purple-900 mb-2">📤 Request Sent:</p>
+              <pre className="bg-purple-100 p-3 rounded text-xs overflow-x-auto">
+                {JSON.stringify(apiRequest, null, 2)}
+              </pre>
+            </div>
+          )}
+
+          {apiResponse && (
+            <div>
+              <p className="font-medium text-purple-900 mb-2">
+                {apiResponse.error ? '❌ Error Response:' : '📥 Response Received:'}
+              </p>
+              <pre className="bg-purple-100 p-3 rounded text-xs overflow-x-auto">
+                {JSON.stringify(apiResponse, null, 2)}
+              </pre>
+
+              {apiResponse.data && (
+                <div className="mt-3 p-3 bg-purple-100 rounded">
+                  <p className="font-medium text-purple-900 mb-2">📍 Location Data in Response:</p>
+                  <div className="text-sm space-y-1">
+                    <p>
+                      <span className="font-medium">Latitude:</span>{' '}
+                      <code>{apiResponse.data.deliveryLatitude || '❌ NOT SAVED'}</code>
+                    </p>
+                    <p>
+                      <span className="font-medium">Longitude:</span>{' '}
+                      <code>{apiResponse.data.deliveryLongitude || '❌ NOT SAVED'}</code>
+                    </p>
+                    <p>
+                      <span className="font-medium">Address:</span>{' '}
+                      <code>{apiResponse.data.deliveryAddress || 'N/A'}</code>
+                    </p>
+                  </div>
+
+                  {!apiResponse.data.deliveryLatitude && (
+                    <div className="mt-3 p-2 bg-red-100 border border-red-300 rounded">
+                      <p className="text-red-800 font-medium text-sm">
+                        ⚠️ Backend did not save location data!
+                      </p>
+                      <p className="text-red-700 text-xs mt-1">
+                        This means the backend database schema hasn't been updated yet.
+                        Railway deployment may still be in progress.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* API Endpoint Info */}
       <div className="bg-gray-50 border border-gray-200 rounded-lg p-6">
