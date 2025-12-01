@@ -9,6 +9,22 @@ import { sendDeliveryNotification } from '../services/email';
 export const deliveriesRouter = Router();
 deliveriesRouter.use(requireAuth);
 
+// Calculate distance between two GPS coordinates using Haversine formula (in meters)
+function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371000; // Earth's radius in meters
+  const φ1 = lat1 * Math.PI / 180;
+  const φ2 = lat2 * Math.PI / 180;
+  const Δφ = (lat2 - lat1) * Math.PI / 180;
+  const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+            Math.cos(φ1) * Math.cos(φ2) *
+            Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c; // Distance in meters
+}
+
 // Validation schemas
 const createDeliverySchema = z.object({
   tenantId: z.string().uuid('Invalid tenant ID'),
@@ -540,6 +556,34 @@ deliveriesRouter.post('/:id/deliver', requireRole('driver', 'laundry_manager', '
     }
     if (existingDelivery.status !== 'picked_up') {
       return res.status(400).json({ error: 'Delivery must be picked up first' });
+    }
+
+    // Proximity check: Verify driver is close to hotel location
+    if (latitude && longitude && existingDelivery.tenant?.latitude && existingDelivery.tenant?.longitude) {
+      const driverLat = parseFloat(latitude);
+      const driverLon = parseFloat(longitude);
+      const hotelLat = parseFloat(existingDelivery.tenant.latitude);
+      const hotelLon = parseFloat(existingDelivery.tenant.longitude);
+
+      const distance = calculateDistance(driverLat, driverLon, hotelLat, hotelLon);
+      const MAX_DISTANCE = 300; // 300 meters radius
+
+      console.log(`📍 Proximity check: Driver at (${driverLat}, ${driverLon}), Hotel at (${hotelLat}, ${hotelLon}), Distance: ${distance.toFixed(2)}m`);
+
+      if (distance > MAX_DISTANCE) {
+        return res.status(400).json({
+          error: 'Konum doğrulaması başarısız',
+          message: `Otel konumundan ${distance.toFixed(0)} metre uzaktasınız. Teslimat yapmak için otele daha yakın olmalısınız (maksimum ${MAX_DISTANCE}m).`,
+          distance: Math.round(distance),
+          maxDistance: MAX_DISTANCE
+        });
+      }
+
+      console.log(`✅ Proximity check passed: ${distance.toFixed(2)}m < ${MAX_DISTANCE}m`);
+    } else if (!latitude || !longitude) {
+      console.warn('⚠️ No driver location provided for delivery');
+    } else if (!existingDelivery.tenant?.latitude || !existingDelivery.tenant?.longitude) {
+      console.warn('⚠️ Hotel location not configured, skipping proximity check');
     }
 
     const [updatedDelivery] = await db.update(deliveries)

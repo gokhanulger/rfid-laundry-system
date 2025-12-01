@@ -20,6 +20,8 @@ export interface Tenant {
   email: string;
   phone: string | null;
   address: string | null;
+  latitude: string | null;
+  longitude: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;

@@ -10,6 +10,8 @@ interface Tenant {
   email: string;
   phone: string | null;
   address: string | null;
+  latitude: string | null;
+  longitude: string | null;
   isActive: boolean;
   createdAt: string;
 }
@@ -19,9 +21,11 @@ interface TenantForm {
   email: string;
   phone: string;
   address: string;
+  latitude: string;
+  longitude: string;
 }
 
-const emptyForm: TenantForm = { name: '', email: '', phone: '', address: '' };
+const emptyForm: TenantForm = { name: '', email: '', phone: '', address: '', latitude: '', longitude: '' };
 
 export function HotelManagementPage() {
   const [showModal, setShowModal] = useState(false);
@@ -90,6 +94,8 @@ export function HotelManagementPage() {
       email: tenant.email,
       phone: tenant.phone || '',
       address: tenant.address || '',
+      latitude: tenant.latitude || '',
+      longitude: tenant.longitude || '',
     });
     setShowModal(true);
   };
@@ -294,6 +300,37 @@ export function HotelManagementPage() {
                   placeholder="Tam adres"
                   rows={2}
                 />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Enlem (Latitude)
+                  </label>
+                  <input
+                    type="text"
+                    value={form.latitude}
+                    onChange={(e) => setForm({ ...form, latitude: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500"
+                    placeholder="41.0082"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Boylam (Longitude)
+                  </label>
+                  <input
+                    type="text"
+                    value={form.longitude}
+                    onChange={(e) => setForm({ ...form, longitude: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500"
+                    placeholder="28.9784"
+                  />
+                </div>
+              </div>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <p className="text-xs text-blue-800">
+                  💡 Google Maps'ten konum almak için: Otelin konumuna sağ tıklayın → İlk satırdaki koordinatları kopyalayın
+                </p>
               </div>
               <div className="flex gap-3 pt-4">
                 <button

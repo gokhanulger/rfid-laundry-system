@@ -65,6 +65,8 @@ export const tenants = pgTable('tenants', {
   email: text('email').notNull(),
   phone: text('phone'),
   address: text('address'),
+  latitude: text('latitude'), // Hotel GPS latitude
+  longitude: text('longitude'), // Hotel GPS longitude
   isActive: boolean('is_active').default(true).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
