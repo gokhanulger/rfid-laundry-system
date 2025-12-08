@@ -545,6 +545,67 @@ itemsRouter.patch('/:id/stained', requireRole('operator', 'laundry_manager', 'sy
   }
 });
 
+// Bulk create items
+itemsRouter.post('/bulk', requireRole('operator', 'laundry_manager', 'system_admin'), async (req: AuthRequest, res) => {
+  try {
+    const bulkSchema = z.object({
+      items: z.array(createItemSchema).min(1, 'At least one item is required'),
+    });
+
+    const validation = bulkSchema.safeParse(req.body);
+    if (!validation.success) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: validation.error.errors
+      });
+    }
+
+    const { items: itemsToCreate } = validation.data;
+    let created = 0;
+    let failed = 0;
+    const errors: { rfidTag: string; error: string }[] = [];
+
+    for (const itemData of itemsToCreate) {
+      try {
+        // Check if RFID tag already exists
+        const existingItem = await db.query.items.findFirst({
+          where: eq(items.rfidTag, itemData.rfidTag),
+        });
+
+        if (existingItem) {
+          failed++;
+          errors.push({ rfidTag: itemData.rfidTag, error: 'RFID tag already exists' });
+          continue;
+        }
+
+        // Create item
+        await db.insert(items).values({
+          rfidTag: itemData.rfidTag,
+          itemTypeId: itemData.itemTypeId,
+          tenantId: itemData.tenantId,
+          status: itemData.status || 'at_hotel',
+          location: itemData.location,
+          notes: itemData.notes,
+        });
+
+        created++;
+      } catch (err: any) {
+        failed++;
+        errors.push({ rfidTag: itemData.rfidTag, error: err.message || 'Unknown error' });
+      }
+    }
+
+    res.status(201).json({
+      created,
+      failed,
+      errors: errors.length > 0 ? errors : undefined,
+    });
+  } catch (error) {
+    console.error('Bulk create items error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Delete item
 itemsRouter.delete('/:id', requireRole('laundry_manager', 'system_admin'), async (req: AuthRequest, res) => {
   try {
