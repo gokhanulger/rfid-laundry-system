@@ -231,7 +231,7 @@ itemsRouter.get('/:id', async (req: AuthRequest, res) => {
 });
 
 // Create item
-itemsRouter.post('/', requireRole('operator', 'laundry_manager', 'system_admin'), async (req: AuthRequest, res) => {
+itemsRouter.post('/', requireRole('driver', 'operator', 'laundry_manager', 'system_admin'), async (req: AuthRequest, res) => {
   try {
     const validation = createItemSchema.safeParse(req.body);
     if (!validation.success) {
@@ -546,7 +546,7 @@ itemsRouter.patch('/:id/stained', requireRole('operator', 'laundry_manager', 'sy
 });
 
 // Bulk create items
-itemsRouter.post('/bulk', requireRole('operator', 'laundry_manager', 'system_admin'), async (req: AuthRequest, res) => {
+itemsRouter.post('/bulk', requireRole('driver', 'operator', 'laundry_manager', 'system_admin'), async (req: AuthRequest, res) => {
   try {
     const bulkSchema = z.object({
       items: z.array(createItemSchema).min(1, 'At least one item is required'),
