@@ -44,6 +44,37 @@ export const packageStatusEnum = pgEnum('package_status', [
   'picked_up'
 ]);
 
+// Scan-related enums
+export const scanSessionTypeEnum = pgEnum('scan_session_type', [
+  'pickup',        // Dirty items at hotel
+  'receive',       // Items arriving at laundry
+  'process',       // Items entering wash
+  'clean',         // Items after ironing
+  'package',       // Items being packaged
+  'deliver'        // Items delivered to hotel
+]);
+
+export const scanSessionStatusEnum = pgEnum('scan_session_status', [
+  'in_progress',
+  'completed',
+  'synced',
+  'cancelled'
+]);
+
+export const syncStatusEnum = pgEnum('sync_status', [
+  'pending',
+  'synced',
+  'conflict',
+  'resolved'
+]);
+
+export const offlineSyncStatusEnum = pgEnum('offline_sync_status', [
+  'pending',
+  'processing',
+  'completed',
+  'failed'
+]);
+
 // Users table
 export const users = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -189,6 +220,89 @@ export const auditLogs = pgTable('audit_logs', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+// ============================================
+// RFID SCANNING TABLES
+// ============================================
+
+// Registered Android/handheld devices
+export const devices = pgTable('devices', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  deviceUuid: text('device_uuid').notNull().unique(), // Android device unique ID
+  name: text('name').notNull(), // Human-readable name: "Driver 1 Scanner"
+  userId: uuid('user_id').references(() => users.id), // Assigned user
+  tenantId: uuid('tenant_id').references(() => tenants.id), // Multi-tenant isolation
+  lastSyncAt: timestamp('last_sync_at'),
+  lastSeenAt: timestamp('last_seen_at'),
+  appVersion: text('app_version'), // Track app version for updates
+  isActive: boolean('is_active').default(true).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// Scanning sessions (each pickup/delivery operation is a session)
+export const scanSessions = pgTable('scan_sessions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  deviceId: uuid('device_id').references(() => devices.id),
+  userId: uuid('user_id').notNull().references(() => users.id),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  sessionType: scanSessionTypeEnum('session_type').notNull(),
+  status: scanSessionStatusEnum('status').default('in_progress').notNull(),
+  // Link to related entity (pickup, delivery, etc.)
+  relatedEntityType: text('related_entity_type'), // 'pickup', 'delivery', etc.
+  relatedEntityId: uuid('related_entity_id'),
+  // Session metadata
+  metadata: text('metadata'), // JSON: bagCode, sealNumber, GPS coords, etc.
+  itemCount: integer('item_count').default(0).notNull(),
+  // Location data
+  latitude: text('latitude'),
+  longitude: text('longitude'),
+  // Timestamps
+  startedAt: timestamp('started_at').defaultNow().notNull(),
+  completedAt: timestamp('completed_at'),
+  syncedAt: timestamp('synced_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// Individual tag scans within a session
+export const scanEvents = pgTable('scan_events', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  sessionId: uuid('session_id').notNull().references(() => scanSessions.id),
+  rfidTag: text('rfid_tag').notNull(),
+  itemId: uuid('item_id').references(() => items.id), // Linked after processing
+  signalStrength: integer('signal_strength'), // RSSI value from reader
+  readCount: integer('read_count').default(1).notNull(), // How many times tag was read in session
+  syncStatus: syncStatusEnum('sync_status').default('pending').notNull(),
+  scannedAt: timestamp('scanned_at').defaultNow().notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// Queue for offline syncs from Android devices
+export const offlineSyncQueue = pgTable('offline_sync_queue', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  deviceId: uuid('device_id').notNull().references(() => devices.id),
+  sessionData: text('session_data').notNull(), // JSON: full session + events
+  status: offlineSyncStatusEnum('status').default('pending').notNull(),
+  errorMessage: text('error_message'),
+  retryCount: integer('retry_count').default(0).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  processedAt: timestamp('processed_at'),
+});
+
+// Track conflicts when same tag scanned by multiple devices
+export const scanConflicts = pgTable('scan_conflicts', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  rfidTag: text('rfid_tag').notNull(),
+  winningSessionId: uuid('winning_session_id').references(() => scanSessions.id),
+  conflictingSessionId: uuid('conflicting_session_id').references(() => scanSessions.id),
+  winningDeviceId: uuid('winning_device_id').references(() => devices.id),
+  conflictingDeviceId: uuid('conflicting_device_id').references(() => devices.id),
+  resolvedBy: uuid('resolved_by').references(() => users.id),
+  resolution: text('resolution'), // 'auto_first_wins', 'manual_override', etc.
+  isResolved: boolean('is_resolved').default(false).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  resolvedAt: timestamp('resolved_at'),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ one, many }) => ({
   tenant: one(tenants, {
@@ -307,6 +421,80 @@ export const auditLogsRelations = relations(auditLogs, ({ one }) => ({
   tenant: one(tenants, {
     fields: [auditLogs.tenantId],
     references: [tenants.id],
+  }),
+}));
+
+// ============================================
+// RFID SCANNING RELATIONS
+// ============================================
+
+export const devicesRelations = relations(devices, ({ one, many }) => ({
+  user: one(users, {
+    fields: [devices.userId],
+    references: [users.id],
+  }),
+  tenant: one(tenants, {
+    fields: [devices.tenantId],
+    references: [tenants.id],
+  }),
+  scanSessions: many(scanSessions),
+  offlineSyncQueue: many(offlineSyncQueue),
+}));
+
+export const scanSessionsRelations = relations(scanSessions, ({ one, many }) => ({
+  device: one(devices, {
+    fields: [scanSessions.deviceId],
+    references: [devices.id],
+  }),
+  user: one(users, {
+    fields: [scanSessions.userId],
+    references: [users.id],
+  }),
+  tenant: one(tenants, {
+    fields: [scanSessions.tenantId],
+    references: [tenants.id],
+  }),
+  scanEvents: many(scanEvents),
+}));
+
+export const scanEventsRelations = relations(scanEvents, ({ one }) => ({
+  session: one(scanSessions, {
+    fields: [scanEvents.sessionId],
+    references: [scanSessions.id],
+  }),
+  item: one(items, {
+    fields: [scanEvents.itemId],
+    references: [items.id],
+  }),
+}));
+
+export const offlineSyncQueueRelations = relations(offlineSyncQueue, ({ one }) => ({
+  device: one(devices, {
+    fields: [offlineSyncQueue.deviceId],
+    references: [devices.id],
+  }),
+}));
+
+export const scanConflictsRelations = relations(scanConflicts, ({ one }) => ({
+  winningSession: one(scanSessions, {
+    fields: [scanConflicts.winningSessionId],
+    references: [scanSessions.id],
+  }),
+  conflictingSession: one(scanSessions, {
+    fields: [scanConflicts.conflictingSessionId],
+    references: [scanSessions.id],
+  }),
+  winningDevice: one(devices, {
+    fields: [scanConflicts.winningDeviceId],
+    references: [devices.id],
+  }),
+  conflictingDevice: one(devices, {
+    fields: [scanConflicts.conflictingDeviceId],
+    references: [devices.id],
+  }),
+  resolvedByUser: one(users, {
+    fields: [scanConflicts.resolvedBy],
+    references: [users.id],
   }),
 }));
 

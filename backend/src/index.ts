@@ -14,6 +14,8 @@ import { tenantsRouter } from './routes/tenants';
 import { itemTypesRouter } from './routes/itemTypes';
 import { usersRouter } from './routes/users';
 import { reconciliationRouter } from './routes/reconciliation';
+import { devicesRouter } from './routes/devices';
+import { scanRouter } from './routes/scan';
 
 dotenv.config();
 
@@ -161,6 +163,8 @@ app.use('/api/tenants', tenantsRouter);
 app.use('/api/item-types', itemTypesRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/reconciliation', reconciliationRouter);
+app.use('/api/devices', devicesRouter);
+app.use('/api/scan', scanRouter);
 
 // Health check
 app.get('/api/health', (req, res) => {
