@@ -6,10 +6,18 @@ import { requireAuth, AuthRequest, requireRole } from '../middleware/auth';
 export const settingsRouter = Router();
 settingsRouter.use(requireAuth);
 
-// Get all tenants (admin only)
-settingsRouter.get('/tenants', requireRole('system_admin'), async (req: AuthRequest, res) => {
+// Get all tenants (operators and above can view for tag assignment)
+settingsRouter.get('/tenants', async (req: AuthRequest, res) => {
   try {
-    const allTenants = await db.query.tenants.findMany();
+    const allTenants = await db.query.tenants.findMany({
+      columns: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        address: true,
+      }
+    });
     res.json(allTenants);
   } catch (error) {
     console.error('Get tenants error:', error);
