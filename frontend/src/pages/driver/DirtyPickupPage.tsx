@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowUp, Building2, Package, CheckCircle, RefreshCw, Truck, Scan, X, Radio, Square, History } from 'lucide-react';
+import { ArrowUp, Building2, Package, CheckCircle, RefreshCw, Truck, Scan, X, Radio, Square, History, ClipboardList, Plus, Minus, Trash2 } from 'lucide-react';
 import { pickupsApi, settingsApi, getErrorMessage } from '../../lib/api';
 import { useToast } from '../../components/Toast';
-import type { Tenant } from '../../types';
+import type { Tenant, ItemType } from '../../types';
 
 interface ScannedItem {
   rfidTag: string;
@@ -25,13 +25,23 @@ const MOCK_RFID_ITEMS = [
   { prefix: 'RFID-NP', type: 'Peçete' },
 ];
 
+// Manual item entry type
+interface ManualItem {
+  itemTypeId: string;
+  itemTypeName: string;
+  count: number;
+}
+
 export function DirtyPickupPage() {
   const [selectedHotel, setSelectedHotel] = useState<string | null>(null);
-  const [pickupMode, setPickupMode] = useState<'select' | 'quick' | 'rfid'>('select');
+  const [pickupMode, setPickupMode] = useState<'select' | 'quick' | 'rfid' | 'manual'>('select');
   const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
   const [isScanning, setIsScanning] = useState(false);
   const [rfidInput, setRfidInput] = useState('');
   const [autoScanActive, setAutoScanActive] = useState(false);
+  // Manual pickup state
+  const [manualItems, setManualItems] = useState<ManualItem[]>([]);
+  const [selectedItemType, setSelectedItemType] = useState<string>('');
   const inputRef = useRef<HTMLInputElement>(null);
   const scanIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const scannedTagsRef = useRef<Set<string>>(new Set());
@@ -41,6 +51,12 @@ export function DirtyPickupPage() {
   const { data: tenants, isLoading: loadingTenants } = useQuery({
     queryKey: ['tenants'],
     queryFn: settingsApi.getTenants,
+  });
+
+  // Get item types for manual selection
+  const { data: itemTypes } = useQuery({
+    queryKey: ['item-types'],
+    queryFn: settingsApi.getItemTypes,
   });
 
   // Get today's received pickups (for history display)
@@ -67,6 +83,8 @@ export function DirtyPickupPage() {
     setIsScanning(false);
     setRfidInput('');
     setAutoScanActive(false);
+    setManualItems([]);
+    setSelectedItemType('');
     scannedTagsRef.current.clear();
     if (scanIntervalRef.current) {
       clearInterval(scanIntervalRef.current);
@@ -172,6 +190,68 @@ export function DirtyPickupPage() {
       notes,
     });
   };
+
+  // Manual pickup handlers
+  const handleAddManualItem = () => {
+    if (!selectedItemType) {
+      toast.warning('Lütfen ürün türü seçin');
+      return;
+    }
+
+    const itemType = itemTypes?.find((t: ItemType) => t.id === selectedItemType);
+    if (!itemType) return;
+
+    // Check if already exists
+    const existingIndex = manualItems.findIndex(item => item.itemTypeId === selectedItemType);
+    if (existingIndex >= 0) {
+      // Increment count
+      setManualItems(prev => prev.map((item, i) =>
+        i === existingIndex ? { ...item, count: item.count + 1 } : item
+      ));
+    } else {
+      // Add new
+      setManualItems(prev => [...prev, {
+        itemTypeId: selectedItemType,
+        itemTypeName: itemType.name,
+        count: 1
+      }]);
+    }
+    setSelectedItemType('');
+    toast.success(`${itemType.name} eklendi`);
+  };
+
+  const handleManualItemCountChange = (itemTypeId: string, delta: number) => {
+    setManualItems(prev => prev.map(item => {
+      if (item.itemTypeId === itemTypeId) {
+        const newCount = Math.max(0, item.count + delta);
+        return { ...item, count: newCount };
+      }
+      return item;
+    }).filter(item => item.count > 0));
+  };
+
+  const handleRemoveManualItem = (itemTypeId: string) => {
+    setManualItems(prev => prev.filter(item => item.itemTypeId !== itemTypeId));
+  };
+
+  const handleManualPickup = () => {
+    if (!selectedHotel || manualItems.length === 0) return;
+
+    const bagCode = `PKP-${Date.now().toString(36).toUpperCase()}`;
+    const totalItems = manualItems.reduce((sum, item) => sum + item.count, 0);
+
+    const notes = `Manuel Toplama (${totalItems} ürün): ` + manualItems
+      .map(item => `${item.itemTypeName}: ${item.count}`)
+      .join(', ');
+
+    createPickupMutation.mutate({
+      tenantId: selectedHotel,
+      bagCode,
+      notes,
+    });
+  };
+
+  const totalManualItems = manualItems.reduce((sum, item) => sum + item.count, 0);
 
   const handleManualScan = () => {
     if (!rfidInput.trim()) return;
@@ -301,7 +381,7 @@ export function DirtyPickupPage() {
             {/* Mode Selection */}
             <p className="text-center text-gray-600 font-medium">Nasıl toplamak istersiniz?</p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {/* Quick Pickup */}
               <button
                 onClick={() => setPickupMode('quick')}
@@ -311,6 +391,18 @@ export function DirtyPickupPage() {
                 <h3 className="text-lg font-bold text-gray-900">Hızlı Toplama</h3>
                 <p className="text-sm text-gray-500 mt-1">
                   Sadece toplamayı onayla. Çamaşırhane personeli ürünleri daha sonra sayacak.
+                </p>
+              </button>
+
+              {/* Manual Entry */}
+              <button
+                onClick={() => setPickupMode('manual')}
+                className="p-6 rounded-xl border-2 border-gray-200 hover:border-blue-400 hover:bg-blue-50 transition-all active:scale-[0.98] text-left"
+              >
+                <ClipboardList className="w-12 h-12 text-blue-500 mb-3" />
+                <h3 className="text-lg font-bold text-gray-900">Manuel Toplama</h3>
+                <p className="text-sm text-gray-500 mt-1">
+                  Ürün türü ve adet seçerek manuel olarak topla.
                 </p>
               </button>
 
@@ -363,6 +455,134 @@ export function DirtyPickupPage() {
               >
                 <CheckCircle className="w-6 h-6" />
                 {createPickupMutation.isPending ? 'Oluşturuluyor...' : 'Onayla'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Manual Pickup Mode */}
+        {selectedHotel && pickupMode === 'manual' && (
+          <div className="space-y-4">
+            {/* Selected Hotel Header */}
+            <div className="bg-blue-50 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <Building2 className="w-8 h-8 text-blue-600" />
+                  <div>
+                    <p className="font-bold text-gray-900">{selectedTenant?.name}</p>
+                    <p className="text-xs text-gray-500">{totalManualItems} ürün eklendi</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setPickupMode('select');
+                    setManualItems([]);
+                  }}
+                  className="p-2 text-gray-500 hover:bg-blue-100 rounded-lg"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Item Type Selection */}
+              <div className="space-y-3">
+                <label className="block text-sm font-medium text-gray-700">Ürün Türü Seç</label>
+                <div className="flex gap-2">
+                  <select
+                    value={selectedItemType}
+                    onChange={(e) => setSelectedItemType(e.target.value)}
+                    className="flex-1 px-4 py-3 border-2 border-blue-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg"
+                  >
+                    <option value="">Ürün türü seçin...</option>
+                    {itemTypes?.map((type: ItemType) => (
+                      <option key={type.id} value={type.id}>
+                        {type.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={handleAddManualItem}
+                    disabled={!selectedItemType}
+                    className="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 active:bg-blue-800 disabled:bg-gray-400 flex items-center gap-2 touch-manipulation"
+                  >
+                    <Plus className="w-5 h-5" />
+                    Ekle
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Added Items List */}
+            {manualItems.length > 0 && (
+              <div className="bg-white border-2 border-blue-200 rounded-xl p-4">
+                <h3 className="font-bold text-gray-900 mb-3 flex items-center justify-between">
+                  <span>Eklenen Ürünler</span>
+                  <span className="text-blue-600 text-2xl">{totalManualItems}</span>
+                </h3>
+
+                <div className="space-y-2">
+                  {manualItems.map((item) => (
+                    <div
+                      key={item.itemTypeId}
+                      className="flex items-center justify-between py-3 px-4 bg-blue-50 rounded-xl"
+                    >
+                      <span className="font-medium text-gray-900">{item.itemTypeName}</span>
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => handleManualItemCountChange(item.itemTypeId, -1)}
+                          className="w-10 h-10 bg-white border-2 border-blue-300 rounded-lg font-bold text-blue-600 hover:bg-blue-100 active:bg-blue-200 flex items-center justify-center touch-manipulation"
+                        >
+                          <Minus className="w-5 h-5" />
+                        </button>
+                        <span className="text-2xl font-bold text-blue-600 w-12 text-center">
+                          {item.count}
+                        </span>
+                        <button
+                          onClick={() => handleManualItemCountChange(item.itemTypeId, 1)}
+                          className="w-10 h-10 bg-white border-2 border-blue-300 rounded-lg font-bold text-blue-600 hover:bg-blue-100 active:bg-blue-200 flex items-center justify-center touch-manipulation"
+                        >
+                          <Plus className="w-5 h-5" />
+                        </button>
+                        <button
+                          onClick={() => handleRemoveManualItem(item.itemTypeId)}
+                          className="w-10 h-10 bg-red-100 rounded-lg text-red-600 hover:bg-red-200 active:bg-red-300 flex items-center justify-center touch-manipulation"
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Empty State */}
+            {manualItems.length === 0 && (
+              <div className="text-center py-8 text-gray-500">
+                <ClipboardList className="w-12 h-12 mx-auto text-gray-300 mb-2" />
+                <p>Henüz ürün eklenmedi</p>
+                <p className="text-sm text-gray-400">Yukarıdan ürün türü seçip ekleyin</p>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setPickupMode('select');
+                  setManualItems([]);
+                }}
+                className="flex-1 py-4 bg-gray-100 text-gray-700 rounded-xl text-lg font-bold hover:bg-gray-200 active:bg-gray-300 touch-manipulation"
+              >
+                İptal
+              </button>
+              <button
+                onClick={handleManualPickup}
+                disabled={createPickupMutation.isPending || manualItems.length === 0}
+                className="flex-1 py-4 bg-blue-600 text-white rounded-xl text-lg font-bold hover:bg-blue-700 active:bg-blue-800 disabled:bg-gray-400 flex items-center justify-center gap-2 touch-manipulation"
+              >
+                <CheckCircle className="w-6 h-6" />
+                {createPickupMutation.isPending ? 'Oluşturuluyor...' : `Onayla (${totalManualItems})`}
               </button>
             </div>
           </div>
