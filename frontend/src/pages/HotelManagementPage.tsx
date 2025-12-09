@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Building2, Plus, Edit, Trash2, RefreshCw, X, Check } from 'lucide-react';
+import { Building2, Plus, Edit, Trash2, RefreshCw, X, Check, QrCode, Download, Printer } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import api, { getErrorMessage } from '../lib/api';
 import { useToast } from '../components/Toast';
 
@@ -12,6 +13,7 @@ interface Tenant {
   address: string | null;
   latitude: string | null;
   longitude: string | null;
+  qrCode: string | null;
   isActive: boolean;
   createdAt: string;
 }
@@ -31,6 +33,7 @@ export function HotelManagementPage() {
   const [showModal, setShowModal] = useState(false);
   const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
   const [form, setForm] = useState<TenantForm>(emptyForm);
+  const [qrModalTenant, setQrModalTenant] = useState<Tenant | null>(null);
   const queryClient = useQueryClient();
   const toast = useToast();
 
@@ -181,7 +184,7 @@ export function HotelManagementPage() {
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ad</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">E-posta</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Telefon</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Adres</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">QR Kod</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Durum</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Islemler</th>
               </tr>
@@ -192,7 +195,19 @@ export function HotelManagementPage() {
                   <td className="px-4 py-3 font-medium">{tenant.name}</td>
                   <td className="px-4 py-3 text-gray-600">{tenant.email}</td>
                   <td className="px-4 py-3 text-gray-600">{tenant.phone || '-'}</td>
-                  <td className="px-4 py-3 text-gray-600 max-w-xs truncate">{tenant.address || '-'}</td>
+                  <td className="px-4 py-3">
+                    {tenant.qrCode ? (
+                      <button
+                        onClick={() => setQrModalTenant(tenant)}
+                        className="flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-mono hover:bg-blue-200"
+                      >
+                        <QrCode className="w-3 h-3" />
+                        {tenant.qrCode}
+                      </button>
+                    ) : (
+                      <span className="text-gray-400 text-xs">-</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3">
                     <button
                       onClick={() => toggleActiveMutation.mutate({ id: tenant.id, isActive: !tenant.isActive })}
@@ -350,6 +365,106 @@ export function HotelManagementPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* QR Code Modal */}
+      {qrModalTenant && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-sm">
+            <div className="p-6 border-b flex items-center justify-between">
+              <h2 className="text-xl font-bold">{qrModalTenant.name}</h2>
+              <button onClick={() => setQrModalTenant(null)} className="text-gray-500 hover:text-gray-700">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 flex flex-col items-center">
+              {qrModalTenant.qrCode && (
+                <>
+                  <QRCodeSVG
+                    id={`qr-modal-${qrModalTenant.id}`}
+                    value={qrModalTenant.qrCode}
+                    size={200}
+                    level="H"
+                    includeMargin={true}
+                  />
+                  <div className="mt-4 bg-gray-100 rounded-lg px-4 py-2">
+                    <code className="text-lg font-mono text-gray-700">
+                      {qrModalTenant.qrCode}
+                    </code>
+                  </div>
+                  <div className="flex gap-3 mt-6">
+                    <button
+                      onClick={() => {
+                        const svg = document.getElementById(`qr-modal-${qrModalTenant.id}`);
+                        if (svg) {
+                          const svgData = new XMLSerializer().serializeToString(svg);
+                          const canvas = document.createElement('canvas');
+                          const ctx = canvas.getContext('2d');
+                          const img = new Image();
+                          img.onload = () => {
+                            canvas.width = 300;
+                            canvas.height = 300;
+                            ctx?.drawImage(img, 0, 0, 300, 300);
+                            const pngFile = canvas.toDataURL('image/png');
+                            const downloadLink = document.createElement('a');
+                            downloadLink.download = `${qrModalTenant.name.replace(/\s+/g, '_')}_QR.png`;
+                            downloadLink.href = pngFile;
+                            downloadLink.click();
+                          };
+                          img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
+                        }
+                      }}
+                      className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200"
+                    >
+                      <Download className="w-4 h-4" />
+                      Indir
+                    </button>
+                    <button
+                      onClick={() => {
+                        const printWindow = window.open('', '_blank');
+                        if (printWindow) {
+                          printWindow.document.write(`
+                            <html>
+                              <head>
+                                <title>${qrModalTenant.name} - QR Kod</title>
+                                <style>
+                                  body { font-family: Arial; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+                                  .card { border: 3px solid #1f2937; border-radius: 16px; padding: 40px; text-align: center; }
+                                  h2 { margin: 0 0 10px; }
+                                  .qr-value { font-family: monospace; font-size: 18px; background: #f3f4f6; padding: 8px 16px; border-radius: 8px; }
+                                </style>
+                              </head>
+                              <body>
+                                <div class="card">
+                                  <h2>${qrModalTenant.name}</h2>
+                                  <p>${qrModalTenant.address || ''}</p>
+                                  <div id="qr"></div>
+                                  <div class="qr-value">${qrModalTenant.qrCode}</div>
+                                </div>
+                                <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+                                <script>
+                                  QRCode.toCanvas(document.createElement('canvas'), '${qrModalTenant.qrCode}', { width: 200 }, function(err, canvas) {
+                                    if (!err) document.getElementById('qr').appendChild(canvas);
+                                  });
+                                </script>
+                              </body>
+                            </html>
+                          `);
+                          printWindow.document.close();
+                          setTimeout(() => printWindow.print(), 500);
+                        }
+                      }}
+                      className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+                    >
+                      <Printer className="w-4 h-4" />
+                      Yazdir
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
       )}
