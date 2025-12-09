@@ -98,6 +98,7 @@ export const tenants = pgTable('tenants', {
   address: text('address'),
   latitude: text('latitude'), // Hotel GPS latitude
   longitude: text('longitude'), // Hotel GPS longitude
+  qrCode: text('qr_code').unique(), // Unique QR code for quick hotel identification
   isActive: boolean('is_active').default(true).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

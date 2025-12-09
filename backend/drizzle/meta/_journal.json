@@ -50,6 +50,13 @@
       "when": 1765185440443,
       "tag": "0006_moaning_miek",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1765269530623,
+      "tag": "0007_sloppy_energizer",
+      "breakpoints": true
     }
   ]
 }

@@ -1,9 +1,15 @@
 import { db } from './index';
 import { users, tenants, itemTypes, items } from './schema';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import * as dotenv from 'dotenv';
 
 dotenv.config();
+
+// Generate a unique QR code for hotel
+function generateQRCode(): string {
+  return `HTL-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+}
 
 // Hotel names
 const hotelNames = [
@@ -66,12 +72,13 @@ async function seedHotels() {
     for (let h = 0; h < hotelNames.length; h++) {
       const hotel = hotelNames[h];
 
-      // Create tenant (hotel)
+      // Create tenant (hotel) with QR code
       const [newTenant] = await db.insert(tenants).values({
         name: hotel.name,
         email: `contact@${hotel.name.toLowerCase().replace(/[^a-z0-9]/g, '')}.com`,
         phone: `+90${String(5000000000 + h * 1111111).slice(0, 10)}`,
         address: `${100 + h} Main Street, ${hotel.city}, Turkey`,
+        qrCode: generateQRCode(),
       }).returning();
 
       // Create hotel owner user

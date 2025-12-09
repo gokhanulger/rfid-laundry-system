@@ -27,6 +27,9 @@ export function IrsaliyePage() {
   const [selectedHotelFilter, setSelectedHotelFilter] = useState<string>('');
   const [expandedDeliveryId, setExpandedDeliveryId] = useState<string | null>(null);
 
+  // Create tab - hotel filter for available packages
+  const [createHotelFilter, setCreateHotelFilter] = useState<string>('');
+
   // Get tenants for hotel selection
   const { data: tenants } = useQuery({
     queryKey: ['tenants'],
@@ -448,6 +451,11 @@ export function IrsaliyePage() {
   const totals = calculateTotals();
   const packagedList = packagedDeliveries?.data || [];
 
+  // Filter packaged list by hotel if filter is set
+  const filteredPackagedList = createHotelFilter
+    ? packagedList.filter((d: Delivery) => d.tenantId === createHotelFilter)
+    : packagedList;
+
   // Combine printed and picked up deliveries for history
   const allDeliveries = [
     ...(printedDeliveries?.data || []),
@@ -654,24 +662,40 @@ export function IrsaliyePage() {
                 {/* Available Packages */}
                 <div className="bg-white rounded-xl border overflow-hidden">
                   <div className="p-4 border-b bg-gray-50">
-                    <h2 className="text-lg font-semibold flex items-center gap-2">
+                    <h2 className="text-lg font-semibold flex items-center gap-2 mb-3">
                       <CheckCircle className="w-5 h-5 text-green-600" />
                       Hazir Paketler
                     </h2>
+                    {/* Hotel Filter */}
+                    <select
+                      value={createHotelFilter}
+                      onChange={(e) => setCreateHotelFilter(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                    >
+                      <option value="">Tum Oteller ({packagedList.length})</option>
+                      {tenants?.map(tenant => {
+                        const count = packagedList.filter((d: Delivery) => d.tenantId === tenant.id).length;
+                        return count > 0 ? (
+                          <option key={tenant.id} value={tenant.id}>
+                            {tenant.name} ({count})
+                          </option>
+                        ) : null;
+                      })}
+                    </select>
                   </div>
 
                   {isLoading ? (
                     <div className="p-8 text-center">
                       <RefreshCw className="w-8 h-8 animate-spin text-gray-400 mx-auto" />
                     </div>
-                  ) : packagedList.length === 0 ? (
+                  ) : filteredPackagedList.length === 0 ? (
                     <div className="p-8 text-center text-gray-500">
                       <Package className="w-12 h-12 mx-auto text-gray-300 mb-2" />
-                      <p>Paketlenmis teslimat yok</p>
+                      <p>{createHotelFilter ? 'Bu otele ait paket yok' : 'Paketlenmis teslimat yok'}</p>
                     </div>
                   ) : (
                     <div className="divide-y max-h-[500px] overflow-y-auto">
-                      {packagedList.map(delivery => (
+                      {filteredPackagedList.map((delivery: Delivery) => (
                         <div
                           key={delivery.id}
                           className={`p-4 hover:bg-gray-50 cursor-pointer ${

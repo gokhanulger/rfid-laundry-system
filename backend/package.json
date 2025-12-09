@@ -11,6 +11,7 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
     "db:seed-hotels": "tsx src/db/seed-hotels.ts",
+    "db:assign-qr": "tsx src/db/assign-qr-codes.ts",
     "db:test": "tsx test-db-connection.ts",
     "db:studio": "drizzle-kit studio"
   },

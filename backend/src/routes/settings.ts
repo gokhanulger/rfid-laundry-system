@@ -2,6 +2,13 @@ import { Router } from 'express';
 import { db } from '../db';
 import { tenants, itemTypes, users } from '../db/schema';
 import { requireAuth, AuthRequest, requireRole } from '../middleware/auth';
+import { eq, isNull } from 'drizzle-orm';
+import crypto from 'crypto';
+
+// Generate a unique QR code for hotel
+function generateQRCode(): string {
+  return `HTL-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+}
 
 export const settingsRouter = Router();
 settingsRouter.use(requireAuth);
@@ -16,6 +23,7 @@ settingsRouter.get('/tenants', async (req: AuthRequest, res) => {
         email: true,
         phone: true,
         address: true,
+        qrCode: true,
       }
     });
     res.json(allTenants);
@@ -25,21 +33,80 @@ settingsRouter.get('/tenants', async (req: AuthRequest, res) => {
   }
 });
 
+// Get tenant by QR code (for quick hotel selection via QR scan)
+settingsRouter.get('/tenants/qr/:qrCode', async (req: AuthRequest, res) => {
+  try {
+    const { qrCode } = req.params;
+
+    const tenant = await db.query.tenants.findFirst({
+      where: eq(tenants.qrCode, qrCode),
+      columns: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        address: true,
+        qrCode: true,
+      }
+    });
+
+    if (!tenant) {
+      return res.status(404).json({ error: 'Hotel not found with this QR code' });
+    }
+
+    res.json(tenant);
+  } catch (error) {
+    console.error('Get tenant by QR error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Create tenant (admin only)
 settingsRouter.post('/tenants', requireRole('system_admin'), async (req: AuthRequest, res) => {
   try {
     const { name, email, phone, address } = req.body;
+
+    // Generate unique QR code
+    const qrCode = generateQRCode();
 
     const [newTenant] = await db.insert(tenants).values({
       name,
       email,
       phone,
       address,
+      qrCode,
     }).returning();
 
     res.status(201).json(newTenant);
   } catch (error) {
     console.error('Create tenant error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Assign QR codes to existing tenants without one
+settingsRouter.post('/tenants/generate-qr-codes', requireRole('system_admin'), async (req: AuthRequest, res) => {
+  try {
+    // Find tenants without QR codes
+    const tenantsWithoutQR = await db.query.tenants.findMany({
+      where: isNull(tenants.qrCode),
+    });
+
+    const updated = [];
+    for (const tenant of tenantsWithoutQR) {
+      const qrCode = generateQRCode();
+      await db.update(tenants)
+        .set({ qrCode, updatedAt: new Date() })
+        .where(eq(tenants.id, tenant.id));
+      updated.push({ id: tenant.id, name: tenant.name, qrCode });
+    }
+
+    res.json({
+      message: `QR codes generated for ${updated.length} hotels`,
+      hotels: updated
+    });
+  } catch (error) {
+    console.error('Generate QR codes error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

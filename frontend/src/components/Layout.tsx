@@ -3,7 +3,6 @@ import { Outlet, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import {
   LayoutDashboard,
-  Package,
   Sparkles,
   ArrowUp,
   RotateCcw,
@@ -25,6 +24,7 @@ import {
   ChevronLeft,
   ChevronRight,
   MapPin,
+  QrCode,
 } from 'lucide-react';
 
 // Storage key for sidebar state
@@ -103,6 +103,7 @@ export function Layout() {
   // Admin management section
   const adminNavigation = [
     { name: 'Otel Yonetimi', href: '/hotels', icon: Building2 },
+    { name: 'Otel QR Kodlari', href: '/hotel-qr-codes', icon: QrCode },
     { name: 'Kullanici Yonetimi', href: '/users', icon: Users },
     { name: 'Urun Yonetimi', href: '/items', icon: Tag },
     { name: 'Toplu Tag Eslestirme', href: '/bulk-tag-assignment', icon: Tags },

@@ -1006,14 +1006,68 @@ export function IronerInterfacePage() {
                                 </div>
                               </div>
 
-                              {/* Ekle Button */}
-                              <button
-                                onClick={() => handleAddToPrintList(hotelId, itemsByType)}
-                                disabled={!addingTypeId[hotelId]}
-                                className="h-full px-6 flex items-center justify-center gap-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-bold text-lg transition-all self-stretch"
-                              >
-                                <Plus className="w-6 h-6" /> Ekle
-                              </button>
+                              {/* Buttons: Ekle and Direct Print */}
+                              <div className="flex flex-col gap-2">
+                                {/* Direct Print Button */}
+                                <button
+                                  onClick={() => {
+                                    // Direct print without adding to list
+                                    const typeId = addingTypeId[hotelId];
+                                    const count = addingCount[hotelId] || 1;
+                                    const hasDiscard = addingDiscard[hotelId] || false;
+                                    const discardCount = hasDiscard ? (addingDiscardCount[hotelId] || 0) : 0;
+                                    const hasHasarli = addingHasarli[hotelId] || false;
+                                    const hasarliCount = hasHasarli ? (addingHasarliCount[hotelId] || 0) : 0;
+
+                                    if (!typeId) {
+                                      toast.warning('Lutfen urun turu secin');
+                                      return;
+                                    }
+
+                                    const availableItems = itemsByType[typeId] || [];
+                                    if (availableItems.length === 0) {
+                                      toast.warning('Bu tur icin mevcut urun yok');
+                                      return;
+                                    }
+
+                                    const validCount = Math.min(count, availableItems.length);
+                                    const itemIds = availableItems.slice(0, validCount).map(i => i.id);
+
+                                    // Save last printed type
+                                    const newLastPrintedType = { ...lastPrintedType, [hotelId]: typeId };
+                                    setLastPrintedType(newLastPrintedType);
+                                    localStorage.setItem(LAST_PRINTED_TYPE_KEY, JSON.stringify(newLastPrintedType));
+
+                                    processAndPrintMutation.mutate({
+                                      hotelId,
+                                      itemIds,
+                                      labelCount: 1,
+                                      labelExtraData: [{ typeId, discardCount, hasarliCount }]
+                                    });
+
+                                    // Reset form
+                                    setAddingTypeId(prev => ({ ...prev, [hotelId]: '' }));
+                                    setAddingCount(prev => ({ ...prev, [hotelId]: 1 }));
+                                    setAddingDiscard(prev => ({ ...prev, [hotelId]: false }));
+                                    setAddingDiscardCount(prev => ({ ...prev, [hotelId]: 0 }));
+                                    setAddingHasarli(prev => ({ ...prev, [hotelId]: false }));
+                                    setAddingHasarliCount(prev => ({ ...prev, [hotelId]: 0 }));
+                                  }}
+                                  disabled={!addingTypeId[hotelId] || processAndPrintMutation.isPending}
+                                  className="h-12 px-6 flex items-center justify-center gap-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-bold text-lg transition-all"
+                                >
+                                  <Printer className="w-5 h-5" />
+                                  {processAndPrintMutation.isPending ? '...' : 'Yazdir'}
+                                </button>
+                                {/* Ekle Button */}
+                                <button
+                                  onClick={() => handleAddToPrintList(hotelId, itemsByType)}
+                                  disabled={!addingTypeId[hotelId]}
+                                  className="h-10 px-6 flex items-center justify-center gap-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-bold transition-all"
+                                >
+                                  <Plus className="w-5 h-5" /> Ekle
+                                </button>
+                              </div>
                             </div>
                           </div>
 

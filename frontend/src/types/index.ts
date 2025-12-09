@@ -22,6 +22,7 @@ export interface Tenant {
   address: string | null;
   latitude: string | null;
   longitude: string | null;
+  qrCode: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
