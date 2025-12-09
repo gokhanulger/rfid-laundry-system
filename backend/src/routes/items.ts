@@ -18,8 +18,8 @@ const createItemSchema = z.object({
   rfidTag: z.string().min(1, 'RFID tag is required'),
   itemTypeId: z.string().uuid('Invalid item type ID'),
   tenantId: z.string().uuid('Invalid tenant ID'),
-  status: itemStatusEnum.optional().default('at_hotel'),
-  location: z.string().optional(),
+  status: itemStatusEnum.optional().default('at_laundry'),
+  location: z.string().optional().default('laundry'),
   notes: z.string().optional(),
 });
 
@@ -271,8 +271,8 @@ itemsRouter.post('/', requireRole('driver', 'operator', 'laundry_manager', 'syst
       rfidTag,
       itemTypeId,
       tenantId,
-      status: status || 'at_hotel',
-      location,
+      status: status || 'at_laundry',
+      location: location || 'laundry',
       notes,
     }).returning();
 
@@ -583,8 +583,8 @@ itemsRouter.post('/bulk', requireRole('driver', 'operator', 'laundry_manager', '
           rfidTag: itemData.rfidTag,
           itemTypeId: itemData.itemTypeId,
           tenantId: itemData.tenantId,
-          status: itemData.status || 'at_hotel',
-          location: itemData.location,
+          status: itemData.status || 'at_laundry',
+          location: itemData.location || 'laundry',
           notes: itemData.notes,
         });
 
