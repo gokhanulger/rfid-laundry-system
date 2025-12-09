@@ -253,10 +253,6 @@ export function IronerInterfacePage() {
     }
 
     const availableItems = itemsByType[typeId] || [];
-    if (availableItems.length === 0) {
-      toast.warning('Bu tur icin mevcut urun yok');
-      return;
-    }
 
     // Check if this type already exists in the list
     const currentList = printItems[hotelId] || [];
@@ -264,7 +260,9 @@ export function IronerInterfacePage() {
 
     if (existingIndex >= 0) {
       // Update existing entry
-      const newCount = Math.min(currentList[existingIndex].count + count, availableItems.length);
+      const newCount = availableItems.length > 0
+        ? Math.min(currentList[existingIndex].count + count, availableItems.length)
+        : currentList[existingIndex].count + count;
       const newList = [...currentList];
       newList[existingIndex] = {
         ...newList[existingIndex],
@@ -275,7 +273,7 @@ export function IronerInterfacePage() {
       setPrintItems(prev => ({ ...prev, [hotelId]: newList }));
     } else {
       // Add new entry
-      const validCount = Math.min(count, availableItems.length);
+      const validCount = availableItems.length > 0 ? Math.min(count, availableItems.length) : count;
       setPrintItems(prev => ({
         ...prev,
         [hotelId]: [...(prev[hotelId] || []), { typeId, count: validCount, discardCount, hasarliCount }]
@@ -318,11 +316,6 @@ export function IronerInterfacePage() {
       const availableItems = itemsByType[printItem.typeId] || [];
       const itemsToAdd = availableItems.slice(0, printItem.count);
       itemIds.push(...itemsToAdd.map(i => i.id));
-    }
-
-    if (itemIds.length === 0) {
-      toast.warning('Yazdirilacak urun yok');
-      return;
     }
 
     // Save last printed type for this hotel (use the first item type)
@@ -428,7 +421,6 @@ export function IronerInterfacePage() {
               ) : (
                 filteredTenants.map((tenant: Tenant) => {
                   const isSelected = selectedHotelIds.includes(tenant.id);
-                  const hotelDirtyCount = dirtyItemsArray.filter((i: Item) => i.tenantId === tenant.id).length;
                   return (
                     <label
                       key={tenant.id}
@@ -447,15 +439,6 @@ export function IronerInterfacePage() {
                           {tenant.name}
                         </span>
                       </div>
-                      {hotelDirtyCount > 0 ? (
-                        <span className={`px-2 py-1 rounded-full text-sm font-bold ${
-                          hotelDirtyCount > 10 ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
-                        }`}>
-                          {hotelDirtyCount}
-                        </span>
-                      ) : (
-                        <span className="text-sm text-gray-400">0</span>
-                      )}
                     </label>
                   );
                 })
@@ -676,7 +659,6 @@ export function IronerInterfacePage() {
         <span className="text-blue-700 font-medium">Calisilan:</span>
         {selectedHotelIds.map(hotelId => {
           const hotel = tenantsArray.find((t: Tenant) => t.id === hotelId);
-          const hotelDirtyCount = dirtyItemsArray.filter((i: Item) => i.tenantId === hotelId).length;
           return (
             <div
               key={hotelId}
@@ -684,11 +666,6 @@ export function IronerInterfacePage() {
             >
               <Building2 className="w-4 h-4 text-blue-600" />
               <span className="font-medium text-gray-900">{hotel?.name}</span>
-              {hotelDirtyCount > 0 && (
-                <span className="px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full text-xs font-bold">
-                  {hotelDirtyCount}
-                </span>
-              )}
               <button
                 onClick={() => toggleHotelSelection(hotelId)}
                 className="text-gray-400 hover:text-red-500"
@@ -788,23 +765,24 @@ export function IronerInterfacePage() {
         <div className="lg:col-span-2 space-y-6">
           <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
             <Sparkles className="w-6 h-6 text-orange-500" />
-            Islenecek Kirli Urunler
+            Etiket Yazdirma
           </h2>
 
           {loadingDirty ? (
             <div className="flex items-center justify-center h-64 bg-white rounded-lg shadow">
               <RefreshCw className="w-10 h-10 animate-spin text-purple-500" />
             </div>
-          ) : hotelCount === 0 ? (
+          ) : selectedHotelIds.length === 0 ? (
             <div className="p-16 text-center bg-white rounded-lg shadow">
               <Package className="w-20 h-20 mx-auto text-gray-300 mb-4" />
-              <p className="text-2xl font-semibold text-gray-500">Islenecek kirli urun yok</p>
-              <p className="text-lg text-gray-400 mt-2">Secili otellerdeki tum urunler temizlendi!</p>
+              <p className="text-2xl font-semibold text-gray-500">Otel secilmedi</p>
+              <p className="text-lg text-gray-400 mt-2">Etiket basmak icin otel secin</p>
             </div>
           ) : (
             <div className="space-y-4">
-              {Object.entries(itemsByHotel).map(([hotelId, hotelItems]) => {
+              {selectedHotelIds.map((hotelId) => {
                 const hotel = tenantsArray.find((t: Tenant) => t.id === hotelId);
+                const hotelItems = itemsByHotel[hotelId] || [];
                 const isExpanded = expandedHotels[hotelId] || false;
                 const itemsByType = groupByType(hotelItems);
 
@@ -862,20 +840,20 @@ export function IronerInterfacePage() {
                                 className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
                               >
                                 <option value="">Tur secin...</option>
-                                {/* Sort entries: last printed type first */}
-                                {Object.entries(itemsByType)
-                                  .sort(([aTypeId], [bTypeId]) => {
+                                {/* Show all item types, sort by last printed first */}
+                                {(itemTypes || [])
+                                  .slice()
+                                  .sort((a: { id: string }, b: { id: string }) => {
                                     const lastType = lastPrintedType[hotelId];
-                                    if (lastType === aTypeId) return -1;
-                                    if (lastType === bTypeId) return 1;
+                                    if (lastType === a.id) return -1;
+                                    if (lastType === b.id) return 1;
                                     return 0;
                                   })
-                                  .map(([typeId, typeItems]) => {
-                                    const itemType = itemTypes?.find((t: { id: string }) => t.id === typeId);
-                                    const isLastPrinted = lastPrintedType[hotelId] === typeId;
+                                  .map((itemType: { id: string; name: string }) => {
+                                    const isLastPrinted = lastPrintedType[hotelId] === itemType.id;
                                     return (
-                                      <option key={typeId} value={typeId}>
-                                        {isLastPrinted ? '★ ' : ''}{itemType?.name} ({typeItems.length} mevcut)
+                                      <option key={itemType.id} value={itemType.id}>
+                                        {isLastPrinted ? '★ ' : ''}{itemType.name}
                                       </option>
                                     );
                                   })}
@@ -1025,12 +1003,7 @@ export function IronerInterfacePage() {
                                     }
 
                                     const availableItems = itemsByType[typeId] || [];
-                                    if (availableItems.length === 0) {
-                                      toast.warning('Bu tur icin mevcut urun yok');
-                                      return;
-                                    }
-
-                                    const validCount = Math.min(count, availableItems.length);
+                                    const validCount = availableItems.length > 0 ? Math.min(count, availableItems.length) : count;
                                     const itemIds = availableItems.slice(0, validCount).map(i => i.id);
 
                                     // Save last printed type

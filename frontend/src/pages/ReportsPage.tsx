@@ -2,20 +2,29 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { BarChart3, PieChart, TrendingUp, Download } from 'lucide-react';
 import { reportsApi, dashboardApi, settingsApi } from '../lib/api';
+import { useAuth } from '../contexts/AuthContext';
 
 export function ReportsPage() {
+  const { user } = useAuth();
+  const isHotelOwner = user?.role === 'hotel_owner';
+
+  // For hotel owners, always use their own tenant; for admins, allow selection
   const [selectedTenant, setSelectedTenant] = useState<string>('');
 
+  // Only fetch tenants for admin users
   const { data: tenants } = useQuery({
     queryKey: ['tenants'],
     queryFn: settingsApi.getTenants,
+    enabled: !isHotelOwner,
   });
 
+  // For hotel owners, the backend will automatically filter by their tenant
   const { data: lifecycleReport, isLoading: loadingLifecycle } = useQuery({
     queryKey: ['lifecycle-report', selectedTenant],
     queryFn: () => reportsApi.getLifecycle({ tenantId: selectedTenant || undefined }),
   });
 
+  // These endpoints should also respect hotel owner's tenant on the backend
   const { data: itemTypeDistribution, isLoading: loadingDistribution } = useQuery({
     queryKey: ['item-type-distribution'],
     queryFn: dashboardApi.getItemTypeDistribution,
@@ -56,16 +65,19 @@ export function ReportsPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Raporlar</h1>
         <div className="flex items-center gap-4">
-          <select
-            value={selectedTenant}
-            onChange={(e) => setSelectedTenant(e.target.value)}
-            className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="">Tum Oteller</option>
-            {tenants?.map(t => (
-              <option key={t.id} value={t.id}>{t.name}</option>
-            ))}
-          </select>
+          {/* Hotel selector - only for admin/manager */}
+          {!isHotelOwner && (
+            <select
+              value={selectedTenant}
+              onChange={(e) => setSelectedTenant(e.target.value)}
+              className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Tum Oteller</option>
+              {tenants?.map(t => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+          )}
           <button
             onClick={exportCSV}
             disabled={!lifecycleReport}

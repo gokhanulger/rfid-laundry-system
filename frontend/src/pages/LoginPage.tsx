@@ -15,7 +15,7 @@ export function LoginPage() {
 
     try {
       await login(email, password);
-      navigate('/dashboard');
+      navigate('/');
     } catch (err: any) {
       const errorMessage = err.response?.data?.error || err.message || 'Giris basarisiz';
       // Translate common errors to Turkish

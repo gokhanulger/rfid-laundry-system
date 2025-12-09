@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Tag, Plus, Search, RefreshCw, X, Edit2, Trash2, Building2 } from 'lucide-react';
 import { itemsApi, settingsApi, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/Toast';
+import { useAuth } from '../contexts/AuthContext';
 import type { Item, Tenant } from '../types';
 
 // Storage key for selected hotels
@@ -50,6 +51,10 @@ export function ItemManagementPage() {
 
   const queryClient = useQueryClient();
   const toast = useToast();
+  const { user } = useAuth();
+
+  // Check if user is hotel owner (should only see their own data)
+  const isHotelOwner = user?.role === 'hotel_owner';
 
   // Load selected hotels from localStorage on mount
   useEffect(() => {
@@ -355,45 +360,47 @@ export function ItemManagementPage() {
         </button>
       </div>
 
-      {/* Selected Hotels Bar */}
-      <div className="bg-teal-50 rounded-lg p-4 flex items-center gap-3 flex-wrap">
-        <span className="text-teal-700 font-medium">Gösterilen:</span>
-        {selectedHotelIds.length === 0 ? (
-          <span className="text-gray-500">Tüm Oteller</span>
-        ) : (
-          selectedHotelIds.map(hotelId => {
-            const hotel = tenants?.find((t: Tenant) => t.id === hotelId);
-            const hotelItemCount = filteredItems.filter((i: Item) => i.tenantId === hotelId).length;
-            return (
-              <div
-                key={hotelId}
-                className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-full border border-teal-200"
-              >
-                <Building2 className="w-4 h-4 text-teal-600" />
-                <span className="font-medium text-gray-900">{hotel?.name}</span>
-                {hotelItemCount > 0 && (
-                  <span className="px-2 py-0.5 bg-teal-100 text-teal-700 rounded-full text-xs font-bold">
-                    {hotelItemCount}
-                  </span>
-                )}
-                <button
-                  onClick={() => toggleHotelSelection(hotelId)}
-                  className="text-gray-400 hover:text-red-500"
+      {/* Selected Hotels Bar - Only show for admin/manager, not hotel owners */}
+      {!isHotelOwner && (
+        <div className="bg-teal-50 rounded-lg p-4 flex items-center gap-3 flex-wrap">
+          <span className="text-teal-700 font-medium">Gösterilen:</span>
+          {selectedHotelIds.length === 0 ? (
+            <span className="text-gray-500">Tüm Oteller</span>
+          ) : (
+            selectedHotelIds.map(hotelId => {
+              const hotel = tenants?.find((t: Tenant) => t.id === hotelId);
+              const hotelItemCount = filteredItems.filter((i: Item) => i.tenantId === hotelId).length;
+              return (
+                <div
+                  key={hotelId}
+                  className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-full border border-teal-200"
                 >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            );
-          })
-        )}
-        <button
-          onClick={() => setShowHotelSelector(true)}
-          className="flex items-center gap-1 text-teal-600 hover:text-teal-700 text-sm font-medium"
-        >
-          <Plus className="w-4 h-4" />
-          {selectedHotelIds.length === 0 ? 'Otel Seç' : 'Değiştir'}
-        </button>
-      </div>
+                  <Building2 className="w-4 h-4 text-teal-600" />
+                  <span className="font-medium text-gray-900">{hotel?.name}</span>
+                  {hotelItemCount > 0 && (
+                    <span className="px-2 py-0.5 bg-teal-100 text-teal-700 rounded-full text-xs font-bold">
+                      {hotelItemCount}
+                    </span>
+                  )}
+                  <button
+                    onClick={() => toggleHotelSelection(hotelId)}
+                    className="text-gray-400 hover:text-red-500"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              );
+            })
+          )}
+          <button
+            onClick={() => setShowHotelSelector(true)}
+            className="flex items-center gap-1 text-teal-600 hover:text-teal-700 text-sm font-medium"
+          >
+            <Plus className="w-4 h-4" />
+            {selectedHotelIds.length === 0 ? 'Otel Seç' : 'Değiştir'}
+          </button>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="bg-white rounded-lg shadow p-4">
@@ -423,8 +430,8 @@ export function ItemManagementPage() {
         </div>
       </div>
 
-      {/* Hotel Selection Dialog */}
-      {showHotelSelector && <HotelSelectionDialog />}
+      {/* Hotel Selection Dialog - Only for admin/manager */}
+      {!isHotelOwner && showHotelSelector && <HotelSelectionDialog />}
 
       {/* Items Grouped by Hotel → Type → Count */}
       <div className="space-y-8">

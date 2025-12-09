@@ -70,7 +70,6 @@ export function Layout() {
 
   // Navigation for drivers
   const driverNavigation = [
-    { name: 'Ana Sayfa', href: '/driver', icon: LayoutDashboard },
     { name: 'Toplama', href: '/driver/dirty-pickup', icon: ArrowUp },
     { name: 'Teslim Etme', href: '/driver/delivery', icon: Truck },
   ];

@@ -60,15 +60,6 @@ export function HotelStatusBoardPage() {
     delivered: hotelStatuses?.filter(h => h.status === 'delivered').length || 0,
   };
 
-  const getShortName = (name: string) => {
-    // Get first 3 letters or abbreviation
-    const words = name.split(' ');
-    if (words.length >= 2) {
-      return words.map(w => w[0]).join('').substring(0, 3).toUpperCase();
-    }
-    return name.substring(0, 3).toUpperCase();
-  };
-
   return (
     <div className="p-6 space-y-6 animate-fade-in">
       {/* Header */}
@@ -194,7 +185,7 @@ export function HotelStatusBoardPage() {
         </div>
       ) : (
         <div className="bg-white rounded-xl shadow-sm p-6">
-          <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 xl:grid-cols-12 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
             {filteredHotels.map((hotel) => {
               const colors = statusColors[hotel.status];
               return (
@@ -202,19 +193,22 @@ export function HotelStatusBoardPage() {
                   key={hotel.id}
                   onClick={() => setSelectedHotel(hotel)}
                   className={`
-                    relative aspect-square rounded-lg border-2
+                    relative rounded-xl border-2 p-4
                     ${colors.bg} ${colors.border} ${colors.text}
                     hover:scale-105 hover:shadow-lg transition-all duration-200
-                    flex flex-col items-center justify-center p-2
-                    cursor-pointer
+                    flex flex-col items-center justify-center
+                    cursor-pointer min-h-[100px]
                   `}
                   title={hotel.name}
                 >
-                  <span className="font-bold text-sm leading-tight text-center">
-                    {hotel.shortName || getShortName(hotel.name)}
+                  <span className="font-bold text-sm leading-tight text-center line-clamp-2">
+                    {hotel.name}
+                  </span>
+                  <span className="text-xs mt-1 opacity-75">
+                    {statusColors[hotel.status].label}
                   </span>
                   {hotel.pendingItems > 0 && (
-                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-orange-500 text-white text-xs rounded-full flex items-center justify-center font-bold">
+                    <span className="absolute -top-2 -right-2 w-6 h-6 bg-orange-500 text-white text-xs rounded-full flex items-center justify-center font-bold shadow-md">
                       {hotel.pendingItems > 99 ? '99+' : hotel.pendingItems}
                     </span>
                   )}

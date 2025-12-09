@@ -11,6 +11,11 @@ reportsRouter.get('/lifecycle', async (req: AuthRequest, res) => {
   try {
     const { tenantId, startDate, endDate } = req.query;
 
+    // For hotel owners, always filter by their tenant
+    const effectiveTenantId = req.user?.role === 'hotel_owner'
+      ? req.user.tenantId
+      : (tenantId as string | undefined);
+
     const allItems = await db.query.items.findMany({
       with: {
         itemType: true,
@@ -18,9 +23,9 @@ reportsRouter.get('/lifecycle', async (req: AuthRequest, res) => {
       },
     });
 
-    // Filter by tenant if provided
-    const filteredItems = tenantId
-      ? allItems.filter(item => item.tenantId === tenantId)
+    // Filter by tenant if hotel owner or if tenantId provided
+    const filteredItems = effectiveTenantId
+      ? allItems.filter(item => item.tenantId === effectiveTenantId)
       : allItems;
 
     // Generate report data
