@@ -18,6 +18,7 @@ import {
   Building2,
   Users,
   Tag,
+  Tags,
   Menu,
   X,
   FileText,
@@ -69,9 +70,9 @@ export function Layout() {
 
   // Navigation for drivers
   const driverNavigation = [
-    { name: 'Kirli Toplama', href: '/driver/dirty-pickup', icon: ArrowUp },
-    { name: 'Camasirhane Toplama', href: '/driver/laundry-pickup', icon: Package },
-    { name: 'Otel Teslimati', href: '/driver/hotel-delivery', icon: Truck },
+    { name: 'Ana Sayfa', href: '/driver', icon: LayoutDashboard },
+    { name: 'Toplama', href: '/driver/dirty-pickup', icon: ArrowUp },
+    { name: 'Teslim Etme', href: '/driver/delivery', icon: Truck },
   ];
 
   // Navigation for hotel owners
@@ -104,6 +105,7 @@ export function Layout() {
     { name: 'Otel Yonetimi', href: '/hotels', icon: Building2 },
     { name: 'Kullanici Yonetimi', href: '/users', icon: Users },
     { name: 'Urun Yonetimi', href: '/items', icon: Tag },
+    { name: 'Toplu Tag Eslestirme', href: '/bulk-tag-assignment', icon: Tags },
     { name: 'Ayarlar', href: '/settings', icon: Settings },
   ];
 

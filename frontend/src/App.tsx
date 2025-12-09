@@ -25,11 +25,14 @@ import { PackagingPage } from './pages/PackagingPage';
 import { HotelManagementPage } from './pages/HotelManagementPage';
 import { UserManagementPage } from './pages/UserManagementPage';
 import { ItemManagementPage } from './pages/ItemManagementPage';
+import { BulkTagAssignmentPage } from './pages/BulkTagAssignmentPage';
 import { ReconciliationPage } from './pages/ReconciliationPage';
 import { IrsaliyePage } from './pages/IrsaliyePage';
 
 // Driver Pages
+import { DriverHomePage } from './pages/driver/DriverHomePage';
 import { DirtyPickupPage } from './pages/driver/DirtyPickupPage';
+import { DeliveryPage } from './pages/driver/DeliveryPage';
 import { LaundryPickupPage } from './pages/driver/LaundryPickupPage';
 import { HotelDeliveryPage } from './pages/driver/HotelDeliveryPage';
 
@@ -37,7 +40,7 @@ import { HotelDeliveryPage } from './pages/driver/HotelDeliveryPage';
 function RoleBasedRedirect() {
   const { user } = useAuth();
   if (user?.role === 'driver') {
-    return <Navigate to="/driver/dirty-pickup" replace />;
+    return <Navigate to="/driver" replace />;
   }
   return <Navigate to="/dashboard" replace />;
 }
@@ -97,9 +100,12 @@ function App() {
                 <Route path="hotels" element={<HotelManagementPage />} />
                 <Route path="users" element={<UserManagementPage />} />
                 <Route path="items" element={<ItemManagementPage />} />
+                <Route path="bulk-tag-assignment" element={<BulkTagAssignmentPage />} />
 
                 {/* Driver Pages */}
+                <Route path="driver" element={<DriverHomePage />} />
                 <Route path="driver/dirty-pickup" element={<DirtyPickupPage />} />
+                <Route path="driver/delivery" element={<DeliveryPage />} />
                 <Route path="driver/laundry-pickup" element={<LaundryPickupPage />} />
                 <Route path="driver/hotel-delivery" element={<HotelDeliveryPage />} />
               </Route>

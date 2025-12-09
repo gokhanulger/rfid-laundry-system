@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowUp, Building2, Package, CheckCircle, RefreshCw, Truck, Scan, X, Radio, Square, History, ClipboardList, Plus, Minus, Trash2 } from 'lucide-react';
+import { ArrowUp, Building2, Package, CheckCircle, RefreshCw, Truck, Scan, X, Radio, Square, History, ClipboardList, Plus, Minus, Trash2, ArrowLeft } from 'lucide-react';
 import { pickupsApi, settingsApi, getErrorMessage } from '../../lib/api';
 import { useToast } from '../../components/Toast';
 import type { Tenant, ItemType } from '../../types';
@@ -33,6 +34,7 @@ interface ManualItem {
 }
 
 export function DirtyPickupPage() {
+  const navigate = useNavigate();
   const [selectedHotel, setSelectedHotel] = useState<string | null>(null);
   const [pickupMode, setPickupMode] = useState<'select' | 'quick' | 'rfid' | 'manual'>('select');
   const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
@@ -312,13 +314,22 @@ export function DirtyPickupPage() {
 
   return (
     <div className="p-4 md:p-6 space-y-4 md:space-y-6 animate-fade-in min-h-screen bg-gray-50">
+      {/* Back Button */}
+      <button
+        onClick={() => navigate('/driver')}
+        className="flex items-center gap-2 text-gray-600 hover:text-gray-900 touch-manipulation"
+      >
+        <ArrowLeft className="w-5 h-5" />
+        <span>Ana Sayfa</span>
+      </button>
+
       {/* Header */}
       <div className="flex items-center gap-3 md:gap-4">
-        <div className="p-3 md:p-4 bg-orange-100 rounded-xl">
-          <ArrowUp className="w-8 h-8 md:w-10 md:h-10 text-orange-600" />
+        <div className="p-3 md:p-4 bg-red-100 rounded-xl">
+          <ArrowUp className="w-8 h-8 md:w-10 md:h-10 text-red-600" />
         </div>
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Kirli Toplama</h1>
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Toplama</h1>
           <p className="text-sm md:text-base text-gray-500">Otellerden kirli çamaşırları topla</p>
         </div>
       </div>
