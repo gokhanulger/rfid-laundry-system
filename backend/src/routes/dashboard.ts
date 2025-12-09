@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { db } from '../db';
-import { items, pickups, deliveries, alerts } from '../db/schema';
-import { eq, and, desc, sql, count } from 'drizzle-orm';
+import { items, pickups, deliveries, alerts, tenants } from '../db/schema';
+import { eq, and, desc, sql, count, inArray } from 'drizzle-orm';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 
 export const dashboardRouter = Router();
@@ -353,6 +353,106 @@ dashboardRouter.get('/hotel-stats', async (req: AuthRequest, res) => {
     });
   } catch (error) {
     console.error('Get hotel stats error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get hotel status board - visual grid showing status of each hotel
+// Status logic:
+// - waiting: No active items in pipeline (gray)
+// - collected: Driver collected dirty items (red)
+// - packaged: Items are packaged and ready for delivery (yellow)
+// - in_transit: Items are being delivered (green)
+// - delivered: Items delivered to hotel (blue)
+dashboardRouter.get('/hotel-status-board', async (req: AuthRequest, res) => {
+  try {
+    const user = req.user!;
+
+    // Only admins can see all hotels
+    if (user.role !== 'system_admin' && user.role !== 'laundry_manager') {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Get all active hotels
+    const allTenants = await db.query.tenants.findMany({
+      where: eq(tenants.isActive, true),
+      orderBy: [tenants.name],
+    });
+
+    // Get item counts by status for each hotel
+    const hotelStatuses = await Promise.all(
+      allTenants.map(async (tenant) => {
+        // Get item counts by status
+        const itemCounts = await db
+          .select({
+            status: items.status,
+            count: count(),
+          })
+          .from(items)
+          .where(eq(items.tenantId, tenant.id))
+          .groupBy(items.status);
+
+        const statusMap = itemCounts.reduce((acc, row) => {
+          acc[row.status] = row.count;
+          return acc;
+        }, {} as Record<string, number>);
+
+        // Calculate counts for each stage
+        const pendingItems = statusMap['at_hotel'] || 0;
+        const collectedItems = statusMap['at_laundry'] || 0;
+        const processingItems = statusMap['processing'] || 0;
+        const readyItems = (statusMap['ready_for_delivery'] || 0) + (statusMap['label_printed'] || 0);
+        const packagedItems = statusMap['packaged'] || 0;
+        const inTransitItems = statusMap['in_transit'] || 0;
+        const deliveredItems = statusMap['delivered'] || 0;
+
+        // Determine overall status based on priority
+        // Priority: in_transit > packaged > collected > delivered > waiting
+        let status: 'waiting' | 'collected' | 'packaged' | 'in_transit' | 'delivered' = 'waiting';
+
+        if (inTransitItems > 0) {
+          status = 'in_transit';
+        } else if (packagedItems > 0) {
+          status = 'packaged';
+        } else if (collectedItems > 0 || processingItems > 0 || readyItems > 0) {
+          status = 'collected';
+        } else if (deliveredItems > 0 && pendingItems === 0) {
+          status = 'delivered';
+        }
+
+        // Get last item update time
+        const lastItem = await db.query.items.findFirst({
+          where: eq(items.tenantId, tenant.id),
+          orderBy: [desc(items.updatedAt)],
+        });
+
+        // Generate short name (first letters of words, max 3 chars)
+        const words = tenant.name.split(' ').filter(w => w.length > 0);
+        let shortName = '';
+        if (words.length >= 2) {
+          shortName = words.map(w => w[0]).join('').substring(0, 3).toUpperCase();
+        } else {
+          shortName = tenant.name.substring(0, 3).toUpperCase();
+        }
+
+        return {
+          id: tenant.id,
+          name: tenant.name,
+          shortName,
+          status,
+          pendingItems,
+          collectedItems: collectedItems + processingItems + readyItems,
+          packagedItems,
+          inTransitItems,
+          deliveredItems,
+          lastUpdate: lastItem?.updatedAt || null,
+        };
+      })
+    );
+
+    res.json(hotelStatuses);
+  } catch (error) {
+    console.error('Get hotel status board error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

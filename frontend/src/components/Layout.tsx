@@ -24,6 +24,7 @@ import {
   ChevronLeft,
   ChevronRight,
   MapPin,
+  Grid3X3,
 } from 'lucide-react';
 
 // Storage key for sidebar state
@@ -86,6 +87,7 @@ export function Layout() {
   // Navigation for admin/laundry manager (full access)
   const adminFullNavigation = [
     { name: 'Kontrol Paneli', href: '/dashboard', icon: LayoutDashboard },
+    { name: 'Otel Durum Panosu', href: '/hotel-status-board', icon: Grid3X3 },
     { name: 'Camasir Isleme', href: '/laundry-processing', icon: Sparkles },
     { name: 'Utu Etiketi', href: '/ironer-interface', icon: Printer },
     { name: 'Paketleme', href: '/packaging', icon: Box },

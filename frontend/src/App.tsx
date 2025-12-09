@@ -29,6 +29,7 @@ import { BulkTagAssignmentPage } from './pages/BulkTagAssignmentPage';
 import { ReconciliationPage } from './pages/ReconciliationPage';
 import { IrsaliyePage } from './pages/IrsaliyePage';
 import HotelQRCodesPage from './pages/HotelQRCodesPage';
+import { HotelStatusBoardPage } from './pages/HotelStatusBoardPage';
 
 // Driver Pages
 import { DriverHomePage } from './pages/driver/DriverHomePage';
@@ -100,6 +101,7 @@ function App() {
                 {/* Admin Pages */}
                 <Route path="hotels" element={<HotelManagementPage />} />
                 <Route path="hotel-qr-codes" element={<HotelQRCodesPage />} />
+                <Route path="hotel-status-board" element={<HotelStatusBoardPage />} />
                 <Route path="users" element={<UserManagementPage />} />
                 <Route path="items" element={<ItemManagementPage />} />
                 <Route path="bulk-tag-assignment" element={<BulkTagAssignmentPage />} />

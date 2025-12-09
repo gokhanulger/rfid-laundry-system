@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Building2, Plus, Edit, Trash2, RefreshCw, X, Check, QrCode, Download, Printer, Upload, FileSpreadsheet } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
+import QRCode from 'qrcode';
 import * as XLSX from 'xlsx';
 import api, { getErrorMessage } from '../lib/api';
 import { useToast } from '../components/Toast';
@@ -303,62 +304,110 @@ export function HotelManagementPage() {
             Sablon
           </button>
           <button
-            onClick={() => {
-              // Print all QR codes
+            onClick={async () => {
+              // Print all QR codes - one per page
               const hotelsWithQR = tenants?.filter(t => t.qrCode) || [];
               if (hotelsWithQR.length === 0) {
                 toast.error('QR kodu olan otel bulunamadi');
                 return;
               }
-              const printWindow = window.open('', '_blank');
-              if (printWindow) {
-                const qrCards = hotelsWithQR.map((hotel, index) => `
-                  <div class="qr-card" id="card-${index}">
-                    <h3>${hotel.name}</h3>
-                    <p class="address">${hotel.address || ''}</p>
-                    <div class="qr" id="qr-${index}"></div>
-                    <div class="qr-value">${hotel.qrCode}</div>
-                  </div>
-                `).join('');
 
-                const qrScripts = hotelsWithQR.map((hotel, index) => `
-                  QRCode.toCanvas(document.createElement('canvas'), '${hotel.qrCode}', { width: 150, margin: 1 }, function(err, canvas) {
-                    if (!err) document.getElementById('qr-${index}').appendChild(canvas);
+              toast.info(`${hotelsWithQR.length} otel icin QR kod olusturuluyor...`);
+
+              // Generate QR code data URLs
+              const qrDataUrls: { hotel: Tenant; dataUrl: string }[] = [];
+              for (const hotel of hotelsWithQR) {
+                try {
+                  const dataUrl = await QRCode.toDataURL(hotel.qrCode!, {
+                    width: 300,
+                    margin: 2,
+                    errorCorrectionLevel: 'H'
                   });
-                `).join('\n');
+                  qrDataUrls.push({ hotel, dataUrl });
+                } catch (err) {
+                  console.error('QR error:', hotel.name, err);
+                }
+              }
 
-                printWindow.document.write(`
-                  <html>
-                    <head>
-                      <title>Tum Otel QR Kodlari</title>
-                      <style>
-                        body { font-family: Arial; padding: 20px; margin: 0; }
-                        h1 { text-align: center; margin-bottom: 30px; }
-                        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
-                        .qr-card { border: 2px solid #e5e7eb; border-radius: 12px; padding: 20px; text-align: center; page-break-inside: avoid; }
-                        .qr-card h3 { margin: 0 0 5px; font-size: 16px; color: #1f2937; }
-                        .qr-card .address { color: #6b7280; font-size: 12px; margin-bottom: 15px; min-height: 18px; }
-                        .qr-card .qr { margin: 10px 0; }
-                        .qr-card .qr canvas { display: block; margin: 0 auto; }
-                        .qr-card .qr-value { font-family: monospace; font-size: 14px; background: #f3f4f6; padding: 8px 12px; border-radius: 6px; display: inline-block; }
-                        @media print {
-                          .grid { grid-template-columns: repeat(3, 1fr); }
-                          .qr-card { break-inside: avoid; }
-                        }
-                      </style>
-                    </head>
-                    <body>
-                      <h1>Otel QR Kodlari</h1>
-                      <div class="grid">${qrCards}</div>
-                      <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
-                      <script>
-                        ${qrScripts}
-                        setTimeout(function() { window.print(); }, 500);
-                      </script>
-                    </body>
-                  </html>
-                `);
-                printWindow.document.close();
+              if (qrDataUrls.length === 0) {
+                toast.error('QR kodlari olusturulamadi');
+                return;
+              }
+
+              // Create HTML with one hotel per page
+              const pages = qrDataUrls.map(({ hotel, dataUrl }) => `
+                <div class="page">
+                  <div class="card">
+                    <h1>${hotel.name}</h1>
+                    <p class="address">${hotel.address || ''}</p>
+                    <img src="${dataUrl}" class="qr-img" />
+                    <div class="qr-value">${hotel.qrCode}</div>
+                    <p class="instructions">Bu QR kodu tarayarak oteli hizlica secebilirsiniz</p>
+                  </div>
+                </div>
+              `).join('');
+
+              const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Otel QR Kodlari</title>
+  <style>
+    @media print {
+      @page { margin: 0; size: A4; }
+      .page { page-break-after: always; }
+      .page:last-child { page-break-after: auto; }
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; }
+    .page {
+      width: 100%;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 40px;
+    }
+    .card {
+      border: 4px solid #1f2937;
+      border-radius: 24px;
+      padding: 50px;
+      text-align: center;
+      max-width: 500px;
+      width: 100%;
+    }
+    h1 { font-size: 32px; color: #1f2937; margin-bottom: 10px; }
+    .address { color: #6b7280; font-size: 18px; margin-bottom: 30px; min-height: 24px; }
+    .qr-img { width: 300px; height: 300px; display: block; margin: 0 auto 30px; }
+    .qr-value {
+      font-family: monospace;
+      font-size: 24px;
+      background: #f3f4f6;
+      padding: 15px 30px;
+      border-radius: 12px;
+      display: inline-block;
+      margin-bottom: 20px;
+    }
+    .instructions { color: #9ca3af; font-size: 14px; }
+  </style>
+</head>
+<body>
+  ${pages}
+</body>
+</html>`;
+
+              // Create blob and open
+              const blob = new Blob([html], { type: 'text/html' });
+              const url = URL.createObjectURL(blob);
+              const printWindow = window.open(url, '_blank');
+
+              if (printWindow) {
+                printWindow.onload = () => {
+                  setTimeout(() => {
+                    printWindow.print();
+                    URL.revokeObjectURL(url);
+                  }, 1000);
+                };
               }
             }}
             className="flex items-center gap-2 px-4 py-2 text-blue-600 hover:bg-blue-50 rounded-lg border border-blue-200"
@@ -686,43 +735,52 @@ export function HotelManagementPage() {
                       Indir
                     </button>
                     <button
-                      onClick={() => {
-                        const printWindow = window.open('', '_blank');
+                      onClick={async () => {
+                        // Generate QR code data URL
+                        const dataUrl = await QRCode.toDataURL(qrModalTenant.qrCode!, {
+                          width: 300,
+                          margin: 2,
+                          errorCorrectionLevel: 'H'
+                        });
+
+                        const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>${qrModalTenant.name} - QR Kod</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+    .card { border: 4px solid #1f2937; border-radius: 24px; padding: 50px; text-align: center; max-width: 500px; }
+    h1 { font-size: 32px; color: #1f2937; margin-bottom: 10px; }
+    .address { color: #6b7280; font-size: 18px; margin-bottom: 30px; }
+    .qr-img { width: 300px; height: 300px; display: block; margin: 0 auto 30px; }
+    .qr-value { font-family: monospace; font-size: 24px; background: #f3f4f6; padding: 15px 30px; border-radius: 12px; display: inline-block; margin-bottom: 20px; }
+    .instructions { color: #9ca3af; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>${qrModalTenant.name}</h1>
+    <p class="address">${qrModalTenant.address || ''}</p>
+    <img src="${dataUrl}" class="qr-img" />
+    <div class="qr-value">${qrModalTenant.qrCode}</div>
+    <p class="instructions">Bu QR kodu tarayarak oteli hizlica secebilirsiniz</p>
+  </div>
+</body>
+</html>`;
+
+                        const blob = new Blob([html], { type: 'text/html' });
+                        const url = URL.createObjectURL(blob);
+                        const printWindow = window.open(url, '_blank');
+
                         if (printWindow) {
-                          printWindow.document.write(`
-                            <html>
-                              <head>
-                                <title>${qrModalTenant.name} - QR Kod</title>
-                                <style>
-                                  body { font-family: Arial; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: #fff; }
-                                  .card { border: 3px solid #1f2937; border-radius: 16px; padding: 40px; text-align: center; width: 300px; }
-                                  h2 { margin: 0 0 10px; font-size: 24px; color: #1f2937; }
-                                  .address { color: #6b7280; font-size: 14px; margin-bottom: 20px; }
-                                  #qr { margin: 20px 0; }
-                                  #qr canvas { display: block; margin: 0 auto; }
-                                  .qr-value { font-family: monospace; font-size: 18px; background: #f3f4f6; padding: 12px 20px; border-radius: 8px; display: inline-block; margin-top: 15px; }
-                                  .instructions { color: #9ca3af; font-size: 12px; margin-top: 20px; }
-                                </style>
-                              </head>
-                              <body>
-                                <div class="card">
-                                  <h2>${qrModalTenant.name}</h2>
-                                  <p class="address">${qrModalTenant.address || ''}</p>
-                                  <div id="qr"></div>
-                                  <div class="qr-value">${qrModalTenant.qrCode}</div>
-                                  <p class="instructions">Bu QR kodu tarayarak oteli hizlica secebilirsiniz</p>
-                                </div>
-                                <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
-                                <script>
-                                  QRCode.toCanvas(document.createElement('canvas'), '${qrModalTenant.qrCode}', { width: 200, margin: 2 }, function(err, canvas) {
-                                    if (!err) document.getElementById('qr').appendChild(canvas);
-                                    setTimeout(function() { window.print(); }, 300);
-                                  });
-                                </script>
-                              </body>
-                            </html>
-                          `);
-                          printWindow.document.close();
+                          printWindow.onload = () => {
+                            setTimeout(() => {
+                              printWindow.print();
+                              URL.revokeObjectURL(url);
+                            }, 1000);
+                          };
                         }
                       }}
                       className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
