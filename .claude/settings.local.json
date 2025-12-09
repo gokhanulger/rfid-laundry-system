@@ -79,7 +79,9 @@
       "Bash(~/Library/Android/sdk/platform-tools/adb install /Users/gokhanulger/Desktop/RFID/android-app/app/build/outputs/apk/release/app-release.apk)",
       "Bash(git reset:*)",
       "Bash(npm run db:assign-qr:*)",
-      "Bash(~/Library/Android/sdk/platform-tools/adb install /Users/gokhanulger/Desktop/RFID/android-app/app/build/outputs/apk/debug/app-debug.apk)"
+      "Bash(~/Library/Android/sdk/platform-tools/adb install /Users/gokhanulger/Desktop/RFID/android-app/app/build/outputs/apk/debug/app-debug.apk)",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImI2OTViNjFlLTg0YjItNDIzZi1hMDZhLTZiYmYwZGNkN2U5OCIsImVtYWlsIjoiYWRtaW5AbGF1bmRyeS5jb20iLCJmaXJzdE5hbWUiOiJTeXN0ZW0iLCJsYXN0TmFtZSI6IkFkbWluIiwicm9sZSI6InN5c3RlbV9hZG1pbiIsInRlbmFudElkIjpudWxsLCJpYXQiOjE3NjUyOTI3ODcsImV4cCI6MTc2NTg5NzU4N30.2dTCy5oqF2uo-ijsls0rZWONzj-YGbaOYanpYAm72RM\")",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImI2OTViNjFlLTg0YjItNDIzZi1hMDZhLTZiYmYwZGNkN2U5OCIsImVtYWlsIjoiYWRtaW5AbGF1bmRyeS5jb20iLCJmaXJzdE5hbWUiOiJTeXN0ZW0iLCJsYXN0TmFtZSI6IkFkbWluIiwicm9sZSI6InN5c3RlbV9hZG1pbiIsInRlbmFudElkIjpudWxsLCJpYXQiOjE3NjUyOTI3ODcsImV4cCI6MTc2NTg5NzU4N30.2dTCy5oqF2uo-ijsls0rZWONzj-YGbaOYanpYAm72RM\" curl -s \"https://rfid-laundry-backend-production.up.railway.app/api/settings/tenants\" -H \"Authorization: Bearer $TOKEN\")"
     ],
     "deny": [],
     "ask": []

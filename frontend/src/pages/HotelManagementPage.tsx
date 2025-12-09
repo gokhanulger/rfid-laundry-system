@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Building2, Plus, Edit, Trash2, RefreshCw, X, Check, QrCode, Download, Printer } from 'lucide-react';
+import { Building2, Plus, Edit, Trash2, RefreshCw, X, Check, QrCode, Download, Printer, Upload, FileSpreadsheet } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
+import * as XLSX from 'xlsx';
 import api, { getErrorMessage } from '../lib/api';
 import { useToast } from '../components/Toast';
 
@@ -34,6 +35,8 @@ export function HotelManagementPage() {
   const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
   const [form, setForm] = useState<TenantForm>(emptyForm);
   const [qrModalTenant, setQrModalTenant] = useState<Tenant | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const toast = useToast();
 
@@ -118,6 +121,137 @@ export function HotelManagementPage() {
     }
   };
 
+  // Excel Export
+  const exportToExcel = () => {
+    if (!tenants || tenants.length === 0) {
+      toast.error('Disa aktarilacak otel bulunamadi');
+      return;
+    }
+
+    const exportData = tenants.map(t => ({
+      'Otel Adi': t.name,
+      'E-posta': t.email,
+      'Telefon': t.phone || '',
+      'Adres': t.address || '',
+      'Enlem': t.latitude || '',
+      'Boylam': t.longitude || '',
+      'QR Kod': t.qrCode || '',
+      'Durum': t.isActive ? 'Aktif' : 'Pasif',
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Oteller');
+
+    // Auto-size columns
+    const colWidths = [
+      { wch: 25 }, // Otel Adi
+      { wch: 25 }, // E-posta
+      { wch: 15 }, // Telefon
+      { wch: 40 }, // Adres
+      { wch: 12 }, // Enlem
+      { wch: 12 }, // Boylam
+      { wch: 15 }, // QR Kod
+      { wch: 10 }, // Durum
+    ];
+    ws['!cols'] = colWidths;
+
+    XLSX.writeFile(wb, `Oteller_${new Date().toISOString().split('T')[0]}.xlsx`);
+    toast.success('Excel dosyasi indirildi');
+  };
+
+  // Excel Import
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsImporting(true);
+
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data);
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const jsonData = XLSX.utils.sheet_to_json(sheet) as Record<string, string>[];
+
+      if (jsonData.length === 0) {
+        toast.error('Excel dosyasi bos');
+        return;
+      }
+
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (const row of jsonData) {
+        const hotelData: TenantForm = {
+          name: row['Otel Adi'] || row['name'] || '',
+          email: row['E-posta'] || row['email'] || '',
+          phone: row['Telefon'] || row['phone'] || '',
+          address: row['Adres'] || row['address'] || '',
+          latitude: row['Enlem'] || row['latitude'] || '',
+          longitude: row['Boylam'] || row['longitude'] || '',
+        };
+
+        if (!hotelData.name || !hotelData.email) {
+          errorCount++;
+          continue;
+        }
+
+        try {
+          await api.post('/tenants', hotelData);
+          successCount++;
+        } catch {
+          errorCount++;
+        }
+      }
+
+      if (successCount > 0) {
+        toast.success(`${successCount} otel basariyla eklendi`);
+        queryClient.invalidateQueries({ queryKey: ['tenants'] });
+      }
+      if (errorCount > 0) {
+        toast.error(`${errorCount} otel eklenemedi (eksik bilgi veya tekrar)`);
+      }
+    } catch (err) {
+      toast.error('Excel dosyasi okunamadi');
+    } finally {
+      setIsImporting(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  // Download template
+  const downloadTemplate = () => {
+    const templateData = [
+      {
+        'Otel Adi': 'Ornek Otel',
+        'E-posta': 'info@ornekotel.com',
+        'Telefon': '+905001234567',
+        'Adres': 'Istanbul, Turkiye',
+        'Enlem': '41.0082',
+        'Boylam': '28.9784',
+      },
+    ];
+
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Oteller');
+
+    ws['!cols'] = [
+      { wch: 25 },
+      { wch: 25 },
+      { wch: 15 },
+      { wch: 40 },
+      { wch: 12 },
+      { wch: 12 },
+    ];
+
+    XLSX.writeFile(wb, 'Otel_Sablonu.xlsx');
+    toast.success('Sablon indirildi');
+  };
+
   return (
     <div className="p-8 space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
@@ -130,13 +264,107 @@ export function HotelManagementPage() {
             <p className="text-gray-500">Otelleri ve bilgilerini yonetin</p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          {/* Hidden file input */}
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileUpload}
+            accept=".xlsx,.xls"
+            className="hidden"
+          />
           <button
             onClick={() => refetch()}
-            className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
+            className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:bg-gray-100 rounded-lg text-sm"
           >
             <RefreshCw className="w-4 h-4" />
             Yenile
+          </button>
+          <button
+            onClick={exportToExcel}
+            className="flex items-center gap-2 px-3 py-2 text-green-600 hover:bg-green-50 rounded-lg border border-green-200 text-sm"
+          >
+            <Download className="w-4 h-4" />
+            Excel Indir
+          </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isImporting}
+            className="flex items-center gap-2 px-3 py-2 text-orange-600 hover:bg-orange-50 rounded-lg border border-orange-200 text-sm disabled:opacity-50"
+          >
+            <Upload className="w-4 h-4" />
+            {isImporting ? 'Yukleniyor...' : 'Excel Yukle'}
+          </button>
+          <button
+            onClick={downloadTemplate}
+            className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:bg-gray-100 rounded-lg border border-gray-200 text-sm"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            Sablon
+          </button>
+          <button
+            onClick={() => {
+              // Print all QR codes
+              const hotelsWithQR = tenants?.filter(t => t.qrCode) || [];
+              if (hotelsWithQR.length === 0) {
+                toast.error('QR kodu olan otel bulunamadi');
+                return;
+              }
+              const printWindow = window.open('', '_blank');
+              if (printWindow) {
+                const qrCards = hotelsWithQR.map((hotel, index) => `
+                  <div class="qr-card" id="card-${index}">
+                    <h3>${hotel.name}</h3>
+                    <p class="address">${hotel.address || ''}</p>
+                    <div class="qr" id="qr-${index}"></div>
+                    <div class="qr-value">${hotel.qrCode}</div>
+                  </div>
+                `).join('');
+
+                const qrScripts = hotelsWithQR.map((hotel, index) => `
+                  QRCode.toCanvas(document.createElement('canvas'), '${hotel.qrCode}', { width: 150, margin: 1 }, function(err, canvas) {
+                    if (!err) document.getElementById('qr-${index}').appendChild(canvas);
+                  });
+                `).join('\n');
+
+                printWindow.document.write(`
+                  <html>
+                    <head>
+                      <title>Tum Otel QR Kodlari</title>
+                      <style>
+                        body { font-family: Arial; padding: 20px; margin: 0; }
+                        h1 { text-align: center; margin-bottom: 30px; }
+                        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+                        .qr-card { border: 2px solid #e5e7eb; border-radius: 12px; padding: 20px; text-align: center; page-break-inside: avoid; }
+                        .qr-card h3 { margin: 0 0 5px; font-size: 16px; color: #1f2937; }
+                        .qr-card .address { color: #6b7280; font-size: 12px; margin-bottom: 15px; min-height: 18px; }
+                        .qr-card .qr { margin: 10px 0; }
+                        .qr-card .qr canvas { display: block; margin: 0 auto; }
+                        .qr-card .qr-value { font-family: monospace; font-size: 14px; background: #f3f4f6; padding: 8px 12px; border-radius: 6px; display: inline-block; }
+                        @media print {
+                          .grid { grid-template-columns: repeat(3, 1fr); }
+                          .qr-card { break-inside: avoid; }
+                        }
+                      </style>
+                    </head>
+                    <body>
+                      <h1>Otel QR Kodlari</h1>
+                      <div class="grid">${qrCards}</div>
+                      <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+                      <script>
+                        ${qrScripts}
+                        setTimeout(function() { window.print(); }, 500);
+                      </script>
+                    </body>
+                  </html>
+                `);
+                printWindow.document.close();
+              }
+            }}
+            className="flex items-center gap-2 px-4 py-2 text-blue-600 hover:bg-blue-50 rounded-lg border border-blue-200"
+          >
+            <Printer className="w-4 h-4" />
+            Tum QR Kodlari Yazdir
           </button>
           <button
             onClick={openCreateModal}
@@ -397,23 +625,59 @@ export function HotelManagementPage() {
                   <div className="flex gap-3 mt-6">
                     <button
                       onClick={() => {
-                        const svg = document.getElementById(`qr-modal-${qrModalTenant.id}`);
-                        if (svg) {
-                          const svgData = new XMLSerializer().serializeToString(svg);
-                          const canvas = document.createElement('canvas');
-                          const ctx = canvas.getContext('2d');
-                          const img = new Image();
-                          img.onload = () => {
-                            canvas.width = 300;
-                            canvas.height = 300;
-                            ctx?.drawImage(img, 0, 0, 300, 300);
-                            const pngFile = canvas.toDataURL('image/png');
-                            const downloadLink = document.createElement('a');
-                            downloadLink.download = `${qrModalTenant.name.replace(/\s+/g, '_')}_QR.png`;
-                            downloadLink.href = pngFile;
-                            downloadLink.click();
-                          };
-                          img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
+                        // Create a canvas with hotel name and QR code
+                        const canvas = document.createElement('canvas');
+                        const ctx = canvas.getContext('2d');
+                        canvas.width = 400;
+                        canvas.height = 500;
+
+                        if (ctx) {
+                          // White background
+                          ctx.fillStyle = '#ffffff';
+                          ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                          // Border
+                          ctx.strokeStyle = '#1f2937';
+                          ctx.lineWidth = 3;
+                          ctx.roundRect(10, 10, canvas.width - 20, canvas.height - 20, 16);
+                          ctx.stroke();
+
+                          // Hotel name
+                          ctx.fillStyle = '#1f2937';
+                          ctx.font = 'bold 24px Arial';
+                          ctx.textAlign = 'center';
+                          ctx.fillText(qrModalTenant.name, canvas.width / 2, 60);
+
+                          // QR Code
+                          const svg = document.getElementById(`qr-modal-${qrModalTenant.id}`);
+                          if (svg) {
+                            const svgData = new XMLSerializer().serializeToString(svg);
+                            const img = new Image();
+                            img.onload = () => {
+                              ctx.drawImage(img, 100, 90, 200, 200);
+
+                              // QR Value
+                              ctx.fillStyle = '#f3f4f6';
+                              ctx.fillRect(80, 320, 240, 50);
+                              ctx.fillStyle = '#374151';
+                              ctx.font = '20px monospace';
+                              ctx.fillText(qrModalTenant.qrCode || '', canvas.width / 2, 352);
+
+                              // Instructions
+                              ctx.fillStyle = '#6b7280';
+                              ctx.font = '14px Arial';
+                              ctx.fillText('Bu QR kodu tarayarak', canvas.width / 2, 410);
+                              ctx.fillText('oteli hizlica secebilirsiniz', canvas.width / 2, 430);
+
+                              // Download
+                              const pngFile = canvas.toDataURL('image/png');
+                              const downloadLink = document.createElement('a');
+                              downloadLink.download = `${qrModalTenant.name.replace(/\s+/g, '_')}_QR.png`;
+                              downloadLink.href = pngFile;
+                              downloadLink.click();
+                            };
+                            img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
+                          }
                         }
                       }}
                       className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200"
@@ -430,30 +694,35 @@ export function HotelManagementPage() {
                               <head>
                                 <title>${qrModalTenant.name} - QR Kod</title>
                                 <style>
-                                  body { font-family: Arial; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
-                                  .card { border: 3px solid #1f2937; border-radius: 16px; padding: 40px; text-align: center; }
-                                  h2 { margin: 0 0 10px; }
-                                  .qr-value { font-family: monospace; font-size: 18px; background: #f3f4f6; padding: 8px 16px; border-radius: 8px; }
+                                  body { font-family: Arial; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: #fff; }
+                                  .card { border: 3px solid #1f2937; border-radius: 16px; padding: 40px; text-align: center; width: 300px; }
+                                  h2 { margin: 0 0 10px; font-size: 24px; color: #1f2937; }
+                                  .address { color: #6b7280; font-size: 14px; margin-bottom: 20px; }
+                                  #qr { margin: 20px 0; }
+                                  #qr canvas { display: block; margin: 0 auto; }
+                                  .qr-value { font-family: monospace; font-size: 18px; background: #f3f4f6; padding: 12px 20px; border-radius: 8px; display: inline-block; margin-top: 15px; }
+                                  .instructions { color: #9ca3af; font-size: 12px; margin-top: 20px; }
                                 </style>
                               </head>
                               <body>
                                 <div class="card">
                                   <h2>${qrModalTenant.name}</h2>
-                                  <p>${qrModalTenant.address || ''}</p>
+                                  <p class="address">${qrModalTenant.address || ''}</p>
                                   <div id="qr"></div>
                                   <div class="qr-value">${qrModalTenant.qrCode}</div>
+                                  <p class="instructions">Bu QR kodu tarayarak oteli hizlica secebilirsiniz</p>
                                 </div>
                                 <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
                                 <script>
-                                  QRCode.toCanvas(document.createElement('canvas'), '${qrModalTenant.qrCode}', { width: 200 }, function(err, canvas) {
+                                  QRCode.toCanvas(document.createElement('canvas'), '${qrModalTenant.qrCode}', { width: 200, margin: 2 }, function(err, canvas) {
                                     if (!err) document.getElementById('qr').appendChild(canvas);
+                                    setTimeout(function() { window.print(); }, 300);
                                   });
                                 </script>
                               </body>
                             </html>
                           `);
                           printWindow.document.close();
-                          setTimeout(() => printWindow.print(), 500);
                         }
                       }}
                       className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
