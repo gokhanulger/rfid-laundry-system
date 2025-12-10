@@ -221,7 +221,7 @@ export function IrsaliyePage() {
     return Object.values(totals);
   };
 
-  const generateIrsaliyePDF = () => {
+  const generateIrsaliyePDF = async () => {
     if (scannedPackages.length === 0) {
       toast.error('Lutfen once paketleri tarayin');
       return;
@@ -335,18 +335,23 @@ export function IrsaliyePage() {
     const filename = `irsaliye-${hotel?.name?.replace(/\s+/g, '-') || 'otel'}-${documentNo}.pdf`;
     doc.save(filename);
 
-    toast.success('Irsaliye olusturuldu!');
+    // Get unique delivery IDs and mark them as picked_up for driver
+    const uniqueDeliveryIds = [...new Set(scannedPackages.map(({ delivery }) => delivery.id))];
 
-    scannedPackages.forEach(({ delivery }) => {
-      deliveriesApi.pickup(delivery.id).catch(() => {});
-    });
+    // Call pickup API for each unique delivery
+    try {
+      await Promise.all(uniqueDeliveryIds.map(id => deliveriesApi.pickup(id)));
+      toast.success(`Irsaliye olusturuldu! ${uniqueDeliveryIds.length} paket sofor teslimatina eklendi.`);
+    } catch (error) {
+      toast.warning('Irsaliye olusturuldu, ancak bazi paketler sofor sistemine eklenemedi.');
+    }
 
-    setTimeout(() => {
-      handleClearAll();
-      setSelectedHotelId(null);
-      queryClient.invalidateQueries({ queryKey: ['deliveries'] });
-      refetchPrinted();
-    }, 1000);
+    // Clear and refresh
+    handleClearAll();
+    setSelectedHotelId(null);
+    queryClient.invalidateQueries({ queryKey: ['deliveries'] });
+    refetch();
+    refetchPrinted();
   };
 
   // Reprint irsaliye for a past delivery

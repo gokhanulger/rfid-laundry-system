@@ -607,25 +607,6 @@ export function DeliveryPage() {
         </div>
       )}
 
-      {/* Barcode Scanner Input */}
-      <div className="bg-green-50 border-2 border-green-200 rounded-xl p-4 mb-4">
-        <div className="flex items-center gap-3 mb-2">
-          <Scan className="w-5 h-5 text-green-600" />
-          <span className="font-medium text-green-900">Barkod Tara</span>
-        </div>
-        <input
-          ref={currentStep === 'hotel-delivery' ? barcodeInputRef : undefined}
-          type="text"
-          value={barcodeInput}
-          onChange={(e) => setBarcodeInput(e.target.value)}
-          onKeyDown={(e) => handleBarcodeKeyDown(e, 'deliver')}
-          placeholder="Cihaz tuşuna basın veya barkod girin..."
-          className="w-full px-4 py-3 text-lg border-2 border-green-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 font-mono bg-white"
-          autoComplete="off"
-        />
-        <p className="text-xs text-green-600 mt-2">Tarayıcı tuşuna basarak barkodu okutun</p>
-      </div>
-
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3 mb-4">
         <div className="bg-white rounded-xl shadow p-3 text-center">
