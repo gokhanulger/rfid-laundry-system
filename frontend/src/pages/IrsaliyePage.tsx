@@ -11,6 +11,20 @@ interface ScannedPackage {
   pkg: DeliveryPackage;
 }
 
+interface ItemTypeSummary {
+  name: string;
+  count: number;
+}
+
+interface HotelPackageStatus {
+  id: string;
+  name: string;
+  packagedCount: number;
+  deliveries: Delivery[];
+  itemSummary: ItemTypeSummary[];
+  totalItems: number;
+}
+
 type TabType = 'create' | 'history';
 
 export function IrsaliyePage() {
@@ -18,6 +32,7 @@ export function IrsaliyePage() {
   const [barcodeInput, setBarcodeInput] = useState('');
   const [scannedPackages, setScannedPackages] = useState<ScannedPackage[]>([]);
   const [selectedHotelId, setSelectedHotelId] = useState<string | null>(null);
+  const [showHotelDetail, setShowHotelDetail] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -26,9 +41,6 @@ export function IrsaliyePage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedHotelFilter, setSelectedHotelFilter] = useState<string>('');
   const [expandedDeliveryId, setExpandedDeliveryId] = useState<string | null>(null);
-
-  // Create tab - hotel filter for available packages
-  const [createHotelFilter, setCreateHotelFilter] = useState<string>('');
 
   // Get tenants for hotel selection
   const { data: tenants } = useQuery({
@@ -294,6 +306,7 @@ export function IrsaliyePage() {
 
     setTimeout(() => {
       handleClearAll();
+      setShowHotelDetail(false);
       queryClient.invalidateQueries({ queryKey: ['deliveries'] });
       refetchPrinted();
     }, 1000);
@@ -451,10 +464,54 @@ export function IrsaliyePage() {
   const totals = calculateTotals();
   const packagedList = packagedDeliveries?.data || [];
 
-  // Filter packaged list by hotel if filter is set
-  const filteredPackagedList = createHotelFilter
-    ? packagedList.filter((d: Delivery) => d.tenantId === createHotelFilter)
-    : packagedList;
+  // Group packaged deliveries by hotel with item summary
+  const hotelPackageStatuses: HotelPackageStatus[] = (tenants || []).map(tenant => {
+    const hotelDeliveries = packagedList.filter((d: Delivery) => d.tenantId === tenant.id);
+
+    // Calculate item summary for this hotel
+    const itemTotals: Record<string, { name: string; count: number }> = {};
+    let totalItems = 0;
+
+    hotelDeliveries.forEach((delivery: Delivery) => {
+      // Try to get items from notes (labelExtraData stored as JSON)
+      if (delivery.notes) {
+        try {
+          const labelData = JSON.parse(delivery.notes);
+          if (Array.isArray(labelData)) {
+            labelData.forEach((item: any) => {
+              const typeName = item.typeName || 'Bilinmeyen';
+              const count = item.count || 0;
+              if (!itemTotals[typeName]) {
+                itemTotals[typeName] = { name: typeName, count: 0 };
+              }
+              itemTotals[typeName].count += count;
+              totalItems += count;
+            });
+            return;
+          }
+        } catch {}
+      }
+
+      // Fallback to deliveryItems
+      delivery.deliveryItems?.forEach((di: any) => {
+        const typeName = di.item?.itemType?.name || 'Bilinmeyen';
+        if (!itemTotals[typeName]) {
+          itemTotals[typeName] = { name: typeName, count: 0 };
+        }
+        itemTotals[typeName].count++;
+        totalItems++;
+      });
+    });
+
+    return {
+      id: tenant.id,
+      name: tenant.name,
+      packagedCount: hotelDeliveries.length,
+      deliveries: hotelDeliveries,
+      itemSummary: Object.values(itemTotals),
+      totalItems,
+    };
+  }).filter(h => h.packagedCount > 0);
 
   // Combine printed and picked up deliveries for history
   const allDeliveries = [
@@ -476,6 +533,16 @@ export function IrsaliyePage() {
     refetchPrinted();
   };
 
+  // Handle hotel card click
+  const handleHotelClick = (hotelId: string) => {
+    setSelectedHotelId(hotelId);
+    setShowHotelDetail(true);
+    setScannedPackages([]);
+  };
+
+  // Get selected hotel's deliveries
+  const selectedHotelDeliveries = packagedList.filter((d: Delivery) => d.tenantId === selectedHotelId);
+
   return (
     <div className="p-8 space-y-6 animate-fade-in">
       {/* Header */}
@@ -486,7 +553,7 @@ export function IrsaliyePage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Irsaliye</h1>
-            <p className="text-gray-500">Paketleri tarayin ve irsaliye yazdirin</p>
+            <p className="text-gray-500">Otel bazli paket yonetimi</p>
           </div>
         </div>
         <button
@@ -533,197 +600,100 @@ export function IrsaliyePage() {
         {/* Tab Content */}
         <div className="p-6">
           {activeTab === 'create' ? (
-            /* CREATE TAB */
+            /* CREATE TAB - Hotel Grid View */
             <div className="space-y-6">
-              {/* Scanner Section */}
-              <div className="bg-teal-50 rounded-xl p-6 border-2 border-teal-200">
-                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                  <QrCode className="w-5 h-5 text-teal-600" />
-                  Paket Barkodunu Tarayin
-                </h2>
-
-                {selectedHotel && (
-                  <div className="mb-4 px-4 py-2 bg-white rounded-lg flex items-center justify-between">
-                    <span className="text-teal-700">
-                      <strong>Secili Otel:</strong> {selectedHotel.name}
-                    </span>
-                    <button
-                      onClick={handleClearAll}
-                      className="text-sm text-teal-600 hover:text-teal-800 underline"
-                    >
-                      Degistir
-                    </button>
+              {/* Legend */}
+              <div className="bg-gray-50 rounded-xl p-4">
+                <div className="flex flex-wrap items-center gap-6">
+                  <span className="text-sm font-medium text-gray-700">Durum:</span>
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 bg-yellow-400 border-2 border-yellow-500 rounded"></div>
+                    <span className="text-sm text-gray-600">Paketlendi - Irsaliye Bekliyor</span>
                   </div>
-                )}
-
-                <div className="flex gap-3">
-                  <input
-                    ref={inputRef}
-                    type="text"
-                    value={barcodeInput}
-                    onChange={(e) => setBarcodeInput(e.target.value.toUpperCase())}
-                    onKeyDown={(e) => e.key === 'Enter' && handleScan()}
-                    placeholder="Paket barkodunu tarayin..."
-                    className="flex-1 px-4 py-3 text-lg border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 font-mono"
-                    autoFocus
-                  />
-                  <button
-                    onClick={handleScan}
-                    disabled={scanMutation.isPending || !barcodeInput.trim()}
-                    className="px-6 py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-                  >
-                    {scanMutation.isPending ? 'Araniyor...' : 'Ekle'}
-                  </button>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Scanned Packages */}
-                <div className="lg:col-span-2 space-y-4">
-                  <div className="bg-white rounded-xl border overflow-hidden">
-                    <div className="p-4 border-b bg-gray-50 flex items-center justify-between">
-                      <h2 className="text-lg font-semibold flex items-center gap-2">
-                        <Package className="w-5 h-5 text-teal-600" />
-                        Taranan Paketler ({scannedPackages.length})
-                      </h2>
-                      {scannedPackages.length > 0 && (
-                        <button
-                          onClick={handleClearAll}
-                          className="text-sm text-red-600 hover:text-red-800 flex items-center gap-1"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                          Temizle
-                        </button>
-                      )}
-                    </div>
-
-                    {scannedPackages.length === 0 ? (
-                      <div className="p-12 text-center">
-                        <QrCode className="w-16 h-16 mx-auto text-gray-300 mb-4" />
-                        <p className="text-xl text-gray-500">Henuz paket taranmadi</p>
-                        <p className="text-gray-400 mt-2">Paket barkodlarini taramaya baslayin</p>
-                      </div>
-                    ) : (
-                      <div className="divide-y max-h-[400px] overflow-y-auto">
-                        {scannedPackages.map((sp, index) => (
-                          <div key={sp.pkg.packageBarcode} className="p-4 flex items-center justify-between hover:bg-gray-50">
-                            <div className="flex items-center gap-4">
-                              <span className="w-8 h-8 flex items-center justify-center bg-teal-100 text-teal-700 rounded-full font-bold">
-                                {index + 1}
-                              </span>
-                              <div>
-                                <p className="font-mono font-bold">{sp.pkg.packageBarcode}</p>
-                                <p className="text-sm text-gray-500">
-                                  {sp.delivery.deliveryItems?.length || 0} urun
-                                </p>
-                              </div>
-                            </div>
-                            <button
-                              onClick={() => handleRemovePackage(index)}
-                              className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
-                            >
-                              <X className="w-5 h-5" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {totals.length > 0 && (
-                    <div className="bg-white rounded-xl border p-6">
-                      <h3 className="text-lg font-semibold mb-4">Urun Ozeti</h3>
-                      <div className="space-y-2">
-                        {totals.map((item, index) => (
-                          <div key={index} className="flex items-center justify-between py-2 border-b last:border-0">
-                            <span className="font-medium">{item.name}</span>
-                            <span className="text-xl font-bold text-teal-600">{item.count}</span>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="mt-4 pt-4 border-t flex items-center justify-between">
-                        <span className="text-lg font-bold">PAKET SAYISI</span>
-                        <span className="text-2xl font-bold text-teal-700">{scannedPackages.length}</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {scannedPackages.length > 0 && (
-                    <button
-                      onClick={generateIrsaliyePDF}
-                      className="w-full py-4 bg-teal-600 text-white rounded-xl hover:bg-teal-700 font-bold text-lg flex items-center justify-center gap-3 shadow-lg"
-                    >
-                      <Printer className="w-6 h-6" />
-                      IRSALIYE YAZDIR
-                    </button>
-                  )}
+              {/* Hotel Grid */}
+              {isLoading ? (
+                <div className="flex items-center justify-center h-64">
+                  <RefreshCw className="w-8 h-8 animate-spin text-teal-500" />
                 </div>
-
-                {/* Available Packages */}
-                <div className="bg-white rounded-xl border overflow-hidden">
-                  <div className="p-4 border-b bg-gray-50">
-                    <h2 className="text-lg font-semibold flex items-center gap-2 mb-3">
-                      <CheckCircle className="w-5 h-5 text-green-600" />
-                      Hazir Paketler
-                    </h2>
-                    {/* Hotel Filter */}
-                    <select
-                      value={createHotelFilter}
-                      onChange={(e) => setCreateHotelFilter(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
-                    >
-                      <option value="">Tum Oteller ({packagedList.length})</option>
-                      {tenants?.map(tenant => {
-                        const count = packagedList.filter((d: Delivery) => d.tenantId === tenant.id).length;
-                        return count > 0 ? (
-                          <option key={tenant.id} value={tenant.id}>
-                            {tenant.name} ({count})
-                          </option>
-                        ) : null;
-                      })}
-                    </select>
-                  </div>
-
-                  {isLoading ? (
-                    <div className="p-8 text-center">
-                      <RefreshCw className="w-8 h-8 animate-spin text-gray-400 mx-auto" />
-                    </div>
-                  ) : filteredPackagedList.length === 0 ? (
-                    <div className="p-8 text-center text-gray-500">
-                      <Package className="w-12 h-12 mx-auto text-gray-300 mb-2" />
-                      <p>{createHotelFilter ? 'Bu otele ait paket yok' : 'Paketlenmis teslimat yok'}</p>
-                    </div>
-                  ) : (
-                    <div className="divide-y max-h-[500px] overflow-y-auto">
-                      {filteredPackagedList.map((delivery: Delivery) => (
-                        <div
-                          key={delivery.id}
-                          className={`p-4 hover:bg-gray-50 cursor-pointer ${
-                            scannedPackages.some(sp => sp.delivery.id === delivery.id)
-                              ? 'bg-teal-50 border-l-4 border-teal-500'
-                              : ''
-                          }`}
-                          onClick={() => {
-                            if (!scannedPackages.some(sp => sp.delivery.id === delivery.id)) {
-                              setBarcodeInput(delivery.barcode);
-                              handleScan();
-                            }
-                          }}
-                        >
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="font-mono font-medium">{delivery.barcode}</span>
-                            {scannedPackages.some(sp => sp.delivery.id === delivery.id) && (
-                              <CheckCircle className="w-5 h-5 text-teal-600" />
-                            )}
-                          </div>
-                          <p className="text-sm font-medium text-gray-700">{delivery.tenant?.name}</p>
-                          <p className="text-xs text-gray-500">
-                            {delivery.deliveryItems?.length || 0} urun, {delivery.packageCount || 1} paket
-                          </p>
+              ) : hotelPackageStatuses.length === 0 ? (
+                <div className="p-16 text-center bg-gray-50 rounded-xl">
+                  <Package className="w-20 h-20 mx-auto text-gray-300 mb-4" />
+                  <p className="text-2xl font-semibold text-gray-500">Paketlenmis teslimat yok</p>
+                  <p className="text-lg text-gray-400 mt-2">Tum paketler teslim edilmis</p>
+                </div>
+              ) : (
+                <div className="bg-white rounded-xl p-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    {hotelPackageStatuses.map((hotel) => (
+                      <button
+                        key={hotel.id}
+                        onClick={() => handleHotelClick(hotel.id)}
+                        className="
+                          relative rounded-xl border-2 p-4
+                          bg-yellow-400 border-yellow-500 text-yellow-900
+                          hover:scale-[1.02] hover:shadow-lg transition-all duration-200
+                          flex flex-col items-start
+                          cursor-pointer text-left
+                        "
+                        title={hotel.name}
+                      >
+                        {/* Header */}
+                        <div className="flex items-center gap-2 mb-3 w-full">
+                          <Building2 className="w-6 h-6 opacity-75 flex-shrink-0" />
+                          <span className="font-bold text-lg leading-tight line-clamp-1 flex-1">
+                            {hotel.name}
+                          </span>
+                          <span className="w-8 h-8 bg-teal-600 text-white text-sm rounded-full flex items-center justify-center font-bold shadow-md flex-shrink-0">
+                            {hotel.packagedCount}
+                          </span>
                         </div>
-                      ))}
-                    </div>
-                  )}
+
+                        {/* Item Summary */}
+                        <div className="w-full space-y-1 bg-yellow-300/50 rounded-lg p-2 mb-2">
+                          {hotel.itemSummary.length > 0 ? (
+                            hotel.itemSummary.slice(0, 4).map((item, idx) => (
+                              <div key={idx} className="flex justify-between text-sm">
+                                <span className="truncate">{item.name}</span>
+                                <span className="font-bold ml-2">{item.count}</span>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="text-sm text-yellow-700 italic">Icerik bilgisi yok</div>
+                          )}
+                          {hotel.itemSummary.length > 4 && (
+                            <div className="text-xs text-yellow-700 mt-1">
+                              +{hotel.itemSummary.length - 4} tur daha...
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Footer Stats */}
+                        <div className="flex justify-between w-full text-xs text-yellow-800">
+                          <span>{hotel.packagedCount} paket</span>
+                          <span className="font-bold">{hotel.totalItems} urun</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Stats */}
+              <div className="grid grid-cols-3 gap-4">
+                <div className="bg-white rounded-lg shadow p-4">
+                  <p className="text-3xl font-bold text-teal-600">{hotelPackageStatuses.length}</p>
+                  <p className="text-sm text-gray-500">Paketli Otel</p>
+                </div>
+                <div className="bg-white rounded-lg shadow p-4">
+                  <p className="text-3xl font-bold text-yellow-600">{packagedList.length}</p>
+                  <p className="text-sm text-gray-500">Toplam Paket</p>
+                </div>
+                <div className="bg-white rounded-lg shadow p-4">
+                  <p className="text-3xl font-bold text-green-600">{allDeliveries.length}</p>
+                  <p className="text-sm text-gray-500">Basilan Irsaliye</p>
                 </div>
               </div>
             </div>
@@ -943,6 +913,196 @@ export function IrsaliyePage() {
           )}
         </div>
       </div>
+
+      {/* Hotel Detail Modal */}
+      {showHotelDetail && selectedHotelId && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => { setShowHotelDetail(false); handleClearAll(); }}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-teal-600 to-teal-500 p-6 rounded-t-xl">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <Building2 className="w-10 h-10 text-white" />
+                  <div>
+                    <h2 className="text-2xl font-bold text-white">{selectedHotel?.name}</h2>
+                    <p className="text-teal-100">{selectedHotelDeliveries.length} paket hazir</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => { setShowHotelDetail(false); handleClearAll(); }}
+                  className="p-2 text-white hover:bg-white/20 rounded-lg"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Left: Scanner and Scanned Packages */}
+                <div className="space-y-4">
+                  {/* Scanner Section */}
+                  <div className="bg-teal-50 rounded-xl p-4 border-2 border-teal-200">
+                    <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                      <QrCode className="w-5 h-5 text-teal-600" />
+                      Paket Barkodunu Tarayin
+                    </h3>
+                    <div className="flex gap-3">
+                      <input
+                        ref={inputRef}
+                        type="text"
+                        value={barcodeInput}
+                        onChange={(e) => setBarcodeInput(e.target.value.toUpperCase())}
+                        onKeyDown={(e) => e.key === 'Enter' && handleScan()}
+                        placeholder="Paket barkodunu tarayin..."
+                        className="flex-1 px-4 py-3 text-lg border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 font-mono"
+                        autoFocus
+                      />
+                      <button
+                        onClick={handleScan}
+                        disabled={scanMutation.isPending || !barcodeInput.trim()}
+                        className="px-6 py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                      >
+                        {scanMutation.isPending ? 'Araniyor...' : 'Ekle'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Scanned Packages */}
+                  <div className="bg-white rounded-xl border overflow-hidden">
+                    <div className="p-4 border-b bg-gray-50 flex items-center justify-between">
+                      <h3 className="font-semibold flex items-center gap-2">
+                        <Package className="w-5 h-5 text-teal-600" />
+                        Taranan Paketler ({scannedPackages.length})
+                      </h3>
+                      {scannedPackages.length > 0 && (
+                        <button
+                          onClick={handleClearAll}
+                          className="text-sm text-red-600 hover:text-red-800 flex items-center gap-1"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          Temizle
+                        </button>
+                      )}
+                    </div>
+
+                    {scannedPackages.length === 0 ? (
+                      <div className="p-8 text-center">
+                        <QrCode className="w-12 h-12 mx-auto text-gray-300 mb-3" />
+                        <p className="text-gray-500">Henuz paket taranmadi</p>
+                        <p className="text-gray-400 text-sm mt-1">Sagdaki listeden secin veya barkod tarayin</p>
+                      </div>
+                    ) : (
+                      <div className="divide-y max-h-[250px] overflow-y-auto">
+                        {scannedPackages.map((sp, index) => (
+                          <div key={sp.pkg.packageBarcode} className="p-3 flex items-center justify-between hover:bg-gray-50">
+                            <div className="flex items-center gap-3">
+                              <span className="w-7 h-7 flex items-center justify-center bg-teal-100 text-teal-700 rounded-full font-bold text-sm">
+                                {index + 1}
+                              </span>
+                              <div>
+                                <p className="font-mono font-medium">{sp.pkg.packageBarcode}</p>
+                                <p className="text-xs text-gray-500">{sp.delivery.deliveryItems?.length || 0} urun</p>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => handleRemovePackage(index)}
+                              className="p-1 text-red-500 hover:bg-red-50 rounded"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Summary and Print Button */}
+                  {totals.length > 0 && (
+                    <div className="bg-white rounded-xl border p-4">
+                      <h3 className="font-semibold mb-3">Urun Ozeti</h3>
+                      <div className="space-y-2 mb-4">
+                        {totals.map((item, index) => (
+                          <div key={index} className="flex items-center justify-between py-1 border-b last:border-0">
+                            <span className="text-sm">{item.name}</span>
+                            <span className="font-bold text-teal-600">{item.count}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="pt-3 border-t flex items-center justify-between">
+                        <span className="font-bold">PAKET SAYISI</span>
+                        <span className="text-xl font-bold text-teal-700">{scannedPackages.length}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {scannedPackages.length > 0 && (
+                    <button
+                      onClick={generateIrsaliyePDF}
+                      className="w-full py-4 bg-teal-600 text-white rounded-xl hover:bg-teal-700 font-bold text-lg flex items-center justify-center gap-3 shadow-lg"
+                    >
+                      <Printer className="w-6 h-6" />
+                      IRSALIYE YAZDIR
+                    </button>
+                  )}
+                </div>
+
+                {/* Right: Available Packages */}
+                <div className="bg-gray-50 rounded-xl border overflow-hidden">
+                  <div className="p-4 border-b bg-white">
+                    <h3 className="font-semibold flex items-center gap-2">
+                      <CheckCircle className="w-5 h-5 text-green-600" />
+                      Hazir Paketler ({selectedHotelDeliveries.length})
+                    </h3>
+                  </div>
+
+                  {selectedHotelDeliveries.length === 0 ? (
+                    <div className="p-8 text-center text-gray-500">
+                      <Package className="w-12 h-12 mx-auto text-gray-300 mb-2" />
+                      <p>Bu otele ait hazir paket yok</p>
+                    </div>
+                  ) : (
+                    <div className="divide-y max-h-[500px] overflow-y-auto">
+                      {selectedHotelDeliveries.map((delivery: Delivery) => {
+                        const isScanned = scannedPackages.some(sp => sp.delivery.id === delivery.id);
+                        return (
+                          <div
+                            key={delivery.id}
+                            className={`p-4 cursor-pointer transition-colors ${
+                              isScanned
+                                ? 'bg-teal-50 border-l-4 border-teal-500'
+                                : 'hover:bg-white'
+                            }`}
+                            onClick={() => {
+                              if (!isScanned) {
+                                setBarcodeInput(delivery.barcode);
+                                handleScan();
+                              }
+                            }}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-mono font-medium">{delivery.barcode}</span>
+                              {isScanned && (
+                                <CheckCircle className="w-5 h-5 text-teal-600" />
+                              )}
+                            </div>
+                            <p className="text-xs text-gray-500">
+                              {delivery.deliveryItems?.length || 0} urun, {delivery.packageCount || 1} paket
+                            </p>
+                            <p className="text-xs text-gray-400 mt-1">
+                              {formatDate(delivery.createdAt)}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

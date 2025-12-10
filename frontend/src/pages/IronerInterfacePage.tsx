@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Printer, CheckCircle, RefreshCw, Package, Tag, Sparkles, ChevronDown, ChevronRight, Building2, X, Plus, Trash2, Search, Delete } from 'lucide-react';
+import { Printer, RefreshCw, Package, Tag, Sparkles, ChevronDown, ChevronRight, Building2, X, Plus, Trash2, Search, Delete } from 'lucide-react';
 import { itemsApi, deliveriesApi, settingsApi, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/Toast';
 import { generateDeliveryLabel } from '../lib/pdfGenerator';
-import type { Item, Delivery, Tenant } from '../types';
+import type { Item, Tenant } from '../types';
 
 // Storage keys
 const SELECTED_HOTELS_KEY = 'laundry_selected_hotels';
@@ -203,17 +203,6 @@ export function IronerInterfacePage() {
     },
     onError: (err) => toast.error('Failed to process items', getErrorMessage(err)),
   });
-
-  // Re-print label handler
-  const handleReprintLabel = async (delivery: Delivery) => {
-    try {
-      // Generate and print the label again
-      generateDeliveryLabel(delivery);
-      toast.success('Etiket yeniden yazdirildi!');
-    } catch (err) {
-      toast.error('Etiket yazdirilirken hata olustu', getErrorMessage(err));
-    }
-  };
 
   const handleRefresh = () => {
     refetchDirty();
@@ -787,9 +776,9 @@ export function IronerInterfacePage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="space-y-6">
         {/* Main Section: Hotel Cards with Dirty Items */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="space-y-6">
           <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
             <Sparkles className="w-6 h-6 text-orange-500" />
             Etiket Yazdirma
@@ -1164,133 +1153,6 @@ export function IronerInterfacePage() {
           )}
         </div>
 
-        {/* Sidebar: Recently Printed */}
-        <div className="space-y-4">
-          <div className="bg-white rounded-lg shadow sticky top-4">
-            <div className="p-4 border-b bg-green-50">
-              <h2 className="text-lg font-semibold flex items-center gap-2">
-                <CheckCircle className="w-5 h-5 text-green-600" />
-                Son Yazdirilan Etiketler
-              </h2>
-            </div>
-            {recentPrinted.length === 0 ? (
-              <div className="p-8 text-center text-gray-500">
-                <Printer className="w-12 h-12 mx-auto text-gray-300 mb-3" />
-                <p>Son yazdirilan etiket yok</p>
-              </div>
-            ) : (
-              <div className="divide-y max-h-[600px] overflow-y-auto">
-                {recentPrinted.map((delivery: Delivery) => (
-                  <div key={delivery.id} className="p-4 hover:bg-gray-50 group relative cursor-pointer">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="font-mono font-bold text-lg">{delivery.barcode}</span>
-                      <span className="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">
-                        Yazdirildi
-                      </span>
-                    </div>
-                    <p className="text-sm font-medium text-gray-900">{delivery.tenant?.name}</p>
-                    <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
-                      <span>{(() => {
-                        // Try to get count from notes (labelExtraData stored as JSON)
-                        if (delivery.notes) {
-                          try {
-                            const labelData = JSON.parse(delivery.notes);
-                            if (Array.isArray(labelData)) {
-                              const total = labelData.reduce((sum: number, item: any) => sum + (item.count || 0), 0);
-                              if (total > 0) return total;
-                            }
-                          } catch {}
-                        }
-                        return delivery.deliveryItems?.length || 0;
-                      })()} urun</span>
-                      <span>{delivery.packageCount || 1} paket</span>
-                    </div>
-                    <div className="flex items-center justify-between mt-2">
-                      <p className="text-xs text-gray-400">
-                        {delivery.labelPrintedAt && new Date(delivery.labelPrintedAt).toLocaleString('tr-TR')}
-                      </p>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleReprintLabel(delivery);
-                        }}
-                        className="flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-medium hover:bg-purple-200 transition-colors"
-                      >
-                        <Printer className="w-3 h-3" />
-                        Yazdir
-                      </button>
-                    </div>
-                    {/* Hover tooltip with details */}
-                    <div className="absolute left-0 right-0 top-full z-50 hidden group-hover:block bg-white border-2 border-green-300 rounded-lg shadow-xl p-4 mt-1">
-                      <h4 className="font-bold text-green-700 mb-2 border-b pb-2">Etiket Detaylari</h4>
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Barkod:</span>
-                          <span className="font-mono font-bold">{delivery.barcode}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Otel:</span>
-                          <span className="font-medium">{delivery.tenant?.name}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Paket Sayisi:</span>
-                          <span className="font-medium">{delivery.packageCount || 1}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Tarih:</span>
-                          <span>{delivery.labelPrintedAt && new Date(delivery.labelPrintedAt).toLocaleString('tr-TR')}</span>
-                        </div>
-                        {(() => {
-                          // Try to get items from notes (labelExtraData stored as JSON)
-                          let labelItems: any[] = [];
-                          if (delivery.notes) {
-                            try {
-                              const parsed = JSON.parse(delivery.notes);
-                              if (Array.isArray(parsed)) {
-                                labelItems = parsed;
-                              }
-                            } catch {}
-                          }
-
-                          if (labelItems.length > 0) {
-                            return (
-                              <div className="mt-2 pt-2 border-t">
-                                <p className="text-gray-500 mb-1">Urunler:</p>
-                                <div className="space-y-1">
-                                  {labelItems.map((item: any, idx: number) => (
-                                    <div key={idx} className="flex justify-between text-xs bg-gray-50 px-2 py-1 rounded">
-                                      <span>{item.typeName || 'Urun'}</span>
-                                      <span className="font-medium">{item.count || 0}x</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            );
-                          } else if (delivery.deliveryItems && delivery.deliveryItems.length > 0) {
-                            return (
-                              <div className="mt-2 pt-2 border-t">
-                                <p className="text-gray-500 mb-1">Urunler:</p>
-                                <div className="space-y-1">
-                                  {delivery.deliveryItems.map((di: any, idx: number) => (
-                                    <div key={idx} className="flex justify-between text-xs bg-gray-50 px-2 py-1 rounded">
-                                      <span>{di.item?.itemType?.name || 'Urun'}</span>
-                                      <span className="font-medium">1x</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            );
-                          }
-                          return null;
-                        })()}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
       </div>
     </div>
   );
