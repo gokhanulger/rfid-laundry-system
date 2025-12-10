@@ -667,6 +667,165 @@ deliveriesRouter.post('/:id/deliver', requireRole('driver', 'laundry_manager', '
   }
 });
 
+// Create bag - group multiple deliveries under a single bag code
+deliveriesRouter.post('/create-bag', requireRole('operator', 'laundry_manager', 'system_admin'), async (req: AuthRequest, res) => {
+  try {
+    const { deliveryIds, tenantId } = req.body;
+
+    if (!deliveryIds || !Array.isArray(deliveryIds) || deliveryIds.length === 0) {
+      return res.status(400).json({ error: 'deliveryIds is required and must be a non-empty array' });
+    }
+
+    // Generate unique bag code
+    const bagCode = `BAG-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
+
+    // Update all deliveries with the bag code
+    await db.update(deliveries)
+      .set({
+        bagCode,
+        updatedAt: new Date()
+      })
+      .where(inArray(deliveries.id, deliveryIds));
+
+    // Get updated deliveries
+    const updatedDeliveries = await db.query.deliveries.findMany({
+      where: inArray(deliveries.id, deliveryIds),
+      with: {
+        tenant: true,
+        deliveryItems: {
+          with: {
+            item: {
+              with: {
+                itemType: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    res.json({
+      bagCode,
+      deliveryCount: updatedDeliveries.length,
+      deliveries: updatedDeliveries,
+    });
+  } catch (error) {
+    console.error('Create bag error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get deliveries by bag code
+deliveriesRouter.get('/bag/:bagCode', async (req: AuthRequest, res) => {
+  try {
+    const { bagCode } = req.params;
+
+    const bagDeliveries = await db.query.deliveries.findMany({
+      where: eq(deliveries.bagCode, bagCode),
+      with: {
+        tenant: true,
+        deliveryItems: {
+          with: {
+            item: {
+              with: {
+                itemType: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (bagDeliveries.length === 0) {
+      return res.status(404).json({ error: 'Bag not found' });
+    }
+
+    res.json({
+      bagCode,
+      deliveryCount: bagDeliveries.length,
+      deliveries: bagDeliveries,
+    });
+  } catch (error) {
+    console.error('Get bag error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Deliver all packages in a bag
+deliveriesRouter.post('/deliver-bag/:bagCode', requireRole('driver', 'laundry_manager', 'system_admin'), async (req: AuthRequest, res) => {
+  try {
+    const { bagCode } = req.params;
+
+    // Find all deliveries with this bag code
+    const bagDeliveries = await db.query.deliveries.findMany({
+      where: and(
+        eq(deliveries.bagCode, bagCode),
+        eq(deliveries.status, 'picked_up')
+      ),
+      with: {
+        tenant: true,
+        deliveryItems: true,
+      },
+    });
+
+    if (bagDeliveries.length === 0) {
+      return res.status(404).json({ error: 'No deliveries found for this bag code or already delivered' });
+    }
+
+    const deliveredIds: string[] = [];
+    const errors: string[] = [];
+
+    // Deliver each delivery
+    for (const delivery of bagDeliveries) {
+      try {
+        await db.update(deliveries)
+          .set({
+            status: 'delivered',
+            driverId: req.user!.id,
+            deliveredAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(deliveries.id, delivery.id));
+
+        // Update items
+        if (delivery.deliveryItems && delivery.deliveryItems.length > 0) {
+          const itemIds = delivery.deliveryItems.map(di => di.itemId);
+          for (const itemId of itemIds) {
+            const item = await db.query.items.findFirst({
+              where: eq(items.id, itemId),
+            });
+            if (item) {
+              await db.update(items)
+                .set({
+                  status: 'at_hotel',
+                  washCount: item.washCount + 1,
+                  lastWashDate: new Date(),
+                  updatedAt: new Date(),
+                })
+                .where(eq(items.id, itemId));
+            }
+          }
+        }
+
+        deliveredIds.push(delivery.id);
+      } catch (err) {
+        errors.push(`Failed to deliver ${delivery.barcode}`);
+      }
+    }
+
+    res.json({
+      bagCode,
+      deliveredCount: deliveredIds.length,
+      totalCount: bagDeliveries.length,
+      deliveredIds,
+      errors: errors.length > 0 ? errors : undefined,
+    });
+  } catch (error) {
+    console.error('Deliver bag error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Cancel delivery
 deliveriesRouter.post('/:id/cancel', requireRole('laundry_manager', 'system_admin'), async (req: AuthRequest, res) => {
   try {

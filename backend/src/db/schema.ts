@@ -169,6 +169,7 @@ export const deliveries = pgTable('deliveries', {
   deliveryLatitude: text('delivery_latitude'), // Location where delivery was completed
   deliveryLongitude: text('delivery_longitude'),
   deliveryAddress: text('delivery_address'), // Optional human-readable address
+  bagCode: text('bag_code'), // Bag code for grouping multiple deliveries for driver
   notes: text('notes'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
