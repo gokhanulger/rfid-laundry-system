@@ -14,7 +14,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -434,7 +440,7 @@ fun ScanScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun HotelSelectionBar(
     selectedTenantName: String?,
@@ -446,120 +452,149 @@ fun HotelSelectionBar(
     onSelectTenant: (String, String) -> Unit,
     onScanQR: () -> Unit = {}
 ) {
+    var qrInput by remember { mutableStateOf("") }
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+
+    // Auto-focus for hardware scanner but hide keyboard
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+        keyboardController?.hide()
+    }
+
+    // Auto-search after input stops (debounce 300ms)
+    LaunchedEffect(qrInput) {
+        if (qrInput.isNotBlank()) {
+            kotlinx.coroutines.delay(300)
+            // Find tenant by QR code
+            val tenant = tenants.find { it.qrCode == qrInput.trim() }
+            if (tenant != null) {
+                onSelectTenant(tenant.id, tenant.name)
+            } else {
+                // Try partial name match
+                val tenantByName = tenants.find {
+                    it.name.lowercase().contains(qrInput.trim().lowercase()) ||
+                    qrInput.trim().lowercase().contains(it.name.lowercase())
+                }
+                if (tenantByName != null) {
+                    onSelectTenant(tenantByName.id, tenantByName.name)
+                }
+            }
+            qrInput = ""
+            focusRequester.requestFocus()
+            keyboardController?.hide()
+        }
+    }
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = if (selectedTenantName != null) InfoColor.copy(alpha = 0.1f) else WarningColor.copy(alpha = 0.1f)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                Icons.Default.Business,
-                contentDescription = null,
-                tint = if (selectedTenantName != null) InfoColor else WarningColor,
-                modifier = Modifier.size(24.dp)
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-
-            // QR Scan button
-            IconButton(
-                onClick = onScanQR,
+        Column(modifier = Modifier.fillMaxWidth()) {
+            // Hidden QR Scanner Input - for hardware scanner only (invisible)
+            BasicTextField(
+                value = qrInput,
+                onValueChange = { qrInput = it },
                 modifier = Modifier
-                    .size(48.dp)
-                    .background(
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
-                        shape = RoundedCornerShape(8.dp)
-                    )
+                    .size(1.dp)
+                    .focusRequester(focusRequester),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
+            )
+
+            // Hotel dropdown
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    Icons.Default.QrCodeScanner,
-                    contentDescription = "QR Tara",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(28.dp)
+                    Icons.Default.Business,
+                    contentDescription = null,
+                    tint = if (selectedTenantName != null) InfoColor else WarningColor,
+                    modifier = Modifier.size(24.dp)
                 )
-            }
+                Spacer(modifier = Modifier.width(12.dp))
 
-            Spacer(modifier = Modifier.width(8.dp))
-
-            // Dropdown menu
-            ExposedDropdownMenuBox(
-                expanded = showSelector,
-                onExpandedChange = { if (it) onShowSelector() else onHideSelector() },
-                modifier = Modifier.weight(1f)
-            ) {
-                OutlinedTextField(
-                    value = selectedTenantName ?: "",
-                    onValueChange = {},
-                    readOnly = true,
-                    placeholder = {
-                        Text(
-                            "Otel seçin...",
-                            color = WarningColor
-                        )
-                    },
-                    trailingIcon = {
-                        if (isLoading) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = showSelector)
-                        }
-                    },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = if (selectedTenantName != null) InfoColor else WarningColor,
-                        unfocusedBorderColor = if (selectedTenantName != null) InfoColor.copy(alpha = 0.5f) else WarningColor.copy(alpha = 0.5f),
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent
-                    ),
-                    modifier = Modifier
-                        .menuAnchor()
-                        .fillMaxWidth(),
-                    singleLine = true,
-                    textStyle = LocalTextStyle.current.copy(
-                        fontWeight = FontWeight.Medium,
-                        color = if (selectedTenantName != null) InfoColor else MaterialTheme.colorScheme.onSurface
-                    )
-                )
-
-                ExposedDropdownMenu(
-                    expanded = showSelector && !isLoading,
-                    onDismissRequest = onHideSelector
+                // Dropdown menu
+                ExposedDropdownMenuBox(
+                    expanded = showSelector,
+                    onExpandedChange = { if (it) onShowSelector() else onHideSelector() },
+                    modifier = Modifier.weight(1f)
                 ) {
-                    tenants.forEach { tenant ->
-                        DropdownMenuItem(
-                            text = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        Icons.Default.Business,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(20.dp),
-                                        tint = if (tenant.name == selectedTenantName) InfoColor else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Text(
-                                        tenant.name,
-                                        fontWeight = if (tenant.name == selectedTenantName) FontWeight.Bold else FontWeight.Normal
-                                    )
-                                }
-                            },
-                            onClick = {
-                                onSelectTenant(tenant.id, tenant.name)
-                            },
-                            leadingIcon = if (tenant.name == selectedTenantName) {
-                                {
-                                    Icon(
-                                        Icons.Default.Check,
-                                        contentDescription = null,
-                                        tint = InfoColor
-                                    )
-                                }
-                            } else null
+                    OutlinedTextField(
+                        value = selectedTenantName ?: "",
+                        onValueChange = {},
+                        readOnly = true,
+                        placeholder = {
+                            Text(
+                                "Otel seçin...",
+                                color = WarningColor
+                            )
+                        },
+                        trailingIcon = {
+                            if (isLoading) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = showSelector)
+                            }
+                        },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = if (selectedTenantName != null) InfoColor else WarningColor,
+                            unfocusedBorderColor = if (selectedTenantName != null) InfoColor.copy(alpha = 0.5f) else WarningColor.copy(alpha = 0.5f),
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent
+                        ),
+                        modifier = Modifier
+                            .menuAnchor()
+                            .fillMaxWidth(),
+                        singleLine = true,
+                        textStyle = LocalTextStyle.current.copy(
+                            fontWeight = FontWeight.Medium,
+                            color = if (selectedTenantName != null) InfoColor else MaterialTheme.colorScheme.onSurface
                         )
+                    )
+
+                    ExposedDropdownMenu(
+                        expanded = showSelector && !isLoading,
+                        onDismissRequest = onHideSelector
+                    ) {
+                        tenants.forEach { tenant ->
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            Icons.Default.Business,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(20.dp),
+                                            tint = if (tenant.name == selectedTenantName) InfoColor else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Text(
+                                            tenant.name,
+                                            fontWeight = if (tenant.name == selectedTenantName) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    onSelectTenant(tenant.id, tenant.name)
+                                    onHideSelector()
+                                },
+                                leadingIcon = if (tenant.name == selectedTenantName) {
+                                    {
+                                        Icon(
+                                            Icons.Default.Check,
+                                            contentDescription = null,
+                                            tint = InfoColor
+                                        )
+                                    }
+                                } else null
+                            )
+                        }
                     }
                 }
             }

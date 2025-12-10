@@ -268,6 +268,36 @@ export const deliveriesApi = {
   cancel: async (id: string): Promise<void> => {
     await api.post(`/deliveries/${id}/cancel`);
   },
+
+  // Bag operations
+  createBag: async (deliveryIds: string[]): Promise<{
+    bagCode: string;
+    deliveryCount: number;
+    deliveries: Delivery[];
+  }> => {
+    const { data } = await api.post('/deliveries/create-bag', { deliveryIds });
+    return data;
+  },
+
+  getBag: async (bagCode: string): Promise<{
+    bagCode: string;
+    deliveryCount: number;
+    deliveries: Delivery[];
+  }> => {
+    const { data } = await api.get(`/deliveries/bag/${bagCode}`);
+    return data;
+  },
+
+  deliverBag: async (bagCode: string): Promise<{
+    bagCode: string;
+    deliveredCount: number;
+    totalCount: number;
+    deliveredIds: string[];
+    errors?: string[];
+  }> => {
+    const { data } = await api.post(`/deliveries/deliver-bag/${bagCode}`);
+    return data;
+  },
 };
 
 // Alerts API

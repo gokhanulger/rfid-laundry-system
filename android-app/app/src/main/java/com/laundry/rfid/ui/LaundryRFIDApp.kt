@@ -9,6 +9,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.laundry.rfid.domain.model.SessionType
+import com.laundry.rfid.ui.delivery.DeliveryScreen
 import com.laundry.rfid.ui.home.HomeScreen
 import com.laundry.rfid.ui.home.HomeViewModel
 import com.laundry.rfid.ui.login.LoginScreen
@@ -28,6 +30,7 @@ sealed class Screen(val route: String) {
     object QRScan : Screen("qr-scan/{sessionType}") {
         fun createRoute(sessionType: String) = "qr-scan/$sessionType"
     }
+    object Delivery : Screen("delivery")
     object TagAssign : Screen("tag-assign")
     object History : Screen("history")
     object Settings : Screen("settings")
@@ -65,10 +68,19 @@ fun LaundryRFIDApp() {
         }
 
         composable(Screen.Home.route) {
+            val homeViewModel: HomeViewModel = hiltViewModel()
+            val homeState by homeViewModel.uiState.collectAsState()
+            val isDriver = homeState.user?.role == "driver"
+
             HomeScreen(
-                viewModel = hiltViewModel(),
+                viewModel = homeViewModel,
                 onWorkflowSelected = { sessionType ->
-                    navController.navigate(Screen.Scan.createRoute(sessionType.value))
+                    // For drivers, use DeliveryScreen for "Teslim Etme"
+                    if (isDriver && sessionType == SessionType.DELIVER) {
+                        navController.navigate(Screen.Delivery.route)
+                    } else {
+                        navController.navigate(Screen.Scan.createRoute(sessionType.value))
+                    }
                 },
                 onTagAssign = {
                     navController.navigate(Screen.TagAssign.route)
@@ -78,6 +90,12 @@ fun LaundryRFIDApp() {
                         popUpTo(Screen.Home.route) { inclusive = true }
                     }
                 }
+            )
+        }
+
+        composable(Screen.Delivery.route) {
+            DeliveryScreen(
+                onBack = { navController.popBackStack() }
             )
         }
 

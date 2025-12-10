@@ -1,10 +1,11 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { FileText, QrCode, Printer, RefreshCw, CheckCircle, Package, X, Trash2, History, Search, Building2 } from 'lucide-react';
+import { FileText, QrCode, Printer, RefreshCw, CheckCircle, Package, X, Trash2, History, Search, Building2, ShoppingBag } from 'lucide-react';
 import { deliveriesApi, settingsApi, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/Toast';
 import type { Delivery, DeliveryPackage } from '../types';
 import { jsPDF } from 'jspdf';
+import JsBarcode from 'jsbarcode';
 
 interface ScannedPackage {
   delivery: Delivery;
@@ -33,6 +34,7 @@ export function IrsaliyePage() {
   const [scannedPackages, setScannedPackages] = useState<ScannedPackage[]>([]);
   const [selectedHotelId, setSelectedHotelId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
   const queryClient = useQueryClient();
   const toast = useToast();
 
@@ -128,10 +130,31 @@ export function IrsaliyePage() {
     },
   });
 
-  const handleScan = () => {
+  const handleScan = useCallback(() => {
     if (!barcodeInput.trim()) return;
     scanMutation.mutate(barcodeInput.trim().toUpperCase());
-  };
+  }, [barcodeInput, scanMutation]);
+
+  // Auto-scan when barcode input changes (for hardware scanner support)
+  useEffect(() => {
+    if (!barcodeInput.trim() || barcodeInput.length < 5) return;
+
+    // Clear previous debounce
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+
+    // Auto-trigger scan after 300ms of no input (hardware scanner sends all chars quickly)
+    debounceRef.current = setTimeout(() => {
+      handleScan();
+    }, 300);
+
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
+  }, [barcodeInput, handleScan]);
 
   const handleRemovePackage = (index: number) => {
     setScannedPackages(prev => {
@@ -481,6 +504,123 @@ export function IrsaliyePage() {
     toast.success('Irsaliye yeniden yazdirildi!');
   };
 
+  // Generate bag label for driver scanning
+  const generateBagLabel = async () => {
+    if (scannedPackages.length === 0) {
+      toast.error('Lutfen once paketleri tarayin');
+      return;
+    }
+
+    try {
+      // Get unique delivery IDs
+      const uniqueDeliveryIds = [...new Set(scannedPackages.map(({ delivery }) => delivery.id))];
+
+      // Create bag via API
+      const bagResult = await deliveriesApi.createBag(uniqueDeliveryIds);
+      const bagCode = bagResult.bagCode;
+
+      const hotel = tenants?.find(t => t.id === selectedHotelId);
+      const totals = calculateTotals();
+      const today = new Date().toLocaleDateString('tr-TR');
+
+      // Create PDF label (60mm x 80mm)
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: [60, 80],
+      });
+
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const margin = 3;
+      let yPos = 5;
+
+      // Header
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.text('CUVAL', pageWidth / 2, yPos, { align: 'center' });
+
+      yPos += 5;
+
+      // Hotel name (truncate if too long)
+      doc.setFontSize(8);
+      const hotelName = hotel?.name || 'Bilinmeyen Otel';
+      const truncatedName = hotelName.length > 20 ? hotelName.substring(0, 18) + '...' : hotelName;
+      doc.text(truncatedName, pageWidth / 2, yPos, { align: 'center' });
+
+      yPos += 4;
+
+      // Date and package count
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`${today} - ${scannedPackages.length} Paket`, pageWidth / 2, yPos, { align: 'center' });
+
+      yPos += 5;
+
+      // Items list (compact)
+      doc.setFontSize(6);
+      doc.setLineWidth(0.2);
+      doc.line(margin, yPos, pageWidth - margin, yPos);
+      yPos += 3;
+
+      // Show max 4 items
+      const displayTotals = totals.slice(0, 4);
+      displayTotals.forEach(item => {
+        const itemName = item.name.length > 12 ? item.name.substring(0, 10) + '..' : item.name;
+        doc.text(itemName, margin, yPos);
+        doc.text(`${item.count}`, pageWidth - margin, yPos, { align: 'right' });
+        yPos += 3.5;
+      });
+      if (totals.length > 4) {
+        doc.text(`+${totals.length - 4} tur daha`, margin, yPos);
+        yPos += 3.5;
+      }
+
+      doc.line(margin, yPos, pageWidth - margin, yPos);
+      yPos += 4;
+
+      // Generate barcode as SVG, convert to image
+      const canvas = document.createElement('canvas');
+      JsBarcode(canvas, bagCode, {
+        format: 'CODE128',
+        width: 1.5,
+        height: 30,
+        displayValue: true,
+        fontSize: 10,
+        margin: 2,
+      });
+
+      // Add barcode image to PDF
+      const barcodeDataUrl = canvas.toDataURL('image/png');
+      const barcodeWidth = pageWidth - margin * 2;
+      const barcodeHeight = 18;
+      doc.addImage(barcodeDataUrl, 'PNG', margin, yPos, barcodeWidth, barcodeHeight);
+
+      yPos += barcodeHeight + 3;
+
+      // Footer
+      doc.setFontSize(5);
+      doc.text('El terminalinden okutun', pageWidth / 2, yPos, { align: 'center' });
+
+      // Save PDF
+      const filename = `cuval-${hotel?.name?.replace(/\s+/g, '-') || 'otel'}-${bagCode}.pdf`;
+      doc.save(filename);
+
+      // Mark packages as picked up
+      await Promise.all(uniqueDeliveryIds.map(id => deliveriesApi.pickup(id)));
+
+      toast.success(`Cuval etiketi olusturuldu! ${scannedPackages.length} paket ${bagCode} koduna baglandi.`);
+
+      // Clear and refresh
+      handleClearAll();
+      setSelectedHotelId(null);
+      queryClient.invalidateQueries({ queryKey: ['deliveries'] });
+      refetch();
+      refetchPrinted();
+    } catch (error) {
+      toast.error('Cuval etiketi olusturulamadi', getErrorMessage(error));
+    }
+  };
+
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString('tr-TR', {
       day: '2-digit',
@@ -776,25 +916,19 @@ export function IrsaliyePage() {
                             <QrCode className="w-4 h-4 text-teal-600" />
                             Barkod Tara
                           </h3>
-                          <div className="flex gap-2">
-                            <input
-                              ref={inputRef}
-                              type="text"
-                              value={barcodeInput}
-                              onChange={(e) => setBarcodeInput(e.target.value.toUpperCase())}
-                              onKeyDown={(e) => e.key === 'Enter' && handleScan()}
-                              placeholder="Barkod..."
-                              className="flex-1 px-3 py-2 text-sm border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 font-mono"
-                              autoFocus
-                            />
-                            <button
-                              onClick={handleScan}
-                              disabled={scanMutation.isPending || !barcodeInput.trim()}
-                              className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 text-sm font-medium"
-                            >
-                              Ekle
-                            </button>
-                          </div>
+                          <input
+                            ref={inputRef}
+                            type="text"
+                            value={barcodeInput}
+                            onChange={(e) => setBarcodeInput(e.target.value.toUpperCase())}
+                            onKeyDown={(e) => e.key === 'Enter' && handleScan()}
+                            placeholder="Barkod okutun..."
+                            className="w-full px-3 py-2 text-sm border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 font-mono"
+                            autoFocus
+                          />
+                          {scanMutation.isPending && (
+                            <p className="text-xs text-teal-600 mt-1">Ekleniyor...</p>
+                          )}
                         </div>
 
                         {/* Summary */}
@@ -816,15 +950,57 @@ export function IrsaliyePage() {
                           </div>
                         )}
 
-                        {scannedPackages.length > 0 && (
-                          <button
-                            onClick={generateIrsaliyePDF}
-                            className="w-full py-3 bg-teal-600 text-white rounded-xl hover:bg-teal-700 font-bold flex items-center justify-center gap-2 shadow-lg"
-                          >
-                            <Printer className="w-5 h-5" />
-                            IRSALIYE YAZDIR
-                          </button>
-                        )}
+                        {/* Buttons - always show when hotel selected */}
+                        <div className="space-y-2">
+                          {scannedPackages.length > 0 ? (
+                            <>
+                              <button
+                                onClick={generateIrsaliyePDF}
+                                className="w-full py-3 bg-teal-600 text-white rounded-xl hover:bg-teal-700 font-bold flex items-center justify-center gap-2 shadow-lg"
+                              >
+                                <Printer className="w-5 h-5" />
+                                IRSALIYE YAZDIR ({scannedPackages.length} paket)
+                              </button>
+                              <button
+                                onClick={generateBagLabel}
+                                className="w-full py-3 bg-orange-500 text-white rounded-xl hover:bg-orange-600 font-bold flex items-center justify-center gap-2 shadow-lg"
+                              >
+                                <ShoppingBag className="w-5 h-5" />
+                                CUVAL ETIKETI ({scannedPackages.length} paket)
+                              </button>
+                            </>
+                          ) : selectedHotelDeliveries.length > 0 && (
+                            <>
+                              <button
+                                onClick={() => {
+                                  // Add all packages from selected hotel
+                                  selectedHotelDeliveries.forEach((delivery: Delivery) => {
+                                    const pkg = delivery.deliveryPackages?.[0] || {
+                                      id: `virtual-${delivery.id}`,
+                                      deliveryId: delivery.id,
+                                      packageBarcode: delivery.barcode,
+                                      sequenceNumber: 1,
+                                      status: 'created',
+                                      scannedAt: null,
+                                      scannedBy: null,
+                                      pickedUpAt: null,
+                                      createdAt: delivery.createdAt,
+                                    };
+                                    setScannedPackages(prev => [...prev, { delivery, pkg }]);
+                                  });
+                                  toast.success(`${selectedHotelDeliveries.length} paket eklendi`);
+                                }}
+                                className="w-full py-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 font-bold flex items-center justify-center gap-2 shadow-lg"
+                              >
+                                <Package className="w-5 h-5" />
+                                TUMUNU SEC ({selectedHotelDeliveries.length} paket)
+                              </button>
+                              <p className="text-xs text-center text-gray-500">
+                                Paketleri secmek icin tiklayin veya barkod okutun
+                              </p>
+                            </>
+                          )}
+                        </div>
                       </div>
 
                       {/* Right: All Packages as Grid */}

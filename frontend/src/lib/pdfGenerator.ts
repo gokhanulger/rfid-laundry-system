@@ -1,4 +1,6 @@
 import { jsPDF } from 'jspdf';
+import JsBarcode from 'jsbarcode';
+import printJS from 'print-js';
 import type { Delivery, DeliveryPackage, Tenant } from '../types';
 
 // Label size: 60mm x 80mm
@@ -77,8 +79,14 @@ export function generateDeliveryLabel(delivery: Delivery, labelExtraData?: Label
   // Generate filename
   const filename = `delivery-${delivery.barcode}-${Date.now()}.pdf`;
 
-  // Save the PDF
-  doc.save(filename);
+  // Direct print using print-js - prints without opening new tab
+  const pdfBlob = doc.output('blob');
+  const pdfUrl = URL.createObjectURL(pdfBlob);
+  printJS({
+    printable: pdfUrl,
+    type: 'pdf',
+    showModal: false
+  });
 
   return filename;
 }
@@ -167,38 +175,30 @@ function generateSpecialLabel(doc: jsPDF, delivery: Delivery, labelType: 'DISCOR
   doc.text(`Tarih: ${date}`, margin, LABEL_HEIGHT - 3);
 }
 
-// Generate a simple barcode pattern (Code 128 style visual representation)
+// Generate a real CODE128 barcode using JsBarcode
 function drawBarcode(doc: jsPDF, code: string, x: number, y: number, width: number, height: number) {
-  const barWidth = width / (code.length * 11 + 35);
-  let currentX = x;
+  // Create a canvas element to render the barcode
+  const canvas = document.createElement('canvas');
 
-  // Black bars only
-  doc.setFillColor(0, 0, 0);
+  try {
+    JsBarcode(canvas, code, {
+      format: 'CODE128',
+      width: 1.5,
+      height: Math.round(height * 3), // Scale up for better quality
+      displayValue: false, // We'll add text separately
+      margin: 0,
+    });
 
-  for (let i = 0; i < code.length; i++) {
-    const charCode = code.charCodeAt(i);
-    const pattern = getBarPattern(charCode);
-
-    for (let j = 0; j < pattern.length; j++) {
-      if (pattern[j] === '1') {
-        doc.rect(currentX, y, barWidth, height, 'F');
-      }
-      currentX += barWidth;
-    }
-    currentX += barWidth;
+    // Add barcode image to PDF
+    const barcodeDataUrl = canvas.toDataURL('image/png');
+    doc.addImage(barcodeDataUrl, 'PNG', x, y, width, height);
+  } catch (error) {
+    // Fallback: just draw a rectangle with text if barcode generation fails
+    console.error('Barcode generation failed:', error);
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.2);
+    doc.rect(x, y, width, height, 'S');
   }
-}
-
-// Simple pattern generator based on character
-function getBarPattern(charCode: number): string {
-  const base = charCode % 16;
-  const patterns = [
-    '11011001', '10011011', '10110011', '11001101',
-    '10011101', '11010011', '11001011', '10110101',
-    '10101101', '11010101', '10011001', '11011011',
-    '10101011', '11010110', '10110110', '11011010'
-  ];
-  return patterns[base];
 }
 
 function generateSingleLabel(
@@ -456,8 +456,14 @@ export function generateManualLabel(data: ManualLabelData) {
   // Generate filename
   const filename = `manual-label-${barcode}-${Date.now()}.pdf`;
 
-  // Save the PDF
-  doc.save(filename);
+  // Direct print using print-js - prints without opening new tab
+  const pdfBlob = doc.output('blob');
+  const pdfUrl = URL.createObjectURL(pdfBlob);
+  printJS({
+    printable: pdfUrl,
+    type: 'pdf',
+    showModal: false
+  });
 
   return filename;
 }

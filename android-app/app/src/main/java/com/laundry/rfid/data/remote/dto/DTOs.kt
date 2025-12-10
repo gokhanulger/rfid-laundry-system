@@ -223,3 +223,56 @@ data class PickupResponseDto(
     @SerializedName("registeredItems") val registeredItems: Int?,
     @SerializedName("unregisteredTags") val unregisteredTags: Int?
 )
+
+// Delivery DTOs
+data class DeliveriesResponseDto(
+    val data: List<DeliveryDto>,
+    val pagination: PaginationDto?
+)
+
+data class PaginationDto(
+    val page: Int,
+    val limit: Int,
+    val total: Int,
+    val totalPages: Int
+)
+
+data class DeliveryDto(
+    val id: String,
+    @SerializedName("tenantId") val tenantId: String,
+    @SerializedName("driverId") val driverId: String?,
+    val barcode: String,
+    @SerializedName("packageCount") val packageCount: Int,
+    val status: String,
+    val notes: String?,
+    @SerializedName("labelPrintedAt") val labelPrintedAt: String?,
+    @SerializedName("packagedAt") val packagedAt: String?,
+    @SerializedName("pickedUpAt") val pickedUpAt: String?,
+    @SerializedName("deliveredAt") val deliveredAt: String?,
+    @SerializedName("createdAt") val createdAt: String,
+    val tenant: TenantDto?,
+    val driver: UserDto?,
+    @SerializedName("deliveryItems") val deliveryItems: List<DeliveryItemDto>?
+)
+
+data class DeliveryItemDto(
+    val id: String,
+    @SerializedName("deliveryId") val deliveryId: String,
+    @SerializedName("itemId") val itemId: String,
+    val item: ItemDto?
+)
+
+// Bag DTOs
+data class BagResponseDto(
+    @SerializedName("bagCode") val bagCode: String,
+    @SerializedName("deliveryCount") val deliveryCount: Int,
+    val deliveries: List<DeliveryDto>
+)
+
+data class BagDeliverResponseDto(
+    @SerializedName("bagCode") val bagCode: String,
+    @SerializedName("deliveredCount") val deliveredCount: Int,
+    @SerializedName("totalCount") val totalCount: Int,
+    @SerializedName("deliveredIds") val deliveredIds: List<String>,
+    val errors: List<String>?
+)

@@ -68,4 +68,21 @@ interface ApiService {
     // Pickups - Create from RFID tags
     @POST("pickups/from-tags")
     suspend fun createPickupFromTags(@Body request: CreatePickupRequest): Response<PickupResponseDto>
+
+    // Deliveries
+    @GET("deliveries")
+    suspend fun getDeliveries(
+        @Query("status") status: String,
+        @Query("limit") limit: Int = 50
+    ): DeliveriesResponseDto
+
+    @POST("deliveries/{id}/deliver")
+    suspend fun deliverDelivery(@Path("id") deliveryId: String): DeliveryDto
+
+    // Bag operations
+    @GET("deliveries/bag/{bagCode}")
+    suspend fun getBag(@Path("bagCode") bagCode: String): BagResponseDto
+
+    @POST("deliveries/deliver-bag/{bagCode}")
+    suspend fun deliverBag(@Path("bagCode") bagCode: String): BagDeliverResponseDto
 }
