@@ -172,16 +172,23 @@ export function IronerInterfacePage() {
         packageCount: labelCount,
         notes: labelExtraData ? JSON.stringify(labelExtraData) : undefined,
       });
-      console.log('mutation - delivery created, notes:', delivery.notes);
+      console.log('mutation - delivery created, id:', delivery.id, 'status:', delivery.status, 'notes:', delivery.notes);
 
       // Get full delivery details for label generation
       const fullDelivery = await deliveriesApi.getById(delivery.id);
+      console.log('mutation - fullDelivery status:', fullDelivery.status);
 
       // Generate and print labels with extra data
       generateDeliveryLabel(fullDelivery, labelExtraData);
 
       // Update status to label_printed
-      await deliveriesApi.printLabel(delivery.id);
+      try {
+        const printedDelivery = await deliveriesApi.printLabel(delivery.id);
+        console.log('mutation - printLabel success, new status:', printedDelivery.status);
+      } catch (printError) {
+        console.error('mutation - printLabel failed:', printError);
+        // Continue anyway - label was generated
+      }
 
       return { delivery: fullDelivery, labelCount };
     },
