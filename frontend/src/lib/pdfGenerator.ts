@@ -129,16 +129,31 @@ async function silentPrint(doc: jsPDF): Promise<boolean> {
   }
 }
 
-// Fallback print using browser dialog
+// Fallback print using iframe (no new tab)
 function fallbackPrint(doc: jsPDF): void {
-  const pdfBlob = doc.output('blob');
-  const pdfUrl = URL.createObjectURL(pdfBlob);
-  const printWindow = window.open(pdfUrl, '_blank');
-  if (printWindow) {
-    printWindow.onload = () => {
-      printWindow.print();
-    };
-  }
+  const pdfBase64 = doc.output('datauristring');
+
+  // Create hidden iframe for printing
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = 'none';
+  iframe.src = pdfBase64;
+
+  document.body.appendChild(iframe);
+
+  iframe.onload = () => {
+    setTimeout(() => {
+      iframe.contentWindow?.print();
+      // Remove iframe after print dialog closes
+      setTimeout(() => {
+        document.body.removeChild(iframe);
+      }, 1000);
+    }, 500);
+  };
 }
 
 // Label size: 60mm x 80mm
