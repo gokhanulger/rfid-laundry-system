@@ -28,6 +28,7 @@ import { ItemManagementPage } from './pages/ItemManagementPage';
 import { BulkTagAssignmentPage } from './pages/BulkTagAssignmentPage';
 import { ReconciliationPage } from './pages/ReconciliationPage';
 import { IrsaliyePage } from './pages/IrsaliyePage';
+import { HotelIrsaliyePage } from './pages/HotelIrsaliyePage';
 import HotelQRCodesPage from './pages/HotelQRCodesPage';
 import { HotelStatusBoardPage } from './pages/HotelStatusBoardPage';
 
@@ -96,6 +97,7 @@ function App() {
                 <Route path="ironer-interface" element={<IronerInterfacePage />} />
                 <Route path="packaging" element={<PackagingPage />} />
                 <Route path="irsaliye" element={<IrsaliyePage />} />
+                <Route path="hotel-irsaliye" element={<HotelIrsaliyePage />} />
 
                 {/* Admin Pages */}
                 <Route path="hotels" element={<HotelManagementPage />} />

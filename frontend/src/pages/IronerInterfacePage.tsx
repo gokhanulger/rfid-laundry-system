@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Printer, CheckCircle, RefreshCw, Package, Tag, Sparkles, ChevronDown, ChevronRight, Building2, X, Plus, Trash2, Search, Delete } from 'lucide-react';
 import { itemsApi, deliveriesApi, settingsApi, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/Toast';
-import { generateDeliveryLabel } from '../lib/pdfGenerator';
+import { generateDeliveryLabel, generateManualLabel } from '../lib/pdfGenerator';
 import type { Item, Delivery, Tenant } from '../types';
 
 // Storage keys
@@ -147,6 +147,8 @@ export function IronerInterfacePage() {
   // Type for label extra data
   interface LabelExtraItem {
     typeId: string;
+    typeName?: string;
+    count?: number;
     discardCount: number;
     hasarliCount: number;
   }
@@ -154,15 +156,23 @@ export function IronerInterfacePage() {
   // Mark items clean and create delivery mutation
   const processAndPrintMutation = useMutation({
     mutationFn: async ({ hotelId, itemIds, labelCount, labelExtraData }: { hotelId: string; itemIds: string[]; labelCount: number; labelExtraData?: LabelExtraItem[] }) => {
-      // First mark items as ready for delivery
-      await itemsApi.markClean(itemIds);
+      console.log('mutation - labelExtraData received:', JSON.stringify(labelExtraData));
+      console.log('mutation - itemIds:', JSON.stringify(itemIds));
+
+      // First mark items as ready for delivery (skip if no items)
+      if (itemIds.length > 0) {
+        await itemsApi.markClean(itemIds);
+      }
 
       // Then create a delivery with the specified package count
+      // Store labelExtraData in notes as JSON for later retrieval
       const delivery = await deliveriesApi.create({
         tenantId: hotelId,
         itemIds,
         packageCount: labelCount,
+        notes: labelExtraData ? JSON.stringify(labelExtraData) : undefined,
       });
+      console.log('mutation - delivery created, notes:', delivery.notes);
 
       // Get full delivery details for label generation
       const fullDelivery = await deliveriesApi.getById(delivery.id);
@@ -239,9 +249,9 @@ export function IronerInterfacePage() {
   };
 
   // Add item type + count to the print list for a hotel
-  const handleAddToPrintList = (hotelId: string, itemsByType: Record<string, Item[]>) => {
+  const handleAddToPrintList = (hotelId: string) => {
     const typeId = addingTypeId[hotelId];
-    const count = addingCount[hotelId] || 1;
+    const count = addingCount[hotelId] || 0;
     const hasDiscard = addingDiscard[hotelId] || false;
     const discardCount = hasDiscard ? (addingDiscardCount[hotelId] || 0) : 0;
     const hasHasarli = addingHasarli[hotelId] || false;
@@ -252,17 +262,18 @@ export function IronerInterfacePage() {
       return;
     }
 
-    const availableItems = itemsByType[typeId] || [];
+    if (count <= 0) {
+      toast.warning('Lutfen adet girin');
+      return;
+    }
 
     // Check if this type already exists in the list
     const currentList = printItems[hotelId] || [];
     const existingIndex = currentList.findIndex(item => item.typeId === typeId);
 
     if (existingIndex >= 0) {
-      // Update existing entry
-      const newCount = availableItems.length > 0
-        ? Math.min(currentList[existingIndex].count + count, availableItems.length)
-        : currentList[existingIndex].count + count;
+      // Update existing entry - use user-entered count directly (no limit)
+      const newCount = currentList[existingIndex].count + count;
       const newList = [...currentList];
       newList[existingIndex] = {
         ...newList[existingIndex],
@@ -272,17 +283,16 @@ export function IronerInterfacePage() {
       };
       setPrintItems(prev => ({ ...prev, [hotelId]: newList }));
     } else {
-      // Add new entry
-      const validCount = availableItems.length > 0 ? Math.min(count, availableItems.length) : count;
+      // Add new entry - use user-entered count directly (no limit)
       setPrintItems(prev => ({
         ...prev,
-        [hotelId]: [...(prev[hotelId] || []), { typeId, count: validCount, discardCount, hasarliCount }]
+        [hotelId]: [...(prev[hotelId] || []), { typeId, count, discardCount, hasarliCount }]
       }));
     }
 
     // Reset form
     setAddingTypeId(prev => ({ ...prev, [hotelId]: '' }));
-    setAddingCount(prev => ({ ...prev, [hotelId]: 1 }));
+    setAddingCount(prev => ({ ...prev, [hotelId]: 0 }));
     setAddingDiscard(prev => ({ ...prev, [hotelId]: false }));
     setAddingDiscardCount(prev => ({ ...prev, [hotelId]: 0 }));
     setAddingHasarli(prev => ({ ...prev, [hotelId]: false }));
@@ -304,6 +314,7 @@ export function IronerInterfacePage() {
 
   const handleCleanAndPrint = (hotelId: string, itemsByType: Record<string, Item[]>) => {
     const currentPrintItems = printItems[hotelId] || [];
+    console.log('handleCleanAndPrint - currentPrintItems:', JSON.stringify(currentPrintItems));
 
     if (currentPrintItems.length === 0) {
       toast.warning('En az bir urun turu ekleyin');
@@ -325,12 +336,48 @@ export function IronerInterfacePage() {
       localStorage.setItem(LAST_PRINTED_TYPE_KEY, JSON.stringify(newLastPrintedType));
     }
 
-    // Pass extra data for label (discard/hasarli counts)
-    const labelExtraData = currentPrintItems.map(item => ({
-      typeId: item.typeId,
-      discardCount: item.discardCount,
-      hasarliCount: item.hasarliCount
-    }));
+    // If no available items, use manual label generation
+    if (itemIds.length === 0) {
+      const hotel = tenantsArray.find((t: Tenant) => t.id === hotelId);
+      if (!hotel) {
+        toast.error('Otel bulunamadi');
+        return;
+      }
+
+      // Build manual label data with item type names
+      const manualItems = currentPrintItems.map(item => {
+        const itemType = itemTypes?.find((t: { id: string; name: string }) => t.id === item.typeId);
+        return {
+          typeName: itemType?.name || 'Bilinmeyen',
+          count: item.count,
+          discardCount: item.discardCount,
+          hasarliCount: item.hasarliCount
+        };
+      });
+
+      generateManualLabel({
+        tenant: hotel,
+        items: manualItems,
+        packageCount: 1
+      });
+
+      toast.success('Manuel etiket olusturuldu!');
+      setPrintItems(prev => ({ ...prev, [hotelId]: [] }));
+      return;
+    }
+
+    // Pass extra data for label (counts, discard/hasarli counts, type names)
+    const labelExtraData = currentPrintItems.map(item => {
+      const itemType = itemTypes?.find((t: { id: string; name: string }) => t.id === item.typeId);
+      return {
+        typeId: item.typeId,
+        typeName: itemType?.name || 'Bilinmeyen',
+        count: item.count,
+        discardCount: item.discardCount,
+        hasarliCount: item.hasarliCount
+      };
+    });
+    console.log('handleCleanAndPrint - labelExtraData:', JSON.stringify(labelExtraData));
 
     processAndPrintMutation.mutate({ hotelId, itemIds, labelCount: 1, labelExtraData });
   };
@@ -865,7 +912,7 @@ export function IronerInterfacePage() {
                               {/* Adet display */}
                               <div className="bg-purple-100 rounded-lg p-3 text-center min-w-[80px]">
                                 <p className="text-xs font-medium text-purple-600 mb-1">Adet</p>
-                                <p className="text-3xl font-bold text-purple-700">{addingCount[hotelId] || 1}</p>
+                                <p className="text-3xl font-bold text-purple-700">{addingCount[hotelId] || 0}</p>
                               </div>
 
                               {/* Numpad */}
@@ -873,6 +920,7 @@ export function IronerInterfacePage() {
                                 <div className="grid grid-cols-3 gap-1" style={{ width: '120px' }}>
                                   {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
                                     <button
+                                      type="button"
                                       key={num}
                                       onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) * 10 + num }))}
                                       className="h-10 w-10 rounded font-bold text-lg bg-white border-2 border-purple-200 text-gray-700 hover:bg-purple-100 active:bg-purple-200 transition-all"
@@ -881,18 +929,21 @@ export function IronerInterfacePage() {
                                     </button>
                                   ))}
                                   <button
+                                    type="button"
                                     onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: 0 }))}
                                     className="h-10 w-10 rounded font-bold text-sm bg-red-100 text-red-700 border-2 border-red-300 hover:bg-red-200"
                                   >
                                     C
                                   </button>
                                   <button
+                                    type="button"
                                     onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) * 10 }))}
                                     className="h-10 w-10 rounded font-bold text-lg bg-white border-2 border-purple-200 text-gray-700 hover:bg-purple-100"
                                   >
                                     0
                                   </button>
                                   <button
+                                    type="button"
                                     onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: Math.floor((prev[hotelId] || 0) / 10) }))}
                                     className="h-10 w-10 rounded font-bold bg-gray-200 border-2 border-gray-400 text-gray-700 hover:bg-gray-300 flex items-center justify-center"
                                   >
@@ -991,7 +1042,7 @@ export function IronerInterfacePage() {
                                   onClick={() => {
                                     // Direct print without adding to list
                                     const typeId = addingTypeId[hotelId];
-                                    const count = addingCount[hotelId] || 1;
+                                    const count = addingCount[hotelId] || 0;
                                     const hasDiscard = addingDiscard[hotelId] || false;
                                     const discardCount = hasDiscard ? (addingDiscardCount[hotelId] || 0) : 0;
                                     const hasHasarli = addingHasarli[hotelId] || false;
@@ -1002,25 +1053,58 @@ export function IronerInterfacePage() {
                                       return;
                                     }
 
+                                    if (count <= 0) {
+                                      toast.warning('Lutfen adet girin');
+                                      return;
+                                    }
+
                                     const availableItems = itemsByType[typeId] || [];
-                                    const validCount = availableItems.length > 0 ? Math.min(count, availableItems.length) : count;
-                                    const itemIds = availableItems.slice(0, validCount).map(i => i.id);
 
                                     // Save last printed type
                                     const newLastPrintedType = { ...lastPrintedType, [hotelId]: typeId };
                                     setLastPrintedType(newLastPrintedType);
                                     localStorage.setItem(LAST_PRINTED_TYPE_KEY, JSON.stringify(newLastPrintedType));
 
-                                    processAndPrintMutation.mutate({
-                                      hotelId,
-                                      itemIds,
-                                      labelCount: 1,
-                                      labelExtraData: [{ typeId, discardCount, hasarliCount }]
-                                    });
+                                    // If no available items, use manual label generation
+                                    if (availableItems.length === 0) {
+                                      if (!hotel) {
+                                        toast.error('Otel bulunamadi');
+                                        return;
+                                      }
+                                      const itemType = itemTypes?.find((t: { id: string; name: string }) => t.id === typeId);
+                                      generateManualLabel({
+                                        tenant: hotel,
+                                        items: [{
+                                          typeName: itemType?.name || 'Bilinmeyen',
+                                          count: count,
+                                          discardCount: discardCount,
+                                          hasarliCount: hasarliCount
+                                        }],
+                                        packageCount: 1
+                                      });
+                                      toast.success('Manuel etiket olusturuldu!');
+                                    } else {
+                                      const validCount = Math.min(count, availableItems.length);
+                                      const itemIds = availableItems.slice(0, validCount).map(i => i.id);
+                                      const itemType = itemTypes?.find((t: { id: string; name: string }) => t.id === typeId);
+
+                                      processAndPrintMutation.mutate({
+                                        hotelId,
+                                        itemIds,
+                                        labelCount: 1,
+                                        labelExtraData: [{
+                                          typeId,
+                                          typeName: itemType?.name || 'Bilinmeyen',
+                                          count: count,
+                                          discardCount,
+                                          hasarliCount
+                                        }]
+                                      });
+                                    }
 
                                     // Reset form
                                     setAddingTypeId(prev => ({ ...prev, [hotelId]: '' }));
-                                    setAddingCount(prev => ({ ...prev, [hotelId]: 1 }));
+                                    setAddingCount(prev => ({ ...prev, [hotelId]: 0 }));
                                     setAddingDiscard(prev => ({ ...prev, [hotelId]: false }));
                                     setAddingDiscardCount(prev => ({ ...prev, [hotelId]: 0 }));
                                     setAddingHasarli(prev => ({ ...prev, [hotelId]: false }));
@@ -1034,7 +1118,7 @@ export function IronerInterfacePage() {
                                 </button>
                                 {/* Ekle Button */}
                                 <button
-                                  onClick={() => handleAddToPrintList(hotelId, itemsByType)}
+                                  onClick={() => handleAddToPrintList(hotelId)}
                                   disabled={!addingTypeId[hotelId]}
                                   className="h-10 px-6 flex items-center justify-center gap-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-bold transition-all"
                                 >
@@ -1145,7 +1229,19 @@ export function IronerInterfacePage() {
                     </div>
                     <p className="text-sm font-medium text-gray-900">{delivery.tenant?.name}</p>
                     <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
-                      <span>{delivery.deliveryItems?.length || 0} urun</span>
+                      <span>{(() => {
+                        // Try to get count from notes (labelExtraData stored as JSON)
+                        if (delivery.notes) {
+                          try {
+                            const labelData = JSON.parse(delivery.notes);
+                            if (Array.isArray(labelData)) {
+                              const total = labelData.reduce((sum: number, item: any) => sum + (item.count || 0), 0);
+                              if (total > 0) return total;
+                            }
+                          } catch {}
+                        }
+                        return delivery.deliveryItems?.length || 0;
+                      })()} urun</span>
                       <span>{delivery.packageCount || 1} paket</span>
                     </div>
                     <div className="flex items-center justify-between mt-2">
@@ -1183,19 +1279,49 @@ export function IronerInterfacePage() {
                           <span className="text-gray-500">Tarih:</span>
                           <span>{delivery.labelPrintedAt && new Date(delivery.labelPrintedAt).toLocaleString('tr-TR')}</span>
                         </div>
-                        {delivery.deliveryItems && delivery.deliveryItems.length > 0 && (
-                          <div className="mt-2 pt-2 border-t">
-                            <p className="text-gray-500 mb-1">Urunler:</p>
-                            <div className="space-y-1">
-                              {delivery.deliveryItems.map((di: any, idx: number) => (
-                                <div key={idx} className="flex justify-between text-xs bg-gray-50 px-2 py-1 rounded">
-                                  <span>{di.item?.itemType?.name || 'Urun'}</span>
-                                  <span className="font-medium">{di.quantity || 1}x</span>
+                        {(() => {
+                          // Try to get items from notes (labelExtraData stored as JSON)
+                          let labelItems: any[] = [];
+                          if (delivery.notes) {
+                            try {
+                              const parsed = JSON.parse(delivery.notes);
+                              if (Array.isArray(parsed)) {
+                                labelItems = parsed;
+                              }
+                            } catch {}
+                          }
+
+                          if (labelItems.length > 0) {
+                            return (
+                              <div className="mt-2 pt-2 border-t">
+                                <p className="text-gray-500 mb-1">Urunler:</p>
+                                <div className="space-y-1">
+                                  {labelItems.map((item: any, idx: number) => (
+                                    <div key={idx} className="flex justify-between text-xs bg-gray-50 px-2 py-1 rounded">
+                                      <span>{item.typeName || 'Urun'}</span>
+                                      <span className="font-medium">{item.count || 0}x</span>
+                                    </div>
+                                  ))}
                                 </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
+                              </div>
+                            );
+                          } else if (delivery.deliveryItems && delivery.deliveryItems.length > 0) {
+                            return (
+                              <div className="mt-2 pt-2 border-t">
+                                <p className="text-gray-500 mb-1">Urunler:</p>
+                                <div className="space-y-1">
+                                  {delivery.deliveryItems.map((di: any, idx: number) => (
+                                    <div key={idx} className="flex justify-between text-xs bg-gray-50 px-2 py-1 rounded">
+                                      <span>{di.item?.itemType?.name || 'Urun'}</span>
+                                      <span className="font-medium">1x</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
                       </div>
                     </div>
                   </div>

@@ -28,7 +28,7 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 // Validation schemas
 const createDeliverySchema = z.object({
   tenantId: z.string().uuid('Invalid tenant ID'),
-  itemIds: z.array(z.string().uuid()).min(1, 'At least one item is required'),
+  itemIds: z.array(z.string().uuid()), // Allow empty array for manual deliveries
   packageCount: z.number().int().min(1, 'Package count must be at least 1').default(1),
   notes: z.string().optional(),
 });
@@ -54,21 +54,23 @@ deliveriesRouter.post('/', requireRole('operator', 'laundry_manager', 'system_ad
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    // Verify all items exist and are ready for delivery
-    const itemsToDeliver = await db.query.items.findMany({
-      where: inArray(items.id, itemIds),
-    });
-
-    if (itemsToDeliver.length !== itemIds.length) {
-      return res.status(400).json({ error: 'Some items not found' });
-    }
-
-    const notReadyItems = itemsToDeliver.filter(item => item.status !== 'ready_for_delivery');
-    if (notReadyItems.length > 0) {
-      return res.status(400).json({
-        error: 'Some items are not ready for delivery',
-        items: notReadyItems.map(i => i.rfidTag)
+    // Verify all items exist and are ready for delivery (skip if no items - manual delivery)
+    if (itemIds.length > 0) {
+      const itemsToDeliver = await db.query.items.findMany({
+        where: inArray(items.id, itemIds),
       });
+
+      if (itemsToDeliver.length !== itemIds.length) {
+        return res.status(400).json({ error: 'Some items not found' });
+      }
+
+      const notReadyItems = itemsToDeliver.filter(item => item.status !== 'ready_for_delivery');
+      if (notReadyItems.length > 0) {
+        return res.status(400).json({
+          error: 'Some items are not ready for delivery',
+          items: notReadyItems.map(i => i.rfidTag)
+        });
+      }
     }
 
     // Generate unique barcode
@@ -82,13 +84,15 @@ deliveriesRouter.post('/', requireRole('operator', 'laundry_manager', 'system_ad
       notes,
     }).returning();
 
-    // Associate items with delivery
-    await db.insert(deliveryItems).values(
-      itemIds.map((itemId: string) => ({
-        deliveryId: newDelivery.id,
-        itemId,
-      }))
-    );
+    // Associate items with delivery (skip if no items - manual delivery)
+    if (itemIds.length > 0) {
+      await db.insert(deliveryItems).values(
+        itemIds.map((itemId: string) => ({
+          deliveryId: newDelivery.id,
+          itemId,
+        }))
+      );
+    }
 
     // Create delivery packages
     const packageInserts = [];
