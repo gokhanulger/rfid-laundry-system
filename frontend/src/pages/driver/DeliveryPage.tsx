@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Truck, Building2, CheckCircle, RefreshCw, Package, MapPin, Navigation,
-  ArrowLeft, QrCode, ChevronRight
+  ArrowLeft, QrCode, ChevronRight, Scan
 } from 'lucide-react';
 import { deliveriesApi, getErrorMessage } from '../../lib/api';
 import { useToast } from '../../components/Toast';
@@ -16,6 +16,8 @@ export function DeliveryPage() {
   const [currentStep, setCurrentStep] = useState<DeliveryStep>('select');
   const [selectedDeliveries, setSelectedDeliveries] = useState<string[]>([]);
   const [locationPermission, setLocationPermission] = useState<'prompt' | 'granted' | 'denied' | 'checking'>('checking');
+  const [barcodeInput, setBarcodeInput] = useState('');
+  const barcodeInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const toast = useToast();
 
@@ -203,6 +205,51 @@ export function DeliveryPage() {
   const readyByHotel = groupByHotel(readyList);
   const transitByHotel = groupByHotel(transitList);
 
+  // Auto-focus barcode input when on pickup/delivery screen
+  useEffect(() => {
+    if (currentStep !== 'select' && barcodeInputRef.current) {
+      setTimeout(() => barcodeInputRef.current?.focus(), 100);
+    }
+    setBarcodeInput('');
+  }, [currentStep]);
+
+  // Handle barcode scan for pickup
+  const handleBarcodeScanForPickup = (barcode: string) => {
+    const delivery = readyList.find(d => d.barcode === barcode);
+    if (delivery) {
+      handlePickup(delivery.id);
+      toast.success(`Paket alındı: ${barcode}`);
+    } else {
+      toast.error('Paket bulunamadı', `"${barcode}" barkodlu paket listede yok`);
+    }
+    setBarcodeInput('');
+    barcodeInputRef.current?.focus();
+  };
+
+  // Handle barcode scan for delivery
+  const handleBarcodeScanForDelivery = (barcode: string) => {
+    const delivery = transitList.find(d => d.barcode === barcode);
+    if (delivery) {
+      handleDeliver(delivery.id);
+      toast.success(`Paket teslim edildi: ${barcode}`);
+    } else {
+      toast.error('Paket bulunamadı', `"${barcode}" barkodlu paket listede yok`);
+    }
+    setBarcodeInput('');
+    barcodeInputRef.current?.focus();
+  };
+
+  const handleBarcodeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, action: 'pickup' | 'deliver') => {
+    if (e.key === 'Enter' && barcodeInput.trim()) {
+      e.preventDefault();
+      if (action === 'pickup') {
+        handleBarcodeScanForPickup(barcodeInput.trim());
+      } else {
+        handleBarcodeScanForDelivery(barcodeInput.trim());
+      }
+    }
+  };
+
   // Step Selection Screen
   if (currentStep === 'select') {
     return (
@@ -336,6 +383,25 @@ export function DeliveryPage() {
           >
             <RefreshCw className="w-5 h-5" />
           </button>
+        </div>
+
+        {/* Barcode Scanner Input */}
+        <div className="bg-purple-50 border-2 border-purple-200 rounded-xl p-4 mb-4">
+          <div className="flex items-center gap-3 mb-2">
+            <Scan className="w-5 h-5 text-purple-600" />
+            <span className="font-medium text-purple-900">Barkod Tara</span>
+          </div>
+          <input
+            ref={barcodeInputRef}
+            type="text"
+            value={barcodeInput}
+            onChange={(e) => setBarcodeInput(e.target.value)}
+            onKeyDown={(e) => handleBarcodeKeyDown(e, 'pickup')}
+            placeholder="Cihaz tuşuna basın veya barkod girin..."
+            className="w-full px-4 py-3 text-lg border-2 border-purple-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 font-mono bg-white"
+            autoComplete="off"
+          />
+          <p className="text-xs text-purple-600 mt-2">Tarayıcı tuşuna basarak barkodu okutun</p>
         </div>
 
         {/* Stats */}
@@ -540,6 +606,25 @@ export function DeliveryPage() {
           <span className="text-sm text-green-800">Konum aktif</span>
         </div>
       )}
+
+      {/* Barcode Scanner Input */}
+      <div className="bg-green-50 border-2 border-green-200 rounded-xl p-4 mb-4">
+        <div className="flex items-center gap-3 mb-2">
+          <Scan className="w-5 h-5 text-green-600" />
+          <span className="font-medium text-green-900">Barkod Tara</span>
+        </div>
+        <input
+          ref={currentStep === 'hotel-delivery' ? barcodeInputRef : undefined}
+          type="text"
+          value={barcodeInput}
+          onChange={(e) => setBarcodeInput(e.target.value)}
+          onKeyDown={(e) => handleBarcodeKeyDown(e, 'deliver')}
+          placeholder="Cihaz tuşuna basın veya barkod girin..."
+          className="w-full px-4 py-3 text-lg border-2 border-green-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 font-mono bg-white"
+          autoComplete="off"
+        />
+        <p className="text-xs text-green-600 mt-2">Tarayıcı tuşuna basarak barkodu okutun</p>
+      </div>
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3 mb-4">
