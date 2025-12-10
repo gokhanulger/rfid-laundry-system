@@ -292,7 +292,7 @@ itemsRouter.post('/', requireRole('driver', 'operator', 'laundry_manager', 'syst
 });
 
 // Mark items as clean (bulk update)
-itemsRouter.post('/mark-clean', requireRole('operator', 'laundry_manager', 'system_admin'), async (req: AuthRequest, res) => {
+itemsRouter.post('/mark-clean', requireRole('operator', 'laundry_manager', 'system_admin', 'ironer'), async (req: AuthRequest, res) => {
   try {
     const validation = markCleanSchema.safeParse(req.body);
     if (!validation.success) {
