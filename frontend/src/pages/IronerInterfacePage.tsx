@@ -1086,7 +1086,7 @@ export function IronerInterfacePage() {
                                 return (
                                   <div key={index} className="flex items-center justify-between px-4 py-3">
                                     <div className="flex items-center gap-3 flex-wrap">
-                                      <span className="text-2xl font-bold text-purple-600">{item.count}x</span>
+                                      <span className="text-2xl font-bold text-purple-600">{item.count} adet</span>
                                       <span className="text-lg font-medium text-gray-800">{itemType?.name}</span>
                                       {item.discardCount > 0 && (
                                         <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full text-sm font-medium">

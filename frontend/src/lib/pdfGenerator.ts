@@ -336,7 +336,7 @@ function generateSingleLabel(
 
       doc.text(`${displayName}`, margin, yPos);
       doc.setFont('helvetica', 'bold');
-      doc.text(`x${itemType.count}`, LABEL_WIDTH - margin, yPos, { align: 'right' });
+      doc.text(`${itemType.count} adet`, LABEL_WIDTH - margin, yPos, { align: 'right' });
       doc.setFont('helvetica', 'normal');
       yPos += 4;
 
@@ -549,7 +549,7 @@ function generateManualSingleLabel(
 
       doc.text(`${displayName}`, margin, yPos);
       doc.setFont('helvetica', 'bold');
-      doc.text(`x${item.count}`, LABEL_WIDTH - margin, yPos, { align: 'right' });
+      doc.text(`${item.count} adet`, LABEL_WIDTH - margin, yPos, { align: 'right' });
       doc.setFont('helvetica', 'normal');
       yPos += 4;
 

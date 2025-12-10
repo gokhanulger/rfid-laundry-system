@@ -657,7 +657,7 @@ export function IrsaliyePage() {
                             hotel.itemSummary.slice(0, 4).map((item, idx) => (
                               <div key={idx} className="flex justify-between text-sm">
                                 <span className="truncate">{item.name}</span>
-                                <span className="font-bold ml-2">{item.count}</span>
+                                <span className="font-bold ml-2">{item.count} adet</span>
                               </div>
                             ))
                           ) : (
@@ -842,7 +842,7 @@ export function IrsaliyePage() {
                               {itemTotals.map((item, idx) => (
                                 <div key={idx} className="flex justify-between text-sm py-1">
                                   <span>{item.name.toUpperCase()}</span>
-                                  <span className="font-bold">{item.count}</span>
+                                  <span className="font-bold">{item.count} adet</span>
                                 </div>
                               ))}
                             </div>
@@ -1025,7 +1025,7 @@ export function IrsaliyePage() {
                         {totals.map((item, index) => (
                           <div key={index} className="flex items-center justify-between py-1 border-b last:border-0">
                             <span className="text-sm">{item.name}</span>
-                            <span className="font-bold text-teal-600">{item.count}</span>
+                            <span className="font-bold text-teal-600">{item.count} adet</span>
                           </div>
                         ))}
                       </div>
