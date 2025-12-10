@@ -5,7 +5,10 @@ import { deliveriesApi, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/Toast';
 import type { Delivery } from '../types';
 
+type TabType = 'packaging' | 'history';
+
 export function PackagingPage() {
+  const [activeTab, setActiveTab] = useState<TabType>('packaging');
   const [barcodeInput, setBarcodeInput] = useState('');
   const [scannedDelivery, setScannedDelivery] = useState<Delivery | null>(null);
   const queryClient = useQueryClient();
@@ -85,170 +88,203 @@ export function PackagingPage() {
         </button>
       </div>
 
-      {/* Barcode Scanner */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-          <QrCode className="w-5 h-5 text-indigo-600" />
-          Teslimat Barkodunu Tara
-        </h2>
-        <div className="flex gap-3">
-          <input
-            type="text"
-            value={barcodeInput}
-            onChange={(e) => setBarcodeInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleScan()}
-            placeholder="Barkod tarayın veya girin..."
-            className="flex-1 px-4 py-3 text-lg border rounded-lg focus:ring-2 focus:ring-indigo-500 font-mono"
-            autoFocus
-          />
-          <button
-            onClick={handleScan}
-            disabled={scanMutation.isPending}
-            className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 font-medium"
-          >
-            {scanMutation.isPending ? 'Taranıyor...' : 'Bul'}
-          </button>
-        </div>
-      </div>
-
-      {/* Scanned Delivery - Package Confirmation */}
-      {scannedDelivery && (
-        <div className="bg-indigo-50 border-2 border-indigo-200 rounded-lg p-6">
-          <div className="flex items-start justify-between">
-            <div>
-              <h3 className="text-lg font-bold text-indigo-900 mb-2">Paketlemeye Hazır</h3>
-              <div className="space-y-2">
-                <div className="flex items-center gap-4">
-                  <span className="text-sm text-indigo-700">Barkod:</span>
-                  <span className="font-mono font-bold text-xl">{scannedDelivery.barcode}</span>
-                </div>
-                <div className="flex items-center gap-4">
-                  <span className="text-sm text-indigo-700">Otel:</span>
-                  <span className="font-medium">{scannedDelivery.tenant?.name}</span>
-                </div>
-                <div className="flex items-center gap-4">
-                  <span className="text-sm text-indigo-700">Ürünler:</span>
-                  <span className="font-medium">{scannedDelivery.deliveryItems?.length || 0}</span>
-                </div>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setScannedDelivery(null)}
-                className="px-4 py-2 border border-indigo-300 text-indigo-700 rounded-lg hover:bg-indigo-100"
-              >
-                İptal
-              </button>
-              <button
-                onClick={() => handlePackage(scannedDelivery.id)}
-                disabled={packageMutation.isPending}
-                className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-              >
-                <Box className="w-5 h-5" />
-                {packageMutation.isPending ? 'İşleniyor...' : 'Paketi Onayla'}
-              </button>
-            </div>
+      {/* Tabs */}
+      <div className="bg-white rounded-lg shadow">
+        <div className="border-b">
+          <div className="flex">
+            <button
+              onClick={() => setActiveTab('packaging')}
+              className={`flex items-center gap-2 px-6 py-4 font-medium transition-colors ${
+                activeTab === 'packaging'
+                  ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50'
+                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <Box className="w-5 h-5" />
+              Paketleme ({pendingDeliveries.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('history')}
+              className={`flex items-center gap-2 px-6 py-4 font-medium transition-colors ${
+                activeTab === 'history'
+                  ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50'
+                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <CheckCircle className="w-5 h-5" />
+              Son Paketlenenler ({recentPackaged.length})
+            </button>
           </div>
-
-          {/* Items List */}
-          {scannedDelivery.deliveryItems && scannedDelivery.deliveryItems.length > 0 && (
-            <div className="mt-4 pt-4 border-t border-indigo-200">
-              <p className="text-sm text-indigo-700 mb-2">Bu teslimattaki ürünler:</p>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                {scannedDelivery.deliveryItems.map((di: any) => (
-                  <div key={di.id} className="bg-white px-3 py-2 rounded border border-indigo-100">
-                    <span className="font-mono text-sm">{di.item?.rfidTag}</span>
-                    <span className="text-xs text-gray-500 ml-2">{di.item?.itemType?.name}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
-      )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Pending Packaging */}
-        <div className="lg:col-span-2">
-          <div className="bg-white rounded-lg shadow">
-            <div className="p-4 border-b">
-              <h2 className="text-lg font-semibold flex items-center gap-2">
-                <Box className="w-5 h-5 text-indigo-600" />
-                Paketleme Bekliyor ({pendingDeliveries.length})
-              </h2>
-            </div>
+        {/* Tab Content */}
+        <div className="p-6">
+          {activeTab === 'packaging' ? (
+            <div className="space-y-6">
+              {/* Barcode Scanner */}
+              <div className="bg-gray-50 rounded-lg p-6">
+                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                  <QrCode className="w-5 h-5 text-indigo-600" />
+                  Teslimat Barkodunu Tara
+                </h2>
+                <div className="flex gap-3">
+                  <input
+                    type="text"
+                    value={barcodeInput}
+                    onChange={(e) => setBarcodeInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleScan()}
+                    placeholder="Barkod tarayın veya girin..."
+                    className="flex-1 px-4 py-3 text-lg border rounded-lg focus:ring-2 focus:ring-indigo-500 font-mono bg-white"
+                    autoFocus
+                  />
+                  <button
+                    onClick={handleScan}
+                    disabled={scanMutation.isPending}
+                    className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 font-medium"
+                  >
+                    {scanMutation.isPending ? 'Taranıyor...' : 'Bul'}
+                  </button>
+                </div>
+              </div>
 
-            {isLoading ? (
-              <div className="flex items-center justify-center h-48">
-                <RefreshCw className="w-8 h-8 animate-spin text-indigo-500" />
-              </div>
-            ) : pendingDeliveries.length === 0 ? (
-              <div className="p-12 text-center">
-                <Package className="w-16 h-16 mx-auto text-gray-300 mb-4" />
-                <p className="text-xl text-gray-500">Paketleme bekleyen teslimat yok</p>
-                <p className="text-gray-400 mt-2">Önce etiketleri yazdırın</p>
-              </div>
-            ) : (
-              <div className="divide-y">
-                {pendingDeliveries.map(delivery => (
-                  <div key={delivery.id} className="p-4 hover:bg-gray-50">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="flex items-center gap-3 mb-1">
-                          <span className="font-mono font-bold">{delivery.barcode}</span>
-                          <span className="px-2 py-0.5 bg-purple-100 text-purple-800 rounded text-xs">
-                            Etiket Yazdırıldı
-                          </span>
+              {/* Scanned Delivery - Package Confirmation */}
+              {scannedDelivery && (
+                <div className="bg-indigo-50 border-2 border-indigo-200 rounded-lg p-6">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h3 className="text-lg font-bold text-indigo-900 mb-2">Paketlemeye Hazır</h3>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-4">
+                          <span className="text-sm text-indigo-700">Barkod:</span>
+                          <span className="font-mono font-bold text-xl">{scannedDelivery.barcode}</span>
                         </div>
-                        <p className="text-sm text-gray-600">{delivery.tenant?.name}</p>
-                        <p className="text-xs text-gray-400">
-                          {delivery.deliveryItems?.length || 0} ürün
-                        </p>
+                        <div className="flex items-center gap-4">
+                          <span className="text-sm text-indigo-700">Otel:</span>
+                          <span className="font-medium">{scannedDelivery.tenant?.name}</span>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <span className="text-sm text-indigo-700">Ürünler:</span>
+                          <span className="font-medium">{scannedDelivery.deliveryItems?.length || 0}</span>
+                        </div>
                       </div>
+                    </div>
+                    <div className="flex gap-2">
                       <button
-                        onClick={() => handlePackage(delivery.id)}
-                        disabled={packageMutation.isPending}
-                        className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                        onClick={() => setScannedDelivery(null)}
+                        className="px-4 py-2 border border-indigo-300 text-indigo-700 rounded-lg hover:bg-indigo-100"
                       >
-                        <Box className="w-4 h-4" />
-                        Paketle
+                        İptal
+                      </button>
+                      <button
+                        onClick={() => handlePackage(scannedDelivery.id)}
+                        disabled={packageMutation.isPending}
+                        className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                      >
+                        <Box className="w-5 h-5" />
+                        {packageMutation.isPending ? 'İşleniyor...' : 'Paketi Onayla'}
                       </button>
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
 
-        {/* Recently Packaged */}
-        <div className="bg-white rounded-lg shadow">
-          <div className="p-4 border-b">
-            <h2 className="text-lg font-semibold flex items-center gap-2">
-              <CheckCircle className="w-5 h-5 text-green-600" />
-              Son Paketlenenler
-            </h2>
-          </div>
-          {recentPackaged.length === 0 ? (
-            <div className="p-6 text-center text-gray-500">
-              Son paketlenen teslimat yok
+                  {/* Items List */}
+                  {scannedDelivery.deliveryItems && scannedDelivery.deliveryItems.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-indigo-200">
+                      <p className="text-sm text-indigo-700 mb-2">Bu teslimattaki ürünler:</p>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                        {scannedDelivery.deliveryItems.map((di: any) => (
+                          <div key={di.id} className="bg-white px-3 py-2 rounded border border-indigo-100">
+                            <span className="font-mono text-sm">{di.item?.rfidTag}</span>
+                            <span className="text-xs text-gray-500 ml-2">{di.item?.itemType?.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Pending Packaging List */}
+              <div>
+                <h2 className="text-lg font-semibold flex items-center gap-2 mb-4">
+                  <Box className="w-5 h-5 text-indigo-600" />
+                  Paketleme Bekliyor
+                </h2>
+
+                {isLoading ? (
+                  <div className="flex items-center justify-center h-48">
+                    <RefreshCw className="w-8 h-8 animate-spin text-indigo-500" />
+                  </div>
+                ) : pendingDeliveries.length === 0 ? (
+                  <div className="p-12 text-center bg-gray-50 rounded-lg">
+                    <Package className="w-16 h-16 mx-auto text-gray-300 mb-4" />
+                    <p className="text-xl text-gray-500">Paketleme bekleyen teslimat yok</p>
+                    <p className="text-gray-400 mt-2">Önce etiketleri yazdırın</p>
+                  </div>
+                ) : (
+                  <div className="divide-y border rounded-lg">
+                    {pendingDeliveries.map(delivery => (
+                      <div key={delivery.id} className="p-4 hover:bg-gray-50">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="flex items-center gap-3 mb-1">
+                              <span className="font-mono font-bold">{delivery.barcode}</span>
+                              <span className="px-2 py-0.5 bg-purple-100 text-purple-800 rounded text-xs">
+                                Etiket Yazdırıldı
+                              </span>
+                            </div>
+                            <p className="text-sm text-gray-600">{delivery.tenant?.name}</p>
+                            <p className="text-xs text-gray-400">
+                              {delivery.deliveryItems?.length || 0} ürün
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => handlePackage(delivery.id)}
+                            disabled={packageMutation.isPending}
+                            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                          >
+                            <Box className="w-4 h-4" />
+                            Paketle
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           ) : (
-            <div className="divide-y">
-              {recentPackaged.map(delivery => (
-                <div key={delivery.id} className="p-4">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-mono font-medium">{delivery.barcode}</span>
-                    <span className="px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded-full text-xs">
-                      Paketlendi
-                    </span>
-                  </div>
-                  <p className="text-sm text-gray-600">{delivery.tenant?.name}</p>
-                  <p className="text-xs text-gray-400">
-                    {delivery.packagedAt && new Date(delivery.packagedAt).toLocaleString()}
-                  </p>
+            /* History Tab */
+            <div>
+              <h2 className="text-lg font-semibold flex items-center gap-2 mb-4">
+                <CheckCircle className="w-5 h-5 text-green-600" />
+                Son Paketlenenler
+              </h2>
+              {recentPackaged.length === 0 ? (
+                <div className="p-12 text-center bg-gray-50 rounded-lg">
+                  <Package className="w-16 h-16 mx-auto text-gray-300 mb-4" />
+                  <p className="text-xl text-gray-500">Son paketlenen teslimat yok</p>
                 </div>
-              ))}
+              ) : (
+                <div className="divide-y border rounded-lg">
+                  {recentPackaged.map(delivery => (
+                    <div key={delivery.id} className="p-4 hover:bg-gray-50">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-mono font-bold text-lg">{delivery.barcode}</span>
+                        <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">
+                          Paketlendi
+                        </span>
+                      </div>
+                      <p className="text-gray-600">{delivery.tenant?.name}</p>
+                      <p className="text-sm text-gray-400 mt-1">
+                        {delivery.packagedAt && new Date(delivery.packagedAt).toLocaleString('tr-TR')}
+                      </p>
+                      <p className="text-sm text-gray-500 mt-1">
+                        {delivery.deliveryItems?.length || 0} ürün
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
