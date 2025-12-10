@@ -343,37 +343,7 @@ export function IronerInterfacePage() {
       localStorage.setItem(LAST_PRINTED_TYPE_KEY, JSON.stringify(newLastPrintedType));
     }
 
-    // If no available items, use manual label generation
-    if (itemIds.length === 0) {
-      const hotel = tenantsArray.find((t: Tenant) => t.id === hotelId);
-      if (!hotel) {
-        toast.error('Otel bulunamadi');
-        return;
-      }
-
-      // Build manual label data with item type names
-      const manualItems = currentPrintItems.map(item => {
-        const itemType = itemTypes?.find((t: { id: string; name: string }) => t.id === item.typeId);
-        return {
-          typeName: itemType?.name || 'Bilinmeyen',
-          count: item.count,
-          discardCount: item.discardCount,
-          hasarliCount: item.hasarliCount
-        };
-      });
-
-      generateManualLabel({
-        tenant: hotel,
-        items: manualItems,
-        packageCount: 1
-      });
-
-      toast.success('Manuel etiket olusturuldu!');
-      setPrintItems(prev => ({ ...prev, [hotelId]: [] }));
-      return;
-    }
-
-    // Pass extra data for label (counts, discard/hasarli counts, type names)
+    // Build label extra data with item type names (for both manual and regular)
     const labelExtraData = currentPrintItems.map(item => {
       const itemType = itemTypes?.find((t: { id: string; name: string }) => t.id === item.typeId);
       return {
@@ -385,6 +355,9 @@ export function IronerInterfacePage() {
       };
     });
     console.log('handleCleanAndPrint - labelExtraData:', JSON.stringify(labelExtraData));
+
+    // Always call the mutation - it will create a delivery and generate the label
+    // The mutation now handles empty itemIds (manual deliveries)
 
     processAndPrintMutation.mutate({ hotelId, itemIds, labelCount: 1, labelExtraData });
   };
