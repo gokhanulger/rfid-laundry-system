@@ -5,6 +5,10 @@ declare module 'qz-tray' {
       disconnect(): Promise<void>;
       isActive(): boolean;
     };
+    security: {
+      setCertificatePromise(callback: () => Promise<string>): void;
+      setSignaturePromise(callback: () => (toSign: string) => Promise<string>): void;
+    };
     printers: {
       find(): Promise<string[]>;
       getDefault(): Promise<string>;

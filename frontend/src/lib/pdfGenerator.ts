@@ -5,6 +5,46 @@ import type { Delivery, DeliveryPackage, Tenant } from '../types';
 
 // QZ Tray connection state
 let qzConnected = false;
+let qzInitialized = false;
+
+// Initialize QZ Tray - set up certificate handling
+function initQZ() {
+  if (qzInitialized) return;
+  qzInitialized = true;
+
+  // Override certificate promise - use demo/unsigned mode
+  qz.security.setCertificatePromise(function() {
+    return Promise.resolve(
+      "-----BEGIN CERTIFICATE-----\n" +
+      "MIID1TCCAr2gAwIBAgIUEOWdKdKfL3xuFE7HJv3pDp2x5hQwDQYJKoZIhvcNAQEL\n" +
+      "BQAwejELMAkGA1UEBhMCVVMxCzAJBgNVBAgMAk5ZMREwDwYDVQQHDAhOZXcgWW9y\n" +
+      "azEPMA0GA1UECgwGUVogTExDMRAwDgYDVQQLDAdRWiBUcmF5MSgwJgYDVQQDDB9E\n" +
+      "ZW1vIENlcnRpZmljYXRlIC0gRm9yIFRlc3RpbmcwHhcNMjMwMTAxMDAwMDAwWhcN\n" +
+      "MjgwMTAxMDAwMDAwWjB6MQswCQYDVQQGEwJVUzELMAkGA1UECAwCTlkxETAPBgNV\n" +
+      "BAcMCE5ldyBZb3JrMQ8wDQYDVQQKDAZRWiBMTEMxEDAOBgNVBAsMB1FaIFRyYXkx\n" +
+      "KDAmBgNVBAMMH0RlbW8gQ2VydGlmaWNhdGUgLSBGb3IgVGVzdGluZzCCASIwDQYJ\n" +
+      "KoZIhvcNAQEBBQADggEPADCCAQoCggEBALUJT7gQkfZMJlCGLJ5mJ7y/kV2FULWA\n" +
+      "yNKdNS9/YIBkhNM+vQfBo0p7hP4wckivUHayujnHfJ7gH6M/gsAvHp8OYCEviJ7R\n" +
+      "8OXHZb4rq6qW3T9qVGQBCO58JYu6Zy5rW6sWBODYrFJN/u8PZJu9YXAsR/VPXEKP\n" +
+      "8bB0G8GQWrFOt8bQAF0M/rl4GyP5QRgJWE+E5bN8Ghv2YLNv8TPl3ZQX8fSdqJ8t\n" +
+      "L7nERmFEcP0q0JiAKyri8N9DwG4J/s4RDl4/ql0qL/HZk5kIkXWMBGPIpqUVTJgF\n" +
+      "Jw9QKMV3aR1x6x4IVJuZ6Q9h8DZ8i9JdJHGSYQYGJJHZ2t1lJf8CAwEAAaNTMFEw\n" +
+      "HQYDVR0OBBYEFFmU+r7K6F0OlhYNITnCDhYJ4L8MMB8GA1UdIwQYMBaAFFmU+r7K\n" +
+      "6F0OlhYNITnCDhYJ4L8MMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQAD\n" +
+      "ggEBADMR7y0aZUNPZqMAYApmM5d/5u00xTg0NrbWqW9do1X5MWJD+WEKhQV9L7wJ\n" +
+      "T/MgP+/sKzlPKZU4o0JLF/5M88rmPP0bBkD7NWJFWN5j8YRz8QKFJ4u5/+FNiJF\n" +
+      "7v5x1xAd6O+X+5pXR3J1O15VhR2fhmJQG1bBwl5k6uGVWB5b1aPL3d7E6cZF3+bE\n" +
+      "-----END CERTIFICATE-----"
+    );
+  });
+
+  // Override signature promise - return empty for demo mode
+  qz.security.setSignaturePromise(function() {
+    return function() {
+      return Promise.resolve("");
+    };
+  });
+}
 
 // Initialize QZ Tray connection
 async function connectQZ(): Promise<boolean> {
@@ -13,12 +53,13 @@ async function connectQZ(): Promise<boolean> {
   }
 
   try {
+    initQZ();
     await qz.websocket.connect();
     qzConnected = true;
-    console.log('QZ Tray connected');
+    console.log('QZ Tray connected successfully');
     return true;
-  } catch (err) {
-    console.error('QZ Tray connection failed:', err);
+  } catch (err: any) {
+    console.error('QZ Tray connection failed:', err?.message || err);
     // Fallback to regular print dialog
     return false;
   }
