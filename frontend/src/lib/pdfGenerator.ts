@@ -1,7 +1,104 @@
 import { jsPDF } from 'jspdf';
 import JsBarcode from 'jsbarcode';
-import printJS from 'print-js';
+import qz from 'qz-tray';
 import type { Delivery, DeliveryPackage, Tenant } from '../types';
+
+// QZ Tray connection state
+let qzConnected = false;
+
+// Initialize QZ Tray connection
+async function connectQZ(): Promise<boolean> {
+  if (qzConnected && qz.websocket.isActive()) {
+    return true;
+  }
+
+  try {
+    await qz.websocket.connect();
+    qzConnected = true;
+    console.log('QZ Tray connected');
+    return true;
+  } catch (err) {
+    console.error('QZ Tray connection failed:', err);
+    // Fallback to regular print dialog
+    return false;
+  }
+}
+
+// Find Argox printer
+async function findArgoxPrinter(): Promise<string | null> {
+  try {
+    const printers = await qz.printers.find();
+    // Look for Argox printer
+    const argox = printers.find((p: string) =>
+      p.toLowerCase().includes('argox') ||
+      p.toLowerCase().includes('os-214')
+    );
+    if (argox) {
+      console.log('Found Argox printer:', argox);
+      return argox;
+    }
+    // Return first available printer if Argox not found
+    if (printers.length > 0) {
+      console.log('Using default printer:', printers[0]);
+      return printers[0];
+    }
+    return null;
+  } catch (err) {
+    console.error('Failed to find printers:', err);
+    return null;
+  }
+}
+
+// Silent print using QZ Tray
+async function silentPrint(doc: jsPDF): Promise<boolean> {
+  try {
+    const connected = await connectQZ();
+    if (!connected) {
+      return false;
+    }
+
+    const printer = await findArgoxPrinter();
+    if (!printer) {
+      console.error('No printer found');
+      return false;
+    }
+
+    // Get PDF as base64
+    const pdfBase64 = doc.output('datauristring');
+
+    // Configure print job
+    const config = qz.configs.create(printer, {
+      size: { width: 60, height: 80 },
+      units: 'mm',
+      scaleContent: true
+    });
+
+    // Print the PDF
+    const data: Array<{ type: 'pdf'; data: string }> = [{
+      type: 'pdf',
+      data: pdfBase64
+    }];
+
+    await qz.print(config, data);
+    console.log('Print job sent successfully');
+    return true;
+  } catch (err) {
+    console.error('Silent print failed:', err);
+    return false;
+  }
+}
+
+// Fallback print using browser dialog
+function fallbackPrint(doc: jsPDF): void {
+  const pdfBlob = doc.output('blob');
+  const pdfUrl = URL.createObjectURL(pdfBlob);
+  const printWindow = window.open(pdfUrl, '_blank');
+  if (printWindow) {
+    printWindow.onload = () => {
+      printWindow.print();
+    };
+  }
+}
 
 // Label size: 60mm x 80mm
 const LABEL_WIDTH = 60;
@@ -79,12 +176,12 @@ export function generateDeliveryLabel(delivery: Delivery, labelExtraData?: Label
   // Generate filename
   const filename = `delivery-${delivery.barcode}-${Date.now()}.pdf`;
 
-  // Direct print using print-js with base64 - more reliable
-  const pdfBase64 = doc.output('datauristring').split(',')[1];
-  printJS({
-    printable: pdfBase64,
-    type: 'pdf',
-    base64: true
+  // Try silent print with QZ Tray, fallback to browser dialog
+  silentPrint(doc).then(success => {
+    if (!success) {
+      console.log('QZ Tray not available, using fallback print');
+      fallbackPrint(doc);
+    }
   });
 
   return filename;
@@ -455,12 +552,12 @@ export function generateManualLabel(data: ManualLabelData) {
   // Generate filename
   const filename = `manual-label-${barcode}-${Date.now()}.pdf`;
 
-  // Direct print using print-js with base64 - more reliable
-  const pdfBase64 = doc.output('datauristring').split(',')[1];
-  printJS({
-    printable: pdfBase64,
-    type: 'pdf',
-    base64: true
+  // Try silent print with QZ Tray, fallback to browser dialog
+  silentPrint(doc).then(success => {
+    if (!success) {
+      console.log('QZ Tray not available, using fallback print');
+      fallbackPrint(doc);
+    }
   });
 
   return filename;
