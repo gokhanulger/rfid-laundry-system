@@ -152,6 +152,25 @@ export function IrsaliyePage() {
     const totals: Record<string, { name: string; count: number }> = {};
 
     scannedPackages.forEach(({ delivery }) => {
+      // First try to get from notes (labelExtraData from ironer)
+      if (delivery.notes) {
+        try {
+          const labelData = JSON.parse(delivery.notes);
+          if (Array.isArray(labelData)) {
+            labelData.forEach((item: any) => {
+              const typeName = item.typeName || 'Bilinmeyen';
+              const count = item.count || 0;
+              if (!totals[typeName]) {
+                totals[typeName] = { name: typeName, count: 0 };
+              }
+              totals[typeName].count += count;
+            });
+            return; // Skip deliveryItems if we got data from notes
+          }
+        } catch {}
+      }
+
+      // Fallback to deliveryItems
       delivery.deliveryItems?.forEach((di: any) => {
         const typeName = di.item?.itemType?.name || 'Bilinmeyen';
         const typeId = di.item?.itemTypeId || 'unknown';
@@ -170,6 +189,25 @@ export function IrsaliyePage() {
   const getItemTotals = (delivery: Delivery) => {
     const totals: Record<string, { name: string; count: number }> = {};
 
+    // First try to get from notes (labelExtraData from ironer)
+    if (delivery.notes) {
+      try {
+        const labelData = JSON.parse(delivery.notes);
+        if (Array.isArray(labelData)) {
+          labelData.forEach((item: any) => {
+            const typeName = item.typeName || 'Bilinmeyen';
+            const count = item.count || 0;
+            if (!totals[typeName]) {
+              totals[typeName] = { name: typeName, count: 0 };
+            }
+            totals[typeName].count += count;
+          });
+          return Object.values(totals);
+        }
+      } catch {}
+    }
+
+    // Fallback to deliveryItems
     delivery.deliveryItems?.forEach((di: any) => {
       const typeName = di.item?.itemType?.name || 'Bilinmeyen';
       const typeId = di.item?.itemTypeId || 'unknown';
