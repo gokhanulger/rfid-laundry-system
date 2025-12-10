@@ -157,6 +157,49 @@ export function DeliveryPage() {
     }, {});
   };
 
+  // Get item contents from delivery
+  const getDeliveryContents = (delivery: Delivery) => {
+    let items: { name: string; count: number }[] = [];
+    if (delivery.notes) {
+      try {
+        const labelData = JSON.parse(delivery.notes);
+        if (Array.isArray(labelData)) {
+          items = labelData.map((item: any) => ({
+            name: item.typeName || 'Bilinmeyen',
+            count: item.count || 0
+          }));
+        }
+      } catch {}
+    }
+    if (items.length === 0 && delivery.deliveryItems) {
+      const totals: Record<string, { name: string; count: number }> = {};
+      delivery.deliveryItems.forEach((di: any) => {
+        const typeName = di.item?.itemType?.name || 'Bilinmeyen';
+        if (!totals[typeName]) {
+          totals[typeName] = { name: typeName, count: 0 };
+        }
+        totals[typeName].count++;
+      });
+      items = Object.values(totals);
+    }
+    return items;
+  };
+
+  // Get total items for a hotel's deliveries
+  const getHotelTotals = (deliveries: Delivery[]) => {
+    const totals: Record<string, { name: string; count: number }> = {};
+    deliveries.forEach(delivery => {
+      const contents = getDeliveryContents(delivery);
+      contents.forEach(item => {
+        if (!totals[item.name]) {
+          totals[item.name] = { name: item.name, count: 0 };
+        }
+        totals[item.name].count += item.count;
+      });
+    });
+    return Object.values(totals);
+  };
+
   const readyByHotel = groupByHotel(readyList);
   const transitByHotel = groupByHotel(transitList);
 
@@ -338,66 +381,100 @@ export function DeliveryPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            {Object.entries(readyByHotel).map(([hotelName, deliveries]) => (
-              <div key={hotelName} className="bg-white rounded-2xl shadow-lg overflow-hidden">
-                <div className="bg-gradient-to-r from-purple-600 to-purple-500 px-4 py-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Building2 className="w-6 h-6 text-white" />
-                      <div>
-                        <h3 className="font-bold text-white">{hotelName}</h3>
-                        <p className="text-purple-100 text-xs">{deliveries.length} paket</p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => {
-                        const ids = deliveries.map(d => d.id);
-                        const allSelected = ids.every(id => selectedDeliveries.includes(id));
-                        if (allSelected) {
-                          setSelectedDeliveries(prev => prev.filter(id => !ids.includes(id)));
-                        } else {
-                          setSelectedDeliveries(prev => [...new Set([...prev, ...ids])]);
-                        }
-                      }}
-                      className="px-3 py-1.5 bg-white/20 text-white rounded-lg text-sm touch-manipulation"
-                    >
-                      {deliveries.every(d => selectedDeliveries.includes(d.id)) ? 'Kaldır' : 'Tümünü Seç'}
-                    </button>
-                  </div>
-                </div>
-                <div className="divide-y">
-                  {deliveries.map((delivery) => (
-                    <div
-                      key={delivery.id}
-                      className={`p-3 flex items-center justify-between ${
-                        selectedDeliveries.includes(delivery.id) ? 'bg-purple-50' : ''
-                      }`}
-                    >
-                      <label className="flex items-center gap-3 flex-1 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={selectedDeliveries.includes(delivery.id)}
-                          onChange={() => toggleSelection(delivery.id)}
-                          className="w-5 h-5 text-purple-600 rounded touch-manipulation"
-                        />
-                        <QrCode className="w-6 h-6 text-gray-400" />
+            {Object.entries(readyByHotel).map(([hotelName, deliveries]) => {
+              const hotelTotals = getHotelTotals(deliveries);
+              const totalItems = hotelTotals.reduce((sum, item) => sum + item.count, 0);
+
+              return (
+                <div key={hotelName} className="bg-white rounded-2xl shadow-lg overflow-hidden">
+                  <div className="bg-gradient-to-r from-purple-600 to-purple-500 px-4 py-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Building2 className="w-6 h-6 text-white" />
                         <div>
-                          <p className="font-mono font-bold text-sm">{delivery.barcode}</p>
-                          <p className="text-xs text-gray-500">{delivery.deliveryItems?.length || 0} ürün</p>
+                          <h3 className="font-bold text-white">{hotelName}</h3>
+                          <p className="text-purple-100 text-xs">{deliveries.length} paket • {totalItems} ürün</p>
                         </div>
-                      </label>
+                      </div>
                       <button
-                        onClick={() => handlePickup(delivery.id)}
-                        disabled={pickupMutation.isPending}
-                        className="px-3 py-2 bg-purple-600 text-white rounded-xl font-medium text-sm touch-manipulation"
+                        onClick={() => {
+                          const ids = deliveries.map(d => d.id);
+                          const allSelected = ids.every(id => selectedDeliveries.includes(id));
+                          if (allSelected) {
+                            setSelectedDeliveries(prev => prev.filter(id => !ids.includes(id)));
+                          } else {
+                            setSelectedDeliveries(prev => [...new Set([...prev, ...ids])]);
+                          }
+                        }}
+                        className="px-3 py-1.5 bg-white/20 text-white rounded-lg text-sm touch-manipulation"
                       >
-                        <CheckCircle className="w-4 h-4" />
+                        {deliveries.every(d => selectedDeliveries.includes(d.id)) ? 'Kaldır' : 'Tümünü Seç'}
                       </button>
                     </div>
-                  ))}
+                  </div>
+
+                  {/* Hotel Total Contents */}
+                  {hotelTotals.length > 0 && (
+                    <div className="px-4 py-2 bg-purple-50 border-b flex flex-wrap gap-2">
+                      {hotelTotals.map((item, idx) => (
+                        <span key={idx} className="px-2 py-1 bg-white text-purple-700 rounded text-xs font-medium shadow-sm">
+                          {item.name}: {item.count}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="divide-y">
+                    {deliveries.map((delivery) => {
+                      const contents = getDeliveryContents(delivery);
+                      const itemCount = contents.reduce((sum, item) => sum + item.count, 0);
+
+                      return (
+                        <div
+                          key={delivery.id}
+                          className={`p-3 ${
+                            selectedDeliveries.includes(delivery.id) ? 'bg-purple-50' : ''
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="flex items-center gap-3 flex-1 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={selectedDeliveries.includes(delivery.id)}
+                                onChange={() => toggleSelection(delivery.id)}
+                                className="w-5 h-5 text-purple-600 rounded touch-manipulation"
+                              />
+                              <QrCode className="w-6 h-6 text-gray-400" />
+                              <div>
+                                <p className="font-mono font-bold text-sm">{delivery.barcode}</p>
+                                <p className="text-xs text-gray-500">{itemCount} ürün</p>
+                              </div>
+                            </label>
+                            <button
+                              onClick={() => handlePickup(delivery.id)}
+                              disabled={pickupMutation.isPending}
+                              className="px-3 py-2 bg-purple-600 text-white rounded-xl font-medium text-sm touch-manipulation"
+                            >
+                              <CheckCircle className="w-4 h-4" />
+                            </button>
+                          </div>
+                          {/* Package Contents */}
+                          {contents.length > 0 && (
+                            <div className="ml-8 flex flex-wrap gap-1">
+                              {contents.map((item, idx) => (
+                                <span key={idx} className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
+                                  {item.name}: {item.count}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -513,69 +590,103 @@ export function DeliveryPage() {
         </div>
       ) : (
         <div className="space-y-4">
-          {Object.entries(transitByHotel).map(([hotelName, deliveries]) => (
-            <div key={hotelName} className="bg-white rounded-2xl shadow-lg overflow-hidden">
-              <div className="bg-gradient-to-r from-green-600 to-green-500 px-4 py-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Building2 className="w-6 h-6 text-white" />
-                    <div>
-                      <h3 className="font-bold text-white">{hotelName}</h3>
-                      <p className="text-green-100 text-xs flex items-center gap-1">
-                        <MapPin className="w-3 h-3" />
-                        {deliveries.length} paket
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => {
-                      const ids = deliveries.map(d => d.id);
-                      const allSelected = ids.every(id => selectedDeliveries.includes(id));
-                      if (allSelected) {
-                        setSelectedDeliveries(prev => prev.filter(id => !ids.includes(id)));
-                      } else {
-                        setSelectedDeliveries(prev => [...new Set([...prev, ...ids])]);
-                      }
-                    }}
-                    className="px-3 py-1.5 bg-white/20 text-white rounded-lg text-sm touch-manipulation"
-                  >
-                    {deliveries.every(d => selectedDeliveries.includes(d.id)) ? 'Kaldır' : 'Tümünü Seç'}
-                  </button>
-                </div>
-              </div>
-              <div className="divide-y">
-                {deliveries.map((delivery) => (
-                  <div
-                    key={delivery.id}
-                    className={`p-3 flex items-center justify-between ${
-                      selectedDeliveries.includes(delivery.id) ? 'bg-green-50' : ''
-                    }`}
-                  >
-                    <label className="flex items-center gap-3 flex-1 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={selectedDeliveries.includes(delivery.id)}
-                        onChange={() => toggleSelection(delivery.id)}
-                        className="w-5 h-5 text-green-600 rounded touch-manipulation"
-                      />
-                      <Package className="w-6 h-6 text-gray-400" />
+          {Object.entries(transitByHotel).map(([hotelName, deliveries]) => {
+            const hotelTotals = getHotelTotals(deliveries);
+            const totalItems = hotelTotals.reduce((sum, item) => sum + item.count, 0);
+
+            return (
+              <div key={hotelName} className="bg-white rounded-2xl shadow-lg overflow-hidden">
+                <div className="bg-gradient-to-r from-green-600 to-green-500 px-4 py-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Building2 className="w-6 h-6 text-white" />
                       <div>
-                        <p className="font-mono font-bold text-sm">{delivery.barcode}</p>
-                        <p className="text-xs text-gray-500">{delivery.deliveryItems?.length || 0} ürün</p>
+                        <h3 className="font-bold text-white">{hotelName}</h3>
+                        <p className="text-green-100 text-xs flex items-center gap-1">
+                          <MapPin className="w-3 h-3" />
+                          {deliveries.length} paket • {totalItems} ürün
+                        </p>
                       </div>
-                    </label>
+                    </div>
                     <button
-                      onClick={() => handleDeliver(delivery.id)}
-                      disabled={deliverMutation.isPending}
-                      className="px-3 py-2 bg-green-600 text-white rounded-xl font-medium text-sm touch-manipulation"
+                      onClick={() => {
+                        const ids = deliveries.map(d => d.id);
+                        const allSelected = ids.every(id => selectedDeliveries.includes(id));
+                        if (allSelected) {
+                          setSelectedDeliveries(prev => prev.filter(id => !ids.includes(id)));
+                        } else {
+                          setSelectedDeliveries(prev => [...new Set([...prev, ...ids])]);
+                        }
+                      }}
+                      className="px-3 py-1.5 bg-white/20 text-white rounded-lg text-sm touch-manipulation"
                     >
-                      <CheckCircle className="w-4 h-4" />
+                      {deliveries.every(d => selectedDeliveries.includes(d.id)) ? 'Kaldır' : 'Tümünü Seç'}
                     </button>
                   </div>
-                ))}
+                </div>
+
+                {/* Hotel Total Contents */}
+                {hotelTotals.length > 0 && (
+                  <div className="px-4 py-2 bg-green-50 border-b flex flex-wrap gap-2">
+                    {hotelTotals.map((item, idx) => (
+                      <span key={idx} className="px-2 py-1 bg-white text-green-700 rounded text-xs font-medium shadow-sm">
+                        {item.name}: {item.count}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                <div className="divide-y">
+                  {deliveries.map((delivery) => {
+                    const contents = getDeliveryContents(delivery);
+                    const itemCount = contents.reduce((sum, item) => sum + item.count, 0);
+
+                    return (
+                      <div
+                        key={delivery.id}
+                        className={`p-3 ${
+                          selectedDeliveries.includes(delivery.id) ? 'bg-green-50' : ''
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <label className="flex items-center gap-3 flex-1 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={selectedDeliveries.includes(delivery.id)}
+                              onChange={() => toggleSelection(delivery.id)}
+                              className="w-5 h-5 text-green-600 rounded touch-manipulation"
+                            />
+                            <Package className="w-6 h-6 text-gray-400" />
+                            <div>
+                              <p className="font-mono font-bold text-sm">{delivery.barcode}</p>
+                              <p className="text-xs text-gray-500">{itemCount} ürün</p>
+                            </div>
+                          </label>
+                          <button
+                            onClick={() => handleDeliver(delivery.id)}
+                            disabled={deliverMutation.isPending}
+                            className="px-3 py-2 bg-green-600 text-white rounded-xl font-medium text-sm touch-manipulation"
+                          >
+                            <CheckCircle className="w-4 h-4" />
+                          </button>
+                        </div>
+                        {/* Package Contents */}
+                        {contents.length > 0 && (
+                          <div className="ml-8 flex flex-wrap gap-1">
+                            {contents.map((item, idx) => (
+                              <span key={idx} className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
+                                {item.name}: {item.count}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
