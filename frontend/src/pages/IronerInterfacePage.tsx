@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Printer, CheckCircle, RefreshCw, Package, Tag, Sparkles, ChevronDown, ChevronRight, Building2, X, Plus, Trash2, Search, Delete } from 'lucide-react';
 import { itemsApi, deliveriesApi, settingsApi, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/Toast';
-import { generateDeliveryLabel, generateManualLabel } from '../lib/pdfGenerator';
+import { generateDeliveryLabel } from '../lib/pdfGenerator';
 import type { Item, Delivery, Tenant } from '../types';
 
 // Storage keys
@@ -1045,42 +1045,23 @@ export function IronerInterfacePage() {
                                     setLastPrintedType(newLastPrintedType);
                                     localStorage.setItem(LAST_PRINTED_TYPE_KEY, JSON.stringify(newLastPrintedType));
 
-                                    // If no available items, use manual label generation
-                                    if (availableItems.length === 0) {
-                                      if (!hotel) {
-                                        toast.error('Otel bulunamadi');
-                                        return;
-                                      }
-                                      const itemType = itemTypes?.find((t: { id: string; name: string }) => t.id === typeId);
-                                      generateManualLabel({
-                                        tenant: hotel,
-                                        items: [{
-                                          typeName: itemType?.name || 'Bilinmeyen',
-                                          count: count,
-                                          discardCount: discardCount,
-                                          hasarliCount: hasarliCount
-                                        }],
-                                        packageCount: 1
-                                      });
-                                      toast.success('Manuel etiket olusturuldu!');
-                                    } else {
-                                      const validCount = Math.min(count, availableItems.length);
-                                      const itemIds = availableItems.slice(0, validCount).map(i => i.id);
-                                      const itemType = itemTypes?.find((t: { id: string; name: string }) => t.id === typeId);
+                                    // Get item IDs from available items (may be empty for manual label)
+                                    const itemIds = availableItems.slice(0, count).map(i => i.id);
+                                    const itemType = itemTypes?.find((t: { id: string; name: string }) => t.id === typeId);
 
-                                      processAndPrintMutation.mutate({
-                                        hotelId,
-                                        itemIds,
-                                        labelCount: 1,
-                                        labelExtraData: [{
-                                          typeId,
-                                          typeName: itemType?.name || 'Bilinmeyen',
-                                          count: count,
-                                          discardCount,
-                                          hasarliCount
-                                        }]
-                                      });
-                                    }
+                                    // Always call mutation - backend handles empty itemIds (manual deliveries)
+                                    processAndPrintMutation.mutate({
+                                      hotelId,
+                                      itemIds,
+                                      labelCount: 1,
+                                      labelExtraData: [{
+                                        typeId,
+                                        typeName: itemType?.name || 'Bilinmeyen',
+                                        count: count,
+                                        discardCount,
+                                        hasarliCount
+                                      }]
+                                    });
 
                                     // Reset form
                                     setAddingTypeId(prev => ({ ...prev, [hotelId]: '' }));
