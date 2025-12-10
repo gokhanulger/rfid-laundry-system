@@ -79,13 +79,12 @@ export function generateDeliveryLabel(delivery: Delivery, labelExtraData?: Label
   // Generate filename
   const filename = `delivery-${delivery.barcode}-${Date.now()}.pdf`;
 
-  // Direct print using print-js - prints without opening new tab
-  const pdfBlob = doc.output('blob');
-  const pdfUrl = URL.createObjectURL(pdfBlob);
+  // Direct print using print-js with base64 - more reliable
+  const pdfBase64 = doc.output('datauristring').split(',')[1];
   printJS({
-    printable: pdfUrl,
+    printable: pdfBase64,
     type: 'pdf',
-    showModal: false
+    base64: true
   });
 
   return filename;
@@ -456,13 +455,12 @@ export function generateManualLabel(data: ManualLabelData) {
   // Generate filename
   const filename = `manual-label-${barcode}-${Date.now()}.pdf`;
 
-  // Direct print using print-js - prints without opening new tab
-  const pdfBlob = doc.output('blob');
-  const pdfUrl = URL.createObjectURL(pdfBlob);
+  // Direct print using print-js with base64 - more reliable
+  const pdfBase64 = doc.output('datauristring').split(',')[1];
   printJS({
-    printable: pdfUrl,
+    printable: pdfBase64,
     type: 'pdf',
-    showModal: false
+    base64: true
   });
 
   return filename;
