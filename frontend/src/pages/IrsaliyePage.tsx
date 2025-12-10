@@ -32,7 +32,6 @@ export function IrsaliyePage() {
   const [barcodeInput, setBarcodeInput] = useState('');
   const [scannedPackages, setScannedPackages] = useState<ScannedPackage[]>([]);
   const [selectedHotelId, setSelectedHotelId] = useState<string | null>(null);
-  const [showHotelDetail, setShowHotelDetail] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -306,7 +305,7 @@ export function IrsaliyePage() {
 
     setTimeout(() => {
       handleClearAll();
-      setShowHotelDetail(false);
+      setSelectedHotelId(null);
       queryClient.invalidateQueries({ queryKey: ['deliveries'] });
       refetchPrinted();
     }, 1000);
@@ -533,11 +532,16 @@ export function IrsaliyePage() {
     refetchPrinted();
   };
 
-  // Handle hotel card click
+  // Handle hotel card click - toggle selection
   const handleHotelClick = (hotelId: string) => {
-    setSelectedHotelId(hotelId);
-    setShowHotelDetail(true);
-    setScannedPackages([]);
+    if (selectedHotelId === hotelId) {
+      // Deselect if clicking same hotel
+      setSelectedHotelId(null);
+      setScannedPackages([]);
+    } else {
+      setSelectedHotelId(hotelId);
+      setScannedPackages([]);
+    }
   };
 
   // Get selected hotel's deliveries
@@ -696,6 +700,196 @@ export function IrsaliyePage() {
                   <p className="text-sm text-gray-500">Basilan Irsaliye</p>
                 </div>
               </div>
+
+              {/* Selected Hotel Detail - Inline */}
+              {selectedHotelId && (
+                <div className="bg-gradient-to-r from-teal-50 to-teal-100 rounded-xl border-2 border-teal-300 overflow-hidden">
+                  {/* Hotel Header */}
+                  <div className="bg-gradient-to-r from-teal-600 to-teal-500 p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <Building2 className="w-8 h-8 text-white" />
+                        <div>
+                          <h2 className="text-xl font-bold text-white">{selectedHotel?.name}</h2>
+                          <p className="text-teal-100">{selectedHotelDeliveries.length} paket hazir</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => { setSelectedHotelId(null); handleClearAll(); }}
+                        className="p-2 text-white hover:bg-white/20 rounded-lg"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="p-4">
+                    {/* Scanner and Packages Grid */}
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                      {/* Left: Scanner */}
+                      <div className="space-y-4">
+                        <div className="bg-white rounded-xl p-4 border shadow-sm">
+                          <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                            <QrCode className="w-4 h-4 text-teal-600" />
+                            Barkod Tara
+                          </h3>
+                          <div className="flex gap-2">
+                            <input
+                              ref={inputRef}
+                              type="text"
+                              value={barcodeInput}
+                              onChange={(e) => setBarcodeInput(e.target.value.toUpperCase())}
+                              onKeyDown={(e) => e.key === 'Enter' && handleScan()}
+                              placeholder="Barkod..."
+                              className="flex-1 px-3 py-2 text-sm border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 font-mono"
+                              autoFocus
+                            />
+                            <button
+                              onClick={handleScan}
+                              disabled={scanMutation.isPending || !barcodeInput.trim()}
+                              className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 text-sm font-medium"
+                            >
+                              Ekle
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Summary */}
+                        {totals.length > 0 && (
+                          <div className="bg-white rounded-xl border p-4 shadow-sm">
+                            <h3 className="font-semibold mb-2 text-sm">Secilen Urunler</h3>
+                            <div className="space-y-1 mb-3">
+                              {totals.map((item, index) => (
+                                <div key={index} className="flex items-center justify-between py-1 border-b last:border-0 text-sm">
+                                  <span>{item.name}</span>
+                                  <span className="font-bold text-teal-600">{item.count} adet</span>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="pt-2 border-t flex items-center justify-between">
+                              <span className="font-bold text-sm">PAKET</span>
+                              <span className="text-lg font-bold text-teal-700">{scannedPackages.length}</span>
+                            </div>
+                          </div>
+                        )}
+
+                        {scannedPackages.length > 0 && (
+                          <button
+                            onClick={generateIrsaliyePDF}
+                            className="w-full py-3 bg-teal-600 text-white rounded-xl hover:bg-teal-700 font-bold flex items-center justify-center gap-2 shadow-lg"
+                          >
+                            <Printer className="w-5 h-5" />
+                            IRSALIYE YAZDIR
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Right: All Packages as Grid */}
+                      <div className="lg:col-span-2">
+                        <div className="flex items-center justify-between mb-3">
+                          <h3 className="font-semibold flex items-center gap-2">
+                            <Package className="w-5 h-5 text-teal-600" />
+                            Hazir Paketler
+                          </h3>
+                          {scannedPackages.length > 0 && (
+                            <button
+                              onClick={handleClearAll}
+                              className="text-xs text-red-600 hover:text-red-800 flex items-center gap-1"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              Temizle
+                            </button>
+                          )}
+                        </div>
+
+                        {selectedHotelDeliveries.length === 0 ? (
+                          <div className="p-8 text-center bg-white rounded-xl text-gray-500">
+                            <Package className="w-12 h-12 mx-auto text-gray-300 mb-2" />
+                            <p>Bu otele ait hazir paket yok</p>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                            {selectedHotelDeliveries.map((delivery: Delivery) => {
+                              const isScanned = scannedPackages.some(sp => sp.delivery.id === delivery.id);
+
+                              // Get item summary for this delivery
+                              let deliveryItems: { name: string; count: number }[] = [];
+                              if (delivery.notes) {
+                                try {
+                                  const labelData = JSON.parse(delivery.notes);
+                                  if (Array.isArray(labelData)) {
+                                    deliveryItems = labelData.map((item: any) => ({
+                                      name: item.typeName || 'Bilinmeyen',
+                                      count: item.count || 0
+                                    }));
+                                  }
+                                } catch {}
+                              }
+                              if (deliveryItems.length === 0 && delivery.deliveryItems) {
+                                const itemTotals: Record<string, { name: string; count: number }> = {};
+                                delivery.deliveryItems.forEach((di: any) => {
+                                  const typeName = di.item?.itemType?.name || 'Bilinmeyen';
+                                  if (!itemTotals[typeName]) {
+                                    itemTotals[typeName] = { name: typeName, count: 0 };
+                                  }
+                                  itemTotals[typeName].count++;
+                                });
+                                deliveryItems = Object.values(itemTotals);
+                              }
+
+                              return (
+                                <button
+                                  key={delivery.id}
+                                  onClick={() => {
+                                    if (!isScanned) {
+                                      setBarcodeInput(delivery.barcode);
+                                      setTimeout(() => handleScan(), 100);
+                                    } else {
+                                      // Remove from scanned
+                                      const idx = scannedPackages.findIndex(sp => sp.delivery.id === delivery.id);
+                                      if (idx >= 0) handleRemovePackage(idx);
+                                    }
+                                  }}
+                                  className={`
+                                    relative rounded-xl border-2 p-3 text-left
+                                    transition-all duration-200
+                                    ${isScanned
+                                      ? 'bg-teal-500 border-teal-600 text-white shadow-lg scale-[1.02]'
+                                      : 'bg-white border-gray-200 hover:border-teal-400 hover:shadow-md'
+                                    }
+                                  `}
+                                >
+                                  {isScanned && (
+                                    <div className="absolute -top-2 -right-2 w-6 h-6 bg-green-500 rounded-full flex items-center justify-center shadow">
+                                      <CheckCircle className="w-4 h-4 text-white" />
+                                    </div>
+                                  )}
+
+                                  <p className={`font-mono text-xs font-bold mb-2 ${isScanned ? 'text-white' : 'text-gray-700'}`}>
+                                    {delivery.barcode.slice(-8)}
+                                  </p>
+
+                                  <div className={`space-y-0.5 text-xs ${isScanned ? 'text-teal-100' : 'text-gray-500'}`}>
+                                    {deliveryItems.slice(0, 3).map((item, idx) => (
+                                      <div key={idx} className="flex justify-between">
+                                        <span className="truncate">{item.name}</span>
+                                        <span className="font-medium ml-1">{item.count}</span>
+                                      </div>
+                                    ))}
+                                    {deliveryItems.length > 3 && (
+                                      <p className="text-xs opacity-70">+{deliveryItems.length - 3} tur</p>
+                                    )}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             /* HISTORY TAB */
@@ -914,195 +1108,6 @@ export function IrsaliyePage() {
         </div>
       </div>
 
-      {/* Hotel Detail Modal */}
-      {showHotelDetail && selectedHotelId && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => { setShowHotelDetail(false); handleClearAll(); }}>
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            {/* Modal Header */}
-            <div className="bg-gradient-to-r from-teal-600 to-teal-500 p-6 rounded-t-xl">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <Building2 className="w-10 h-10 text-white" />
-                  <div>
-                    <h2 className="text-2xl font-bold text-white">{selectedHotel?.name}</h2>
-                    <p className="text-teal-100">{selectedHotelDeliveries.length} paket hazir</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => { setShowHotelDetail(false); handleClearAll(); }}
-                  className="p-2 text-white hover:bg-white/20 rounded-lg"
-                >
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
-            </div>
-
-            <div className="p-6">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Left: Scanner and Scanned Packages */}
-                <div className="space-y-4">
-                  {/* Scanner Section */}
-                  <div className="bg-teal-50 rounded-xl p-4 border-2 border-teal-200">
-                    <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                      <QrCode className="w-5 h-5 text-teal-600" />
-                      Paket Barkodunu Tarayin
-                    </h3>
-                    <div className="flex gap-3">
-                      <input
-                        ref={inputRef}
-                        type="text"
-                        value={barcodeInput}
-                        onChange={(e) => setBarcodeInput(e.target.value.toUpperCase())}
-                        onKeyDown={(e) => e.key === 'Enter' && handleScan()}
-                        placeholder="Paket barkodunu tarayin..."
-                        className="flex-1 px-4 py-3 text-lg border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 font-mono"
-                        autoFocus
-                      />
-                      <button
-                        onClick={handleScan}
-                        disabled={scanMutation.isPending || !barcodeInput.trim()}
-                        className="px-6 py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
-                      >
-                        {scanMutation.isPending ? 'Araniyor...' : 'Ekle'}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Scanned Packages */}
-                  <div className="bg-white rounded-xl border overflow-hidden">
-                    <div className="p-4 border-b bg-gray-50 flex items-center justify-between">
-                      <h3 className="font-semibold flex items-center gap-2">
-                        <Package className="w-5 h-5 text-teal-600" />
-                        Taranan Paketler ({scannedPackages.length})
-                      </h3>
-                      {scannedPackages.length > 0 && (
-                        <button
-                          onClick={handleClearAll}
-                          className="text-sm text-red-600 hover:text-red-800 flex items-center gap-1"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                          Temizle
-                        </button>
-                      )}
-                    </div>
-
-                    {scannedPackages.length === 0 ? (
-                      <div className="p-8 text-center">
-                        <QrCode className="w-12 h-12 mx-auto text-gray-300 mb-3" />
-                        <p className="text-gray-500">Henuz paket taranmadi</p>
-                        <p className="text-gray-400 text-sm mt-1">Sagdaki listeden secin veya barkod tarayin</p>
-                      </div>
-                    ) : (
-                      <div className="divide-y max-h-[250px] overflow-y-auto">
-                        {scannedPackages.map((sp, index) => (
-                          <div key={sp.pkg.packageBarcode} className="p-3 flex items-center justify-between hover:bg-gray-50">
-                            <div className="flex items-center gap-3">
-                              <span className="w-7 h-7 flex items-center justify-center bg-teal-100 text-teal-700 rounded-full font-bold text-sm">
-                                {index + 1}
-                              </span>
-                              <div>
-                                <p className="font-mono font-medium">{sp.pkg.packageBarcode}</p>
-                                <p className="text-xs text-gray-500">{sp.delivery.deliveryItems?.length || 0} urun</p>
-                              </div>
-                            </div>
-                            <button
-                              onClick={() => handleRemovePackage(index)}
-                              className="p-1 text-red-500 hover:bg-red-50 rounded"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Summary and Print Button */}
-                  {totals.length > 0 && (
-                    <div className="bg-white rounded-xl border p-4">
-                      <h3 className="font-semibold mb-3">Urun Ozeti</h3>
-                      <div className="space-y-2 mb-4">
-                        {totals.map((item, index) => (
-                          <div key={index} className="flex items-center justify-between py-1 border-b last:border-0">
-                            <span className="text-sm">{item.name}</span>
-                            <span className="font-bold text-teal-600">{item.count} adet</span>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="pt-3 border-t flex items-center justify-between">
-                        <span className="font-bold">PAKET SAYISI</span>
-                        <span className="text-xl font-bold text-teal-700">{scannedPackages.length}</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {scannedPackages.length > 0 && (
-                    <button
-                      onClick={generateIrsaliyePDF}
-                      className="w-full py-4 bg-teal-600 text-white rounded-xl hover:bg-teal-700 font-bold text-lg flex items-center justify-center gap-3 shadow-lg"
-                    >
-                      <Printer className="w-6 h-6" />
-                      IRSALIYE YAZDIR
-                    </button>
-                  )}
-                </div>
-
-                {/* Right: Available Packages */}
-                <div className="bg-gray-50 rounded-xl border overflow-hidden">
-                  <div className="p-4 border-b bg-white">
-                    <h3 className="font-semibold flex items-center gap-2">
-                      <CheckCircle className="w-5 h-5 text-green-600" />
-                      Hazir Paketler ({selectedHotelDeliveries.length})
-                    </h3>
-                  </div>
-
-                  {selectedHotelDeliveries.length === 0 ? (
-                    <div className="p-8 text-center text-gray-500">
-                      <Package className="w-12 h-12 mx-auto text-gray-300 mb-2" />
-                      <p>Bu otele ait hazir paket yok</p>
-                    </div>
-                  ) : (
-                    <div className="divide-y max-h-[500px] overflow-y-auto">
-                      {selectedHotelDeliveries.map((delivery: Delivery) => {
-                        const isScanned = scannedPackages.some(sp => sp.delivery.id === delivery.id);
-                        return (
-                          <div
-                            key={delivery.id}
-                            className={`p-4 cursor-pointer transition-colors ${
-                              isScanned
-                                ? 'bg-teal-50 border-l-4 border-teal-500'
-                                : 'hover:bg-white'
-                            }`}
-                            onClick={() => {
-                              if (!isScanned) {
-                                setBarcodeInput(delivery.barcode);
-                                handleScan();
-                              }
-                            }}
-                          >
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="font-mono font-medium">{delivery.barcode}</span>
-                              {isScanned && (
-                                <CheckCircle className="w-5 h-5 text-teal-600" />
-                              )}
-                            </div>
-                            <p className="text-xs text-gray-500">
-                              {delivery.deliveryItems?.length || 0} urun, {delivery.packageCount || 1} paket
-                            </p>
-                            <p className="text-xs text-gray-400 mt-1">
-                              {formatDate(delivery.createdAt)}
-                            </p>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
