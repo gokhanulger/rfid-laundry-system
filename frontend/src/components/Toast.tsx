@@ -107,15 +107,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={{ toasts, addToast, removeToast, success, error, warning, info }}>
       {children}
-      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-md">
-        {toasts.map((toast) => (
-          <ToastItem
-            key={toast.id}
-            toast={toast}
-            onRemove={() => removeToast(toast.id)}
-          />
-        ))}
-      </div>
+      {/* Notifications disabled per user request */}
     </ToastContext.Provider>
   );
 }
