@@ -31,7 +31,7 @@ function createWindow() {
     // Production: Load from built files using app path
     const appPath = app.getAppPath();
     mainWindow.loadFile(path.join(appPath, 'dist/index.html'));
-    mainWindow.webContents.openDevTools();
+    // DevTools disabled for production
   }
 
   mainWindow.on('closed', () => {
@@ -76,9 +76,9 @@ ipcMain.handle('print-document', async (event, options) => {
 // Handle silent print with specific printer
 ipcMain.handle('print-label', async (event, { html, printerName, copies }) => {
   return new Promise((resolve) => {
-    // Create a window for printing (show: true for debugging)
+    // Create a hidden window for printing
     const printWindow = new BrowserWindow({
-      show: true, // DEBUG: set to false for production
+      show: false,
       width: 800,
       height: 600,
       webPreferences: {
@@ -87,31 +87,32 @@ ipcMain.handle('print-label', async (event, { html, printerName, copies }) => {
       }
     });
 
-    // Log HTML content for debugging
-    console.log('Print HTML length:', html?.length || 0);
-
     // Use base64 encoding to avoid URL encoding issues
     const base64Html = Buffer.from(html || '<html><body>No content</body></html>').toString('base64');
     printWindow.loadURL(`data:text/html;base64,${base64Html}`);
 
     printWindow.webContents.on('did-finish-load', () => {
-      printWindow.webContents.print(
-        {
-          silent: true,
-          printBackground: true,
-          deviceName: printerName || '',
-          copies: copies || 1,
-          margins: { marginType: 'none' }
-        },
-        (success, failureReason) => {
-          printWindow.close();
-          if (success) {
-            resolve({ success: true });
-          } else {
-            resolve({ success: false, error: failureReason });
+      // Wait a bit for any embedded content to load
+      setTimeout(() => {
+        printWindow.webContents.print(
+          {
+            silent: true,
+            printBackground: true,
+            deviceName: printerName || '',
+            copies: copies || 1,
+            margins: { marginType: 'none' },
+            pageSize: { width: 60000, height: 80000 } // 60mm x 80mm in microns
+          },
+          (success, failureReason) => {
+            printWindow.close();
+            if (success) {
+              resolve({ success: true });
+            } else {
+              resolve({ success: false, error: failureReason });
+            }
           }
-        }
-      );
+        );
+      }, 500); // Wait 500ms for content to fully render
     });
   });
 });

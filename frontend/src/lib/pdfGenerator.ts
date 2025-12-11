@@ -59,6 +59,151 @@ function withTimeout<T>(promise: Promise<T>, ms: number, errorMsg: string): Prom
   ]);
 }
 
+// Store label data for Electron printing
+let pendingLabelData: { delivery: any; labelExtraData?: LabelExtraItem[] } | null = null;
+
+export function setPendingLabelData(delivery: any, labelExtraData?: LabelExtraItem[]) {
+  pendingLabelData = { delivery, labelExtraData };
+}
+
+// Generate HTML label for Electron printing (no PDF)
+function generateHtmlLabel(delivery: any, labelExtraData?: LabelExtraItem[]): string {
+  const packages = delivery.deliveryPackages || [];
+  const labelsToGenerate = packages.length > 0
+    ? packages
+    : Array.from({ length: delivery.packageCount || 1 }, (_, i) => ({
+        packageBarcode: `${delivery.barcode}-PKG${i + 1}`,
+        sequenceNumber: i + 1,
+      }));
+
+  // Group items by type
+  const itemsByType: Record<string, { name: string; count: number; discardCount: number; hasarliCount: number }> = {};
+
+  if (labelExtraData && labelExtraData.length > 0) {
+    labelExtraData.forEach((extraData) => {
+      itemsByType[extraData.typeId] = {
+        name: extraData.typeName || 'Unknown',
+        count: extraData.count || 0,
+        discardCount: extraData.discardCount || 0,
+        hasarliCount: extraData.hasarliCount || 0
+      };
+    });
+  }
+
+  const itemTypeEntries = Object.entries(itemsByType);
+  const totalItems = itemTypeEntries.reduce((sum, [, item]) => sum + item.count, 0);
+  const hotelName = delivery.tenant?.name || 'Unknown Hotel';
+  const date = new Date(delivery.createdAt || Date.now()).toLocaleDateString('tr-TR');
+
+  // Check for discord/lekeli
+  let hasDiscord = false;
+  let hasLekeli = false;
+  itemTypeEntries.forEach(([, item]) => {
+    if (item.discardCount > 0) hasDiscord = true;
+    if (item.hasarliCount > 0) hasLekeli = true;
+  });
+
+  // Generate HTML for each label
+  let labelsHtml = '';
+
+  labelsToGenerate.forEach((pkg: any, index: number) => {
+    if (index > 0) {
+      labelsHtml += '<div style="page-break-before: always;"></div>';
+    }
+
+    labelsHtml += `
+      <div style="width: 60mm; height: 80mm; padding: 3mm; box-sizing: border-box; font-family: Arial, sans-serif;">
+        <!-- Hotel Name -->
+        <div style="text-align: center; font-size: 14pt; font-weight: bold; margin-bottom: 2mm;">
+          ${hotelName.substring(0, 22)}
+          <span style="float: right; font-size: 8pt;">${pkg.sequenceNumber}/${labelsToGenerate.length}</span>
+        </div>
+
+        <!-- Separator -->
+        <div style="border-bottom: 1px solid black; margin-bottom: 2mm;"></div>
+
+        <!-- Barcode area -->
+        <div style="border: 1px solid black; padding: 2mm; margin-bottom: 2mm; text-align: center;">
+          <div style="font-family: 'Libre Barcode 128', monospace; font-size: 32pt;">${pkg.packageBarcode}</div>
+          <div style="font-family: Courier, monospace; font-size: 7pt; font-weight: bold;">${pkg.packageBarcode}</div>
+        </div>
+
+        <!-- Items header -->
+        <div style="background: black; color: white; padding: 1mm 2mm; text-align: center; font-size: 7pt; font-weight: bold; margin-bottom: 2mm;">
+          TOPLAM: ${totalItems} ADET
+        </div>
+
+        <!-- Items list -->
+        ${itemTypeEntries.map(([, item]) => `
+          <div style="display: flex; justify-content: space-between; font-size: 7pt; margin-bottom: 1mm;">
+            <span>${item.name.substring(0, 20)}</span>
+            <span style="font-weight: bold;">${item.count} adet</span>
+          </div>
+        `).join('')}
+
+        <!-- Date -->
+        <div style="position: absolute; bottom: 10mm; font-size: 5pt;">Tarih: ${date}</div>
+
+        <!-- Footer -->
+        <div style="position: absolute; bottom: 3mm; width: calc(100% - 6mm); text-align: center; border-top: 1px solid black; padding-top: 1mm; font-size: 4pt;">
+          RFID Laundry System
+        </div>
+      </div>
+    `;
+  });
+
+  // Add special label if discord or lekeli
+  if (hasDiscord || hasLekeli) {
+    const labelType = hasDiscord ? 'DISCORD' : 'LEKELI';
+    const bgColor = hasDiscord ? '#3B82F6' : '#EF4444';
+
+    labelsHtml += `
+      <div style="page-break-before: always;"></div>
+      <div style="width: 60mm; height: 80mm; padding: 3mm; box-sizing: border-box; font-family: Arial, sans-serif;">
+        <!-- Header -->
+        <div style="background: ${bgColor}; color: white; padding: 2mm; text-align: center; font-size: 8pt; font-weight: bold;">
+          SPECIAL LABEL
+        </div>
+
+        <!-- Hotel -->
+        <div style="margin-top: 3mm; font-size: 9pt; font-weight: bold;">${hotelName.substring(0, 18)}</div>
+
+        <!-- Big label -->
+        <div style="background: ${bgColor}; color: white; margin-top: 10mm; padding: 5mm; text-align: center; font-size: 24pt; font-weight: bold;">
+          ${labelType}
+        </div>
+
+        <!-- Barcode -->
+        <div style="position: absolute; bottom: 25mm; left: 3mm; right: 3mm; border: 1px solid black; padding: 2mm; text-align: center;">
+          <div style="font-family: Courier, monospace; font-size: 6pt; font-weight: bold;">${delivery.barcode}</div>
+        </div>
+
+        <!-- Date -->
+        <div style="position: absolute; bottom: 3mm; font-size: 5pt;">Tarih: ${date}</div>
+      </div>
+    `;
+  }
+
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        @page { size: 60mm 80mm; margin: 0; }
+        @media print {
+          body { margin: 0; padding: 0; }
+          div { position: relative; }
+        }
+        body { margin: 0; padding: 0; }
+      </style>
+    </head>
+    <body>
+      ${labelsHtml}
+    </body>
+    </html>
+  `;
+}
+
 // Silent print using Electron API (preferred when available)
 async function silentPrintElectron(doc: jsPDF): Promise<boolean> {
   if (!isElectron() || !window.electronAPI) {
@@ -67,25 +212,30 @@ async function silentPrintElectron(doc: jsPDF): Promise<boolean> {
 
   console.log('silentPrint: Using Electron API...');
 
-  // Get PDF as base64
-  const pdfBase64 = doc.output('datauristring');
-
-  // Create HTML wrapper for the PDF
-  const html = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <style>
-        @page { size: 60mm 80mm; margin: 0; }
-        body { margin: 0; padding: 0; }
-        embed { width: 100%; height: 100%; }
-      </style>
-    </head>
-    <body>
-      <embed src="${pdfBase64}" type="application/pdf" />
-    </body>
-    </html>
-  `;
+  // If we have pending label data, generate HTML directly (no PDF embed)
+  let html: string;
+  if (pendingLabelData) {
+    html = generateHtmlLabel(pendingLabelData.delivery, pendingLabelData.labelExtraData);
+    pendingLabelData = null; // Clear after use
+  } else {
+    // Fallback: Create simple HTML from PDF (may not work well)
+    const pdfBase64 = doc.output('datauristring');
+    html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          @page { size: 60mm 80mm; margin: 0; }
+          body { margin: 0; padding: 0; }
+          iframe { width: 100%; height: 100%; border: none; }
+        </style>
+      </head>
+      <body>
+        <iframe src="${pdfBase64}"></iframe>
+      </body>
+      </html>
+    `;
+  }
 
   const printerName = getPreferredPrinter() || PRINTER_NAME;
 
@@ -202,6 +352,11 @@ export interface ManualLabelData {
 }
 
 export function generateDeliveryLabel(delivery: Delivery, labelExtraData?: LabelExtraItem[]) {
+  // Store data for Electron HTML generation
+  if (isElectron()) {
+    setPendingLabelData(delivery, labelExtraData);
+  }
+
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
