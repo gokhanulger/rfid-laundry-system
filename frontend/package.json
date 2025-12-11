@@ -1,13 +1,59 @@
 {
   "name": "rfid-laundry-frontend",
   "version": "1.0.0",
-  "description": "Frontend for RFID Laundry Tracking System",
+  "description": "RFID Çamaşırhane Takip Sistemi",
   "type": "module",
+  "main": "electron/main.js",
+  "author": "RFID Laundry",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3002 && electron .\"",
+    "electron:build": "npm run build && electron-builder",
+    "electron:build:win": "npm run build && electron-builder --win",
+    "electron:build:mac": "npm run build && electron-builder --mac",
+    "electron:build:linux": "npm run build && electron-builder --linux"
+  },
+  "build": {
+    "appId": "com.rfid.laundry",
+    "productName": "RFID Çamaşırhane",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "public/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "public/pwa-512x512.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "public/pwa-512x512.png",
+      "uninstallerIcon": "public/pwa-512x512.png",
+      "installerHeaderIcon": "public/pwa-512x512.png",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "RFID Çamaşırhane"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "public/pwa-512x512.png"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "public/pwa-512x512.png"
+    }
   },
   "dependencies": {
     "@tanstack/react-query": "^5.17.9",
@@ -21,7 +67,7 @@
     "print-js": "^1.6.0",
     "qrcode": "^1.5.4",
     "qrcode.react": "^4.2.0",
-    "qz-tray": "^2.2.5",
+    "qz-tray": "^2.1.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-leaflet": "^4.2.1",
@@ -41,6 +87,9 @@
     "@typescript-eslint/parser": "^6.14.0",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.16",
+    "concurrently": "^9.2.1",
+    "electron": "^39.2.6",
+    "electron-builder": "^26.0.12",
     "eslint": "^8.55.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.5",
@@ -50,6 +99,9 @@
     "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.3.3",
     "vite": "^5.0.8",
-    "vitest": "^4.0.13"
+    "vite-plugin-pwa": "^1.2.0",
+    "vitest": "^4.0.13",
+    "wait-on": "^9.0.3",
+    "workbox-window": "^7.4.0"
   }
 }

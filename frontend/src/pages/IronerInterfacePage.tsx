@@ -138,8 +138,8 @@ export function IronerInterfacePage() {
     queryFn: settingsApi.getItemTypes,
   });
 
-  // Get recently printed deliveries
-  const { data: printedDeliveries, refetch: refetchPrinted } = useQuery({
+  // Get recently printed deliveries (used for refetch after printing)
+  const { refetch: refetchPrinted } = useQuery({
     queryKey: ['deliveries', { status: 'label_printed' }],
     queryFn: () => deliveriesApi.getAll({ status: 'label_printed', limit: 10 }),
   });
@@ -355,12 +355,6 @@ export function IronerInterfacePage() {
   const getTotalPrintItems = (hotelId: string) => {
     return (printItems[hotelId] || []).reduce((sum, item) => sum + item.count, 0);
   };
-
-  const recentPrinted = printedDeliveries?.data || [];
-  const hotelCount = Object.keys(itemsByHotel).length;
-
-  // Count filtered vs total items
-  const filteredItemCount = Object.values(itemsByHotel).flat().length;
 
   // Hotel Selection Dialog
   // Filter tenants by search
@@ -670,25 +664,35 @@ export function IronerInterfacePage() {
         </div>
       </div>
 
-      {/* Selected Hotels Bar */}
+      {/* Selected Hotels Bar - Clickable to expand hotel section */}
       <div className="bg-blue-50 rounded-lg p-4 flex items-center gap-3 flex-wrap">
         <span className="text-blue-700 font-medium">Calisilan:</span>
         {selectedHotelIds.map(hotelId => {
           const hotel = tenantsArray.find((t: Tenant) => t.id === hotelId);
           return (
-            <div
+            <button
               key={hotelId}
-              className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-full border border-blue-200"
+              onClick={() => {
+                // Expand/collapse the hotel's work section
+                setExpandedHotels(prev => ({
+                  ...prev,
+                  [hotelId]: !prev[hotelId]
+                }));
+                // Scroll to the hotel section
+                const hotelElement = document.getElementById(`hotel-section-${hotelId}`);
+                if (hotelElement) {
+                  hotelElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+              }}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all cursor-pointer ${
+                expandedHotels[hotelId]
+                  ? 'bg-blue-600 border-blue-600 text-white'
+                  : 'bg-white border-blue-200 hover:bg-blue-100'
+              }`}
             >
-              <Building2 className="w-4 h-4 text-blue-600" />
-              <span className="font-medium text-gray-900">{hotel?.name}</span>
-              <button
-                onClick={() => toggleHotelSelection(hotelId)}
-                className="text-gray-400 hover:text-red-500"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+              <Building2 className={`w-4 h-4 ${expandedHotels[hotelId] ? 'text-white' : 'text-blue-600'}`} />
+              <span className={`font-medium ${expandedHotels[hotelId] ? 'text-white' : 'text-gray-900'}`}>{hotel?.name}</span>
+            </button>
           );
         })}
         <button
@@ -760,22 +764,6 @@ export function IronerInterfacePage() {
         </div>
       )}
 
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-3xl font-bold text-purple-600">{hotelCount}</p>
-          <p className="text-sm text-gray-500">Urunlu Oteller</p>
-        </div>
-        <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-3xl font-bold text-orange-600">{filteredItemCount}</p>
-          <p className="text-sm text-gray-500">Kirli Urunler</p>
-        </div>
-        <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-3xl font-bold text-green-600">{recentPrinted.length}</p>
-          <p className="text-sm text-gray-500">Basilan Etiketler</p>
-        </div>
-      </div>
-
       <div className="space-y-6">
         {/* Main Section: Hotel Cards with Dirty Items */}
         <div className="space-y-6">
@@ -803,7 +791,7 @@ export function IronerInterfacePage() {
                 const itemsByType = groupByType(hotelItems);
 
                 return (
-                  <div key={hotelId} className="bg-white rounded-xl shadow-lg overflow-hidden border-2 border-orange-200">
+                  <div key={hotelId} id={`hotel-section-${hotelId}`} className="bg-white rounded-xl shadow-lg overflow-hidden border-2 border-orange-200">
                     {/* Hotel Header - Big Card */}
                     <button
                       onClick={() => toggleHotel(hotelId)}
@@ -884,15 +872,15 @@ export function IronerInterfacePage() {
                                 <p className="text-3xl font-bold text-purple-700">{addingCount[hotelId] || 0}</p>
                               </div>
 
-                              {/* Numpad */}
-                              <div className="bg-gray-50 rounded-lg p-2 border border-gray-200">
-                                <div className="grid grid-cols-3 gap-1" style={{ width: '120px' }}>
+                              {/* Numpad - Large Size */}
+                              <div className="bg-gray-50 rounded-xl p-3 border-2 border-gray-300 shadow-md">
+                                <div className="grid grid-cols-3 gap-2" style={{ width: '200px' }}>
                                   {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
                                     <button
                                       type="button"
                                       key={num}
                                       onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) * 10 + num }))}
-                                      className="h-10 w-10 rounded font-bold text-lg bg-white border-2 border-purple-200 text-gray-700 hover:bg-purple-100 active:bg-purple-200 transition-all"
+                                      className="h-16 w-16 rounded-lg font-bold text-2xl bg-white border-2 border-purple-300 text-gray-800 hover:bg-purple-100 active:bg-purple-200 transition-all shadow-sm"
                                     >
                                       {num}
                                     </button>
@@ -900,23 +888,23 @@ export function IronerInterfacePage() {
                                   <button
                                     type="button"
                                     onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: 0 }))}
-                                    className="h-10 w-10 rounded font-bold text-sm bg-red-100 text-red-700 border-2 border-red-300 hover:bg-red-200"
+                                    className="h-16 w-16 rounded-lg font-bold text-lg bg-red-100 text-red-700 border-2 border-red-400 hover:bg-red-200 shadow-sm"
                                   >
                                     C
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) * 10 }))}
-                                    className="h-10 w-10 rounded font-bold text-lg bg-white border-2 border-purple-200 text-gray-700 hover:bg-purple-100"
+                                    className="h-16 w-16 rounded-lg font-bold text-2xl bg-white border-2 border-purple-300 text-gray-800 hover:bg-purple-100 shadow-sm"
                                   >
                                     0
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: Math.floor((prev[hotelId] || 0) / 10) }))}
-                                    className="h-10 w-10 rounded font-bold bg-gray-200 border-2 border-gray-400 text-gray-700 hover:bg-gray-300 flex items-center justify-center"
+                                    className="h-16 w-16 rounded-lg font-bold bg-gray-200 border-2 border-gray-400 text-gray-700 hover:bg-gray-300 flex items-center justify-center shadow-sm"
                                   >
-                                    <Delete className="w-5 h-5" />
+                                    <Delete className="w-7 h-7" />
                                   </button>
                                 </div>
                               </div>

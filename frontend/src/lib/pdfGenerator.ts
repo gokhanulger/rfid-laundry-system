@@ -1,160 +1,180 @@
 import { jsPDF } from 'jspdf';
 import JsBarcode from 'jsbarcode';
-import qz from 'qz-tray';
 import type { Delivery, DeliveryPackage, Tenant } from '../types';
+import { isElectron, getPreferredPrinter } from './printer';
 
-// QZ Tray connection state
-let qzConnected = false;
-let qzInitialized = false;
+// QZ Tray loaded from CDN in index.html (only used as fallback in browser)
+declare const qz: any;
 
-// Initialize QZ Tray - set up certificate handling
-function initQZ() {
-  if (qzInitialized) return;
-  qzInitialized = true;
+// Initialize QZ Tray security (required for unsigned mode)
+function setupQZSecurity() {
+  if (typeof qz === 'undefined') return;
 
-  // Override certificate promise - use demo/unsigned mode
-  qz.security.setCertificatePromise(function() {
-    return Promise.resolve(
-      "-----BEGIN CERTIFICATE-----\n" +
-      "MIID1TCCAr2gAwIBAgIUEOWdKdKfL3xuFE7HJv3pDp2x5hQwDQYJKoZIhvcNAQEL\n" +
-      "BQAwejELMAkGA1UEBhMCVVMxCzAJBgNVBAgMAk5ZMREwDwYDVQQHDAhOZXcgWW9y\n" +
-      "azEPMA0GA1UECgwGUVogTExDMRAwDgYDVQQLDAdRWiBUcmF5MSgwJgYDVQQDDB9E\n" +
-      "ZW1vIENlcnRpZmljYXRlIC0gRm9yIFRlc3RpbmcwHhcNMjMwMTAxMDAwMDAwWhcN\n" +
-      "MjgwMTAxMDAwMDAwWjB6MQswCQYDVQQGEwJVUzELMAkGA1UECAwCTlkxETAPBgNV\n" +
-      "BAcMCE5ldyBZb3JrMQ8wDQYDVQQKDAZRWiBMTEMxEDAOBgNVBAsMB1FaIFRyYXkx\n" +
-      "KDAmBgNVBAMMH0RlbW8gQ2VydGlmaWNhdGUgLSBGb3IgVGVzdGluZzCCASIwDQYJ\n" +
-      "KoZIhvcNAQEBBQADggEPADCCAQoCggEBALUJT7gQkfZMJlCGLJ5mJ7y/kV2FULWA\n" +
-      "yNKdNS9/YIBkhNM+vQfBo0p7hP4wckivUHayujnHfJ7gH6M/gsAvHp8OYCEviJ7R\n" +
-      "8OXHZb4rq6qW3T9qVGQBCO58JYu6Zy5rW6sWBODYrFJN/u8PZJu9YXAsR/VPXEKP\n" +
-      "8bB0G8GQWrFOt8bQAF0M/rl4GyP5QRgJWE+E5bN8Ghv2YLNv8TPl3ZQX8fSdqJ8t\n" +
-      "L7nERmFEcP0q0JiAKyri8N9DwG4J/s4RDl4/ql0qL/HZk5kIkXWMBGPIpqUVTJgF\n" +
-      "Jw9QKMV3aR1x6x4IVJuZ6Q9h8DZ8i9JdJHGSYQYGJJHZ2t1lJf8CAwEAAaNTMFEw\n" +
-      "HQYDVR0OBBYEFFmU+r7K6F0OlhYNITnCDhYJ4L8MMB8GA1UdIwQYMBaAFFmU+r7K\n" +
-      "6F0OlhYNITnCDhYJ4L8MMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQAD\n" +
-      "ggEBADMR7y0aZUNPZqMAYApmM5d/5u00xTg0NrbWqW9do1X5MWJD+WEKhQV9L7wJ\n" +
-      "T/MgP+/sKzlPKZU4o0JLF/5M88rmPP0bBkD7NWJFWN5j8YRz8QKFJ4u5/+FNiJF\n" +
-      "7v5x1xAd6O+X+5pXR3J1O15VhR2fhmJQG1bBwl5k6uGVWB5b1aPL3d7E6cZF3+bE\n" +
-      "-----END CERTIFICATE-----"
-    );
-  });
-
-  // Override signature promise - return empty for demo mode
-  qz.security.setSignaturePromise(function() {
-    return function() {
-      return Promise.resolve("");
-    };
-  });
+  qz.security.setCertificatePromise(() => Promise.resolve(""));
+  qz.security.setSignaturePromise(() => () => Promise.resolve(""));
 }
 
-// Initialize QZ Tray connection
-async function connectQZ(): Promise<boolean> {
-  if (qzConnected && qz.websocket.isActive()) {
-    return true;
-  }
-
-  try {
-    initQZ();
-    await qz.websocket.connect();
-    qzConnected = true;
-    console.log('QZ Tray connected successfully');
-    return true;
-  } catch (err: any) {
-    console.error('QZ Tray connection failed:', err?.message || err);
-    // Fallback to regular print dialog
+// Connect to QZ Tray and wait until ready
+async function ensureQZConnected(): Promise<boolean> {
+  if (typeof qz === 'undefined') {
+    console.error('QZ: Library not loaded');
     return false;
   }
-}
 
-// Find Argox printer
-async function findArgoxPrinter(): Promise<string | null> {
-  try {
-    const printers = await qz.printers.find();
-    // Look for Argox printer
-    const argox = printers.find((p: string) =>
-      p.toLowerCase().includes('argox') ||
-      p.toLowerCase().includes('os-214')
-    );
-    if (argox) {
-      console.log('Found Argox printer:', argox);
-      return argox;
-    }
-    // Return first available printer if Argox not found
-    if (printers.length > 0) {
-      console.log('Using default printer:', printers[0]);
-      return printers[0];
-    }
-    return null;
-  } catch (err) {
-    console.error('Failed to find printers:', err);
-    return null;
-  }
-}
+  setupQZSecurity();
 
-// Silent print using QZ Tray
-async function silentPrint(doc: jsPDF): Promise<boolean> {
-  try {
-    const connected = await connectQZ();
-    if (!connected) {
-      return false;
-    }
-
-    const printer = await findArgoxPrinter();
-    if (!printer) {
-      console.error('No printer found');
-      return false;
-    }
-
-    // Get PDF as base64
-    const pdfBase64 = doc.output('datauristring');
-
-    // Configure print job
-    const config = qz.configs.create(printer, {
-      size: { width: 60, height: 80 },
-      units: 'mm',
-      scaleContent: true
-    });
-
-    // Print the PDF
-    const data: Array<{ type: 'pdf'; data: string }> = [{
-      type: 'pdf',
-      data: pdfBase64
-    }];
-
-    await qz.print(config, data);
-    console.log('Print job sent successfully');
+  // Already active - we're good
+  if (qz.websocket.isActive()) {
+    console.log('QZ: Already active');
     return true;
-  } catch (err) {
-    console.error('Silent print failed:', err);
+  }
+
+  console.log('QZ: Connecting...');
+
+  // Start connection without waiting for promise
+  qz.websocket.connect().catch(() => {});
+
+  // Poll for connection to become active
+  for (let i = 0; i < 50; i++) {
+    await new Promise(r => setTimeout(r, 200));
+    if (qz.websocket.isActive()) {
+      console.log('QZ: Connection active after', (i + 1) * 200, 'ms');
+      return true;
+    }
+  }
+
+  console.error('QZ: Connection failed after 10 seconds');
+  return false;
+}
+
+
+// Hardcoded printer name - change this if your printer has a different name
+const PRINTER_NAME = 'Argox OS-214 plus series PPLA';
+
+// Helper: wrap promise with timeout
+function withTimeout<T>(promise: Promise<T>, ms: number, errorMsg: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(errorMsg)), ms))
+  ]);
+}
+
+// Silent print using Electron API (preferred when available)
+async function silentPrintElectron(doc: jsPDF): Promise<boolean> {
+  if (!isElectron() || !window.electronAPI) {
     return false;
   }
-}
 
-// Fallback print using iframe (no new tab)
-function fallbackPrint(doc: jsPDF): void {
+  console.log('silentPrint: Using Electron API...');
+
+  // Get PDF as base64
   const pdfBase64 = doc.output('datauristring');
 
-  // Create hidden iframe for printing
-  const iframe = document.createElement('iframe');
-  iframe.style.position = 'fixed';
-  iframe.style.right = '0';
-  iframe.style.bottom = '0';
-  iframe.style.width = '0';
-  iframe.style.height = '0';
-  iframe.style.border = 'none';
-  iframe.src = pdfBase64;
+  // Create HTML wrapper for the PDF
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        @page { size: 60mm 80mm; margin: 0; }
+        body { margin: 0; padding: 0; }
+        embed { width: 100%; height: 100%; }
+      </style>
+    </head>
+    <body>
+      <embed src="${pdfBase64}" type="application/pdf" />
+    </body>
+    </html>
+  `;
 
-  document.body.appendChild(iframe);
+  const printerName = getPreferredPrinter() || PRINTER_NAME;
 
-  iframe.onload = () => {
-    setTimeout(() => {
-      iframe.contentWindow?.print();
-      // Remove iframe after print dialog closes
-      setTimeout(() => {
-        document.body.removeChild(iframe);
-      }, 1000);
-    }, 500);
-  };
+  try {
+    const result = await window.electronAPI.printLabel(html, printerName, 1);
+    if (result.success) {
+      console.log('silentPrint: Electron print SUCCESS!');
+      return true;
+    } else {
+      console.error('silentPrint: Electron print failed:', result.error);
+      return false;
+    }
+  } catch (err: any) {
+    console.error('silentPrint: Electron error:', err?.message || err);
+    return false;
+  }
 }
+
+// Silent print using QZ Tray (fallback for browser)
+async function silentPrintQZ(doc: jsPDF): Promise<boolean> {
+  console.log('silentPrint: Trying QZ Tray...');
+
+  const connected = await ensureQZConnected();
+  if (!connected) {
+    console.log('silentPrint: Not connected to QZ Tray');
+    return false;
+  }
+
+  const printer = PRINTER_NAME;
+  console.log('silentPrint: Using printer:', printer);
+
+  // Get PDF data
+  const pdfDataUri = doc.output('datauristring');
+  console.log('silentPrint: PDF ready, length:', pdfDataUri.length);
+
+  // Try pixel/pdf approach with timeout
+  try {
+    console.log('silentPrint: Creating config...');
+    const config = qz.configs.create(printer);
+
+    console.log('silentPrint: Sending to printer...');
+    await withTimeout(
+      qz.print(config, [{
+        type: 'pixel',
+        format: 'pdf',
+        data: pdfDataUri
+      }]),
+      15000,
+      'Print timeout after 15 seconds'
+    );
+
+    console.log('silentPrint: QZ SUCCESS!');
+    return true;
+  } catch (err: any) {
+    console.error('silentPrint: QZ Failed:', err?.message || err);
+    return false;
+  }
+}
+
+// Fallback: download PDF
+function downloadPDF(doc: jsPDF): void {
+  console.log('downloadPDF: Downloading...');
+  const blob = doc.output('blob');
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `etiket-${Date.now()}.pdf`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// Main print function - try Electron first, then QZ Tray, then download
+async function printLabel(doc: jsPDF): Promise<void> {
+  // Try Electron API first (if running in desktop app)
+  if (isElectron()) {
+    const electronSuccess = await silentPrintElectron(doc);
+    if (electronSuccess) return;
+    console.log('printLabel: Electron print failed, falling back...');
+  }
+
+  // Try QZ Tray (browser with QZ Tray installed)
+  const qzSuccess = await silentPrintQZ(doc);
+  if (qzSuccess) return;
+
+  // Last resort: download PDF
+  console.log('printLabel: All print methods failed, downloading PDF');
+  downloadPDF(doc);
+}
+
 
 // Label size: 60mm x 80mm
 const LABEL_WIDTH = 60;
@@ -232,13 +252,8 @@ export function generateDeliveryLabel(delivery: Delivery, labelExtraData?: Label
   // Generate filename
   const filename = `delivery-${delivery.barcode}-${Date.now()}.pdf`;
 
-  // Try silent print with QZ Tray, fallback to browser dialog
-  silentPrint(doc).then(success => {
-    if (!success) {
-      console.log('QZ Tray not available, using fallback print');
-      fallbackPrint(doc);
-    }
-  });
+  // Print label (silent print with QZ Tray, fallback to download)
+  printLabel(doc);
 
   return filename;
 }
@@ -369,41 +384,37 @@ function generateSingleLabel(
   doc.setFillColor(255, 255, 255);
   doc.rect(0, 0, LABEL_WIDTH, LABEL_HEIGHT, 'F');
 
-  // Black header bar
-  doc.setFillColor(0, 0, 0);
-  doc.rect(0, 0, LABEL_WIDTH, 10, 'F');
+  let yPos = 3;
 
-  // Title in white
-  doc.setTextColor(white);
-  doc.setFontSize(8);
-  doc.setFont('helvetica', 'bold');
-  doc.text('DELIVERY LABEL', LABEL_WIDTH / 2, 6, { align: 'center' });
-
-  // Package info
-  doc.setFontSize(6);
-  doc.text(`${pkg.sequenceNumber}/${totalPackages}`, LABEL_WIDTH - margin, 6, { align: 'right' });
-
-  // Reset to black text
-  doc.setTextColor(black);
-
-  let yPos = 14;
-
-  // Hotel Name - prominent
-  doc.setFontSize(5);
-  doc.setFont('helvetica', 'normal');
-  doc.text('HOTEL', margin, yPos);
-
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'bold');
+  // ============================================
+  // 1. HOTEL NAME - BIG at the top
+  // ============================================
   const hotelName = delivery.tenant?.name || 'Unknown Hotel';
-  // Truncate if too long
-  const maxHotelLen = 18;
-  const displayHotel = hotelName.length > maxHotelLen ? hotelName.substring(0, maxHotelLen) + '...' : hotelName;
-  doc.text(displayHotel, margin, yPos + 4);
+  doc.setTextColor(black);
+  doc.setFontSize(14);
+  doc.setFont('helvetica', 'bold');
 
-  yPos += 10;
+  // Center the hotel name
+  const maxHotelLen = 22;
+  const displayHotel = hotelName.length > maxHotelLen ? hotelName.substring(0, maxHotelLen) + '..' : hotelName;
+  doc.text(displayHotel, LABEL_WIDTH / 2, yPos + 5, { align: 'center' });
 
-  // Barcode section
+  // Package count on right side
+  doc.setFontSize(8);
+  doc.text(`${pkg.sequenceNumber}/${totalPackages}`, LABEL_WIDTH - margin, yPos + 5, { align: 'right' });
+
+  yPos += 12;
+
+  // Thin separator line
+  doc.setDrawColor(0, 0, 0);
+  doc.setLineWidth(0.3);
+  doc.line(margin, yPos, LABEL_WIDTH - margin, yPos);
+
+  yPos += 3;
+
+  // ============================================
+  // 2. BARCODE - below hotel name
+  // ============================================
   doc.setDrawColor(0, 0, 0);
   doc.setLineWidth(0.2);
   doc.rect(margin, yPos, LABEL_WIDTH - (margin * 2), 18, 'S');
@@ -416,13 +427,11 @@ function generateSingleLabel(
   doc.setFont('courier', 'bold');
   doc.text(pkg.packageBarcode, LABEL_WIDTH / 2, yPos + 15, { align: 'center' });
 
-  yPos += 22;
+  yPos += 21;
 
-  // Contents section
-  doc.setFontSize(5);
-  doc.setFont('helvetica', 'normal');
-  doc.text('CONTENTS', margin, yPos);
-  yPos += 3;
+  // ============================================
+  // 3. ITEMS - 3 column layout if needed
+  // ============================================
 
   // Group items by type - use labelExtraData counts if provided (user-entered), otherwise count actual items
   const itemsByType: Record<string, { name: string; count: number; typeId: string; discardCount: number; hasarliCount: number }> = {};
@@ -471,96 +480,101 @@ function generateSingleLabel(
   }
 
   const itemTypeEntries = Object.entries(itemsByType);
-  // Calculate total from itemsByType (user-entered or actual counts)
   const totalItems = itemTypeEntries.reduce((sum, [, item]) => sum + item.count, 0);
-
-  // Display items in compact format
-  doc.setFontSize(7);
-  doc.setFont('helvetica', 'normal');
-
-  if (itemTypeEntries.length > 0) {
-    itemTypeEntries.forEach(([_typeId, itemType]) => {
-      // Truncate name if needed
-      const maxNameLen = 20;
-      const displayName = itemType.name.length > maxNameLen
-        ? itemType.name.substring(0, maxNameLen) + '..'
-        : itemType.name;
-
-      doc.text(`${displayName}`, margin, yPos);
-      doc.setFont('helvetica', 'bold');
-      doc.text(`${itemType.count} adet`, LABEL_WIDTH - margin, yPos, { align: 'right' });
-      doc.setFont('helvetica', 'normal');
-      yPos += 4;
-
-      // Show discord/lekeli for this type
-      if (itemType.discardCount > 0) {
-        doc.setFontSize(6);
-        doc.setFont('helvetica', 'normal');
-        doc.text(`  Discord: ${itemType.discardCount}`, margin, yPos);
-        yPos += 3;
-      }
-      if (itemType.hasarliCount > 0) {
-        doc.setFontSize(6);
-        doc.setFont('helvetica', 'normal');
-        doc.text(`  Lekeli: ${itemType.hasarliCount}`, margin, yPos);
-        yPos += 3;
-      }
-      doc.setFontSize(7);
-    });
-  } else {
-    doc.setFont('helvetica', 'italic');
-    doc.text('No items', margin, yPos);
-    yPos += 4;
-  }
-
-  yPos += 2;
 
   // Calculate total discard and hasarli counts
   let totalDiscard = 0;
   let totalHasarli = 0;
-  if (labelExtraData) {
-    labelExtraData.forEach(e => {
-      totalDiscard += e.discardCount;
-      totalHasarli += e.hasarliCount;
-    });
-  }
+  itemTypeEntries.forEach(([, item]) => {
+    totalDiscard += item.discardCount;
+    totalHasarli += item.hasarliCount;
+  });
 
-  // Total bar
+  // Items section header with total
   doc.setFillColor(0, 0, 0);
   doc.rect(margin, yPos, LABEL_WIDTH - (margin * 2), 6, 'F');
-
   doc.setTextColor(white);
   doc.setFontSize(7);
   doc.setFont('helvetica', 'bold');
-  doc.text(`TOTAL: ${totalItems} ITEMS`, LABEL_WIDTH / 2, yPos + 4, { align: 'center' });
-
-  yPos += 10;
-
-  // Display total discard and hasarli if any
+  doc.text(`TOPLAM: ${totalItems} ADET`, LABEL_WIDTH / 2, yPos + 4, { align: 'center' });
   doc.setTextColor(black);
+
+  yPos += 9;
+
+  // Display items - 3 column layout if more than 3 items
+  if (itemTypeEntries.length > 0) {
+    const useThreeColumns = itemTypeEntries.length > 3;
+    const colWidth = useThreeColumns ? (LABEL_WIDTH - margin * 2) / 3 : LABEL_WIDTH - margin * 2;
+
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'normal');
+
+    if (useThreeColumns) {
+      // 3-column layout
+      itemTypeEntries.forEach(([_typeId, itemType], index) => {
+        const col = index % 3;
+        const row = Math.floor(index / 3);
+        const xPos = margin + (col * colWidth);
+        const itemYPos = yPos + (row * 10);
+
+        // Truncate name for column
+        const maxNameLen = 8;
+        const displayName = itemType.name.length > maxNameLen
+          ? itemType.name.substring(0, maxNameLen) + '..'
+          : itemType.name;
+
+        // Count (bold)
+        doc.setFont('helvetica', 'bold');
+        doc.text(`${itemType.count}`, xPos + colWidth / 2, itemYPos, { align: 'center' });
+
+        // Type name (smaller, below)
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(5);
+        doc.text(displayName, xPos + colWidth / 2, itemYPos + 4, { align: 'center' });
+        doc.setFontSize(7);
+      });
+
+      // Update yPos based on rows
+      const rows = Math.ceil(itemTypeEntries.length / 3);
+      yPos += rows * 10 + 2;
+    } else {
+      // Single column layout for 3 or fewer items
+      itemTypeEntries.forEach(([_typeId, itemType]) => {
+        const maxNameLen = 20;
+        const displayName = itemType.name.length > maxNameLen
+          ? itemType.name.substring(0, maxNameLen) + '..'
+          : itemType.name;
+
+        doc.setFont('helvetica', 'normal');
+        doc.text(displayName, margin, yPos);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`${itemType.count} adet`, LABEL_WIDTH - margin, yPos, { align: 'right' });
+        yPos += 5;
+      });
+      yPos += 2;
+    }
+  }
+
+  // Show discord/lekeli totals if any
   if (totalDiscard > 0 || totalHasarli > 0) {
     doc.setFontSize(6);
     doc.setFont('helvetica', 'bold');
     if (totalDiscard > 0) {
       doc.text(`Discord: ${totalDiscard}`, margin, yPos);
-      yPos += 3;
     }
     if (totalHasarli > 0) {
-      doc.text(`Lekeli Urun: ${totalHasarli}`, margin, yPos);
-      yPos += 3;
+      doc.text(`Lekeli: ${totalHasarli}`, totalDiscard > 0 ? LABEL_WIDTH / 2 : margin, yPos);
     }
-    yPos += 1;
+    yPos += 4;
   }
-
-  // Date
-  doc.setTextColor(black);
+  // Date at the bottom
   doc.setFontSize(5);
   doc.setFont('helvetica', 'normal');
   const date = new Date(delivery.createdAt || Date.now()).toLocaleDateString('tr-TR');
-  doc.text(`Tarih: ${date}`, margin, yPos);
+  doc.text(`Tarih: ${date}`, margin, LABEL_HEIGHT - 8);
 
   // Footer line
-  const footerY = LABEL_HEIGHT - 6;
+  const footerY = LABEL_HEIGHT - 5;
   doc.setDrawColor(0, 0, 0);
   doc.setLineWidth(0.1);
   doc.line(margin, footerY, LABEL_WIDTH - margin, footerY);
@@ -608,13 +622,8 @@ export function generateManualLabel(data: ManualLabelData) {
   // Generate filename
   const filename = `manual-label-${barcode}-${Date.now()}.pdf`;
 
-  // Try silent print with QZ Tray, fallback to browser dialog
-  silentPrint(doc).then(success => {
-    if (!success) {
-      console.log('QZ Tray not available, using fallback print');
-      fallbackPrint(doc);
-    }
-  });
+  // Print label (silent print with QZ Tray, fallback to download)
+  printLabel(doc);
 
   return filename;
 }
@@ -634,40 +643,37 @@ function generateManualSingleLabel(
   doc.setFillColor(255, 255, 255);
   doc.rect(0, 0, LABEL_WIDTH, LABEL_HEIGHT, 'F');
 
-  // Black header bar
-  doc.setFillColor(0, 0, 0);
-  doc.rect(0, 0, LABEL_WIDTH, 10, 'F');
+  let yPos = 3;
 
-  // Title in white
-  doc.setTextColor(white);
-  doc.setFontSize(8);
-  doc.setFont('helvetica', 'bold');
-  doc.text('DELIVERY LABEL', LABEL_WIDTH / 2, 6, { align: 'center' });
-
-  // Package info
-  doc.setFontSize(6);
-  doc.text(`${packageNumber}/${totalPackages}`, LABEL_WIDTH - margin, 6, { align: 'right' });
-
-  // Reset to black text
-  doc.setTextColor(black);
-
-  let yPos = 14;
-
-  // Hotel Name - prominent
-  doc.setFontSize(5);
-  doc.setFont('helvetica', 'normal');
-  doc.text('HOTEL', margin, yPos);
-
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'bold');
+  // ============================================
+  // 1. HOTEL NAME - BIG at the top
+  // ============================================
   const hotelName = data.tenant?.name || 'Unknown Hotel';
-  const maxHotelLen = 18;
-  const displayHotel = hotelName.length > maxHotelLen ? hotelName.substring(0, maxHotelLen) + '...' : hotelName;
-  doc.text(displayHotel, margin, yPos + 4);
+  doc.setTextColor(black);
+  doc.setFontSize(14);
+  doc.setFont('helvetica', 'bold');
 
-  yPos += 10;
+  // Center the hotel name
+  const maxHotelLen = 22;
+  const displayHotel = hotelName.length > maxHotelLen ? hotelName.substring(0, maxHotelLen) + '..' : hotelName;
+  doc.text(displayHotel, LABEL_WIDTH / 2, yPos + 5, { align: 'center' });
 
-  // Barcode section
+  // Package count on right side
+  doc.setFontSize(8);
+  doc.text(`${packageNumber}/${totalPackages}`, LABEL_WIDTH - margin, yPos + 5, { align: 'right' });
+
+  yPos += 12;
+
+  // Thin separator line
+  doc.setDrawColor(0, 0, 0);
+  doc.setLineWidth(0.3);
+  doc.line(margin, yPos, LABEL_WIDTH - margin, yPos);
+
+  yPos += 3;
+
+  // ============================================
+  // 2. BARCODE - below hotel name
+  // ============================================
   const packageBarcode = `${barcode}-PKG${packageNumber}`;
   doc.setDrawColor(0, 0, 0);
   doc.setLineWidth(0.2);
@@ -681,96 +687,108 @@ function generateManualSingleLabel(
   doc.setFont('courier', 'bold');
   doc.text(packageBarcode, LABEL_WIDTH / 2, yPos + 15, { align: 'center' });
 
-  yPos += 22;
+  yPos += 21;
 
-  // Contents section
-  doc.setFontSize(5);
-  doc.setFont('helvetica', 'normal');
-  doc.text('CONTENTS', margin, yPos);
-  yPos += 3;
+  // ============================================
+  // 3. ITEMS - 3 column layout if needed
+  // ============================================
 
-  // Display items
-  doc.setFontSize(7);
-  doc.setFont('helvetica', 'normal');
-
+  // Calculate totals
   let totalItems = 0;
   let totalDiscard = 0;
   let totalHasarli = 0;
+  data.items.forEach((item) => {
+    totalItems += item.count;
+    totalDiscard += item.discardCount;
+    totalHasarli += item.hasarliCount;
+  });
 
-  if (data.items.length > 0) {
-    data.items.forEach((item) => {
-      const maxNameLen = 20;
-      const displayName = item.typeName.length > maxNameLen
-        ? item.typeName.substring(0, maxNameLen) + '..'
-        : item.typeName;
-
-      doc.text(`${displayName}`, margin, yPos);
-      doc.setFont('helvetica', 'bold');
-      doc.text(`${item.count} adet`, LABEL_WIDTH - margin, yPos, { align: 'right' });
-      doc.setFont('helvetica', 'normal');
-      yPos += 4;
-
-      totalItems += item.count;
-      totalDiscard += item.discardCount;
-      totalHasarli += item.hasarliCount;
-
-      // Show discord/lekeli for this item
-      if (item.discardCount > 0) {
-        doc.setFontSize(6);
-        doc.text(`  Discord: ${item.discardCount}`, margin, yPos);
-        yPos += 3;
-      }
-      if (item.hasarliCount > 0) {
-        doc.setFontSize(6);
-        doc.text(`  Lekeli: ${item.hasarliCount}`, margin, yPos);
-        yPos += 3;
-      }
-      doc.setFontSize(7);
-    });
-  } else {
-    doc.setFont('helvetica', 'italic');
-    doc.text('No items', margin, yPos);
-    yPos += 4;
-  }
-
-  yPos += 2;
-
-  // Total bar
+  // Items section header with total
   doc.setFillColor(0, 0, 0);
   doc.rect(margin, yPos, LABEL_WIDTH - (margin * 2), 6, 'F');
-
   doc.setTextColor(white);
   doc.setFontSize(7);
   doc.setFont('helvetica', 'bold');
-  doc.text(`TOTAL: ${totalItems} ITEMS`, LABEL_WIDTH / 2, yPos + 4, { align: 'center' });
-
-  yPos += 10;
-
-  // Display total discard and hasarli if any
+  doc.text(`TOPLAM: ${totalItems} ADET`, LABEL_WIDTH / 2, yPos + 4, { align: 'center' });
   doc.setTextColor(black);
+
+  yPos += 9;
+
+  // Display items - 3 column layout if more than 3 items
+  if (data.items.length > 0) {
+    const useThreeColumns = data.items.length > 3;
+    const colWidth = useThreeColumns ? (LABEL_WIDTH - margin * 2) / 3 : LABEL_WIDTH - margin * 2;
+
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'normal');
+
+    if (useThreeColumns) {
+      // 3-column layout
+      data.items.forEach((item, index) => {
+        const col = index % 3;
+        const row = Math.floor(index / 3);
+        const xPos = margin + (col * colWidth);
+        const itemYPos = yPos + (row * 10);
+
+        // Truncate name for column
+        const maxNameLen = 8;
+        const displayName = item.typeName.length > maxNameLen
+          ? item.typeName.substring(0, maxNameLen) + '..'
+          : item.typeName;
+
+        // Count (bold)
+        doc.setFont('helvetica', 'bold');
+        doc.text(`${item.count}`, xPos + colWidth / 2, itemYPos, { align: 'center' });
+
+        // Type name (smaller, below)
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(5);
+        doc.text(displayName, xPos + colWidth / 2, itemYPos + 4, { align: 'center' });
+        doc.setFontSize(7);
+      });
+
+      // Update yPos based on rows
+      const rows = Math.ceil(data.items.length / 3);
+      yPos += rows * 10 + 2;
+    } else {
+      // Single column layout for 3 or fewer items
+      data.items.forEach((item) => {
+        const maxNameLen = 20;
+        const displayName = item.typeName.length > maxNameLen
+          ? item.typeName.substring(0, maxNameLen) + '..'
+          : item.typeName;
+
+        doc.setFont('helvetica', 'normal');
+        doc.text(displayName, margin, yPos);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`${item.count} adet`, LABEL_WIDTH - margin, yPos, { align: 'right' });
+        yPos += 5;
+      });
+      yPos += 2;
+    }
+  }
+
+  // Show discord/lekeli totals if any
   if (totalDiscard > 0 || totalHasarli > 0) {
     doc.setFontSize(6);
     doc.setFont('helvetica', 'bold');
     if (totalDiscard > 0) {
       doc.text(`Discord: ${totalDiscard}`, margin, yPos);
-      yPos += 3;
     }
     if (totalHasarli > 0) {
-      doc.text(`Lekeli Urun: ${totalHasarli}`, margin, yPos);
-      yPos += 3;
+      doc.text(`Lekeli: ${totalHasarli}`, totalDiscard > 0 ? LABEL_WIDTH / 2 : margin, yPos);
     }
-    yPos += 1;
+    yPos += 4;
   }
 
-  // Date
-  doc.setTextColor(black);
+  // Date at the bottom
   doc.setFontSize(5);
   doc.setFont('helvetica', 'normal');
   const date = new Date().toLocaleDateString('tr-TR');
-  doc.text(`Tarih: ${date}`, margin, yPos);
+  doc.text(`Tarih: ${date}`, margin, LABEL_HEIGHT - 8);
 
   // Footer line
-  const footerY = LABEL_HEIGHT - 6;
+  const footerY = LABEL_HEIGHT - 5;
   doc.setDrawColor(0, 0, 0);
   doc.setLineWidth(0.1);
   doc.line(margin, footerY, LABEL_WIDTH - margin, footerY);
