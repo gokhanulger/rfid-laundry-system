@@ -16,7 +16,7 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js')
+      preload: path.join(__dirname, 'preload.cjs')
     },
     autoHideMenuBar: true,
     title: 'RFID Çamaşırhane Takip Sistemi'
@@ -28,8 +28,10 @@ function createWindow() {
     mainWindow.loadURL('http://localhost:3002');
     mainWindow.webContents.openDevTools();
   } else {
-    // Production: Load from built files
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    // Production: Load from built files using app path
+    const appPath = app.getAppPath();
+    mainWindow.loadFile(path.join(appPath, 'dist/index.html'));
+    mainWindow.webContents.openDevTools();
   }
 
   mainWindow.on('closed', () => {
@@ -74,16 +76,23 @@ ipcMain.handle('print-document', async (event, options) => {
 // Handle silent print with specific printer
 ipcMain.handle('print-label', async (event, { html, printerName, copies }) => {
   return new Promise((resolve) => {
-    // Create a hidden window for printing
+    // Create a window for printing (show: true for debugging)
     const printWindow = new BrowserWindow({
-      show: false,
+      show: true, // DEBUG: set to false for production
+      width: 800,
+      height: 600,
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true
       }
     });
 
-    printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+    // Log HTML content for debugging
+    console.log('Print HTML length:', html?.length || 0);
+
+    // Use base64 encoding to avoid URL encoding issues
+    const base64Html = Buffer.from(html || '<html><body>No content</body></html>').toString('base64');
+    printWindow.loadURL(`data:text/html;base64,${base64Html}`);
 
     printWindow.webContents.on('did-finish-load', () => {
       printWindow.webContents.print(

@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ToastProvider } from './components/Toast';
@@ -62,7 +62,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
         <AuthProvider>
-          <BrowserRouter>
+          <HashRouter>
             <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route
@@ -115,7 +115,7 @@ function App() {
                 <Route path="driver/hotel-delivery" element={<HotelDeliveryPage />} />
               </Route>
             </Routes>
-          </BrowserRouter>
+          </HashRouter>
         </AuthProvider>
       </ToastProvider>
     </QueryClientProvider>

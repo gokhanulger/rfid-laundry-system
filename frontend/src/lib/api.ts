@@ -17,7 +17,11 @@ import type {
 
 // VITE_API_URL should be the full API base URL including /api
 // e.g., https://rfid-laundry-backend-production.up.railway.app/api
-const apiBaseUrl = import.meta.env.VITE_API_URL || '/api';
+// For Electron (file:// protocol), always use production URL
+const isElectron = window.location.protocol === 'file:' || (window as any).electronAPI;
+const apiBaseUrl = isElectron
+  ? 'https://rfid-laundry-backend-production.up.railway.app/api'
+  : (import.meta.env.VITE_API_URL || '/api');
 
 // Token storage key
 const TOKEN_KEY = 'rfid_auth_token';

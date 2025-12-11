@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "RFID Çamaşırhane Takip Sistemi",
   "type": "module",
-  "main": "electron/main.js",
+  "main": "electron/main.cjs",
   "author": "RFID Laundry",
   "scripts": {
     "dev": "vite",
@@ -34,14 +34,14 @@
           "arch": ["x64"]
         }
       ],
-      "icon": "public/pwa-512x512.png"
+      "icon": "public/icon.ico"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "installerIcon": "public/pwa-512x512.png",
-      "uninstallerIcon": "public/pwa-512x512.png",
-      "installerHeaderIcon": "public/pwa-512x512.png",
+      "installerIcon": "public/icon.ico",
+      "uninstallerIcon": "public/icon.ico",
+      "installerHeaderIcon": "public/icon.ico",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "RFID Çamaşırhane"
@@ -88,7 +88,7 @@
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.16",
     "concurrently": "^9.2.1",
-    "electron": "^39.2.6",
+    "electron": "39.2.6",
     "electron-builder": "^26.0.12",
     "eslint": "^8.55.0",
     "eslint-plugin-react-hooks": "^4.6.0",
