@@ -73,8 +73,21 @@ deliveriesRouter.post('/', requireRole('operator', 'laundry_manager', 'system_ad
       }
     }
 
-    // Generate unique barcode
-    const barcode = `DEL-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+    // Generate unique barcode - 9 digit sequential number starting from 1
+    const lastDelivery = await db.query.deliveries.findFirst({
+      orderBy: desc(deliveries.createdAt),
+      columns: { barcode: true }
+    });
+
+    let nextNumber = 1;
+    if (lastDelivery?.barcode) {
+      // Try to parse the barcode as a number
+      const num = parseInt(lastDelivery.barcode, 10);
+      if (!isNaN(num)) {
+        nextNumber = num + 1;
+      }
+    }
+    const barcode = nextNumber.toString().padStart(9, '0');
 
     // Create delivery
     const [newDelivery] = await db.insert(deliveries).values({

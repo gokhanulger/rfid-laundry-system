@@ -15,9 +15,13 @@ import type {
   CreateItemForm,
 } from '../types';
 
-// Always use Railway backend for production
-const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-const apiBaseUrl = isLocalhost
+// Check if running in Electron
+const isElectronApp = !!(window as any).electronAPI;
+
+// Always use Railway backend for production and Electron
+// Only use /api proxy when running in browser with vite dev server
+const isViteDevServer = window.location.hostname === 'localhost' && window.location.port === '5173';
+const apiBaseUrl = isViteDevServer && !isElectronApp
   ? '/api'
   : 'https://rfid-laundry-backend-production.up.railway.app/api';
 

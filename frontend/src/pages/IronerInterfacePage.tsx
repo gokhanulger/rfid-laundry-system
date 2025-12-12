@@ -285,9 +285,9 @@ export function IronerInterfacePage() {
 
 
   // Hotel Selection Dialog
-  // Filter tenants by search
+  // Filter tenants by search - match from beginning of name only
   const filteredTenants = tenantsArray.filter((tenant: Tenant) =>
-    hotelSearchFilter === '' || tenant.name.toLowerCase().includes(hotelSearchFilter.toLowerCase())
+    hotelSearchFilter === '' || tenant.name.toLowerCase().startsWith(hotelSearchFilter.toLowerCase())
   );
 
   // On-screen keyboard handler
@@ -534,7 +534,7 @@ export function IronerInterfacePage() {
             </div>
             <div>
               <h1 className="text-2xl font-bold text-gray-900">RFID Çamaşırhane</h1>
-              <p className="text-sm text-gray-500">by Karbeyaz & Demet Laundry</p>
+              <p className="text-lg font-semibold text-blue-600">by Karbeyaz & Demet Laundry</p>
             </div>
           </div>
           <div className="bg-white rounded-lg shadow p-12 text-center">
@@ -561,7 +561,7 @@ export function IronerInterfacePage() {
             </div>
             <div>
               <h1 className="text-2xl font-bold text-gray-900">RFID Çamaşırhane</h1>
-              <p className="text-sm text-gray-500">by Karbeyaz & Demet Laundry</p>
+              <p className="text-lg font-semibold text-blue-600">by Karbeyaz & Demet Laundry</p>
             </div>
           </div>
 
@@ -762,45 +762,6 @@ export function IronerInterfacePage() {
                         </div>
                       </div>
 
-                      {/* Discord and Lekeli - simple checkboxes */}
-                      <div className="flex flex-col gap-2">
-                        {/* Discord section */}
-                        <div className={`rounded-lg p-3 border-2 transition-all ${addingDiscard[hotelId] ? 'bg-blue-100 border-blue-400' : 'bg-gray-50 border-gray-200'}`}>
-                          <label className="flex items-center gap-2 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={addingDiscard[hotelId] || false}
-                              onChange={(e) => {
-                                setAddingDiscard(prev => ({ ...prev, [hotelId]: e.target.checked }));
-                                if (e.target.checked) {
-                                  setAddingHasarli(prev => ({ ...prev, [hotelId]: false }));
-                                }
-                              }}
-                              className="w-6 h-6 text-blue-600 rounded"
-                            />
-                            <span className={`font-bold text-lg ${addingDiscard[hotelId] ? 'text-blue-700' : 'text-gray-500'}`}>DISCORD</span>
-                          </label>
-                        </div>
-
-                        {/* Lekeli section */}
-                        <div className={`rounded-lg p-3 border-2 transition-all ${addingHasarli[hotelId] ? 'bg-red-100 border-red-400' : 'bg-gray-50 border-gray-200'}`}>
-                          <label className="flex items-center gap-2 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={addingHasarli[hotelId] || false}
-                              onChange={(e) => {
-                                setAddingHasarli(prev => ({ ...prev, [hotelId]: e.target.checked }));
-                                if (e.target.checked) {
-                                  setAddingDiscard(prev => ({ ...prev, [hotelId]: false }));
-                                }
-                              }}
-                              className="w-6 h-6 text-red-600 rounded"
-                            />
-                            <span className={`font-bold text-lg ${addingHasarli[hotelId] ? 'text-red-700' : 'text-gray-500'}`}>LEKELİ</span>
-                          </label>
-                        </div>
-                      </div>
-
                       {/* Dropdown + Buttons */}
                       <div className="flex flex-col gap-2">
                         {/* Dropdown */}
@@ -970,6 +931,45 @@ export function IronerInterfacePage() {
                           <Printer className="w-5 h-5" />
                           {processAndPrintMutation.isPending ? 'Yazdiriliyor...' : 'YAZDIR'}
                         </button>
+                      </div>
+
+                      {/* Discord and Lekeli - simple checkboxes */}
+                      <div className="flex flex-col gap-2">
+                        {/* Discord section */}
+                        <div className={`rounded-lg p-3 border-2 transition-all ${addingDiscard[hotelId] ? 'bg-blue-100 border-blue-400' : 'bg-gray-50 border-gray-200'}`}>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={addingDiscard[hotelId] || false}
+                              onChange={(e) => {
+                                setAddingDiscard(prev => ({ ...prev, [hotelId]: e.target.checked }));
+                                if (e.target.checked) {
+                                  setAddingHasarli(prev => ({ ...prev, [hotelId]: false }));
+                                }
+                              }}
+                              className="w-6 h-6 text-blue-600 rounded"
+                            />
+                            <span className={`font-bold text-lg ${addingDiscard[hotelId] ? 'text-blue-700' : 'text-gray-500'}`}>DISCORD</span>
+                          </label>
+                        </div>
+
+                        {/* Lekeli section */}
+                        <div className={`rounded-lg p-3 border-2 transition-all ${addingHasarli[hotelId] ? 'bg-red-100 border-red-400' : 'bg-gray-50 border-gray-200'}`}>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={addingHasarli[hotelId] || false}
+                              onChange={(e) => {
+                                setAddingHasarli(prev => ({ ...prev, [hotelId]: e.target.checked }));
+                                if (e.target.checked) {
+                                  setAddingDiscard(prev => ({ ...prev, [hotelId]: false }));
+                                }
+                              }}
+                              className="w-6 h-6 text-red-600 rounded"
+                            />
+                            <span className={`font-bold text-lg ${addingHasarli[hotelId] ? 'text-red-700' : 'text-gray-500'}`}>LEKELİ</span>
+                          </label>
+                        </div>
                       </div>
                     </div>
                   </div>

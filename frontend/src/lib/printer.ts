@@ -99,12 +99,61 @@ export async function getDefaultPrinter(): Promise<string | null> {
   return defaultPrinter?.name || null;
 }
 
-// Save preferred printer to localStorage
+// Save preferred printer to localStorage (for labels)
 export function savePreferredPrinter(printerName: string): void {
   localStorage.setItem('preferredPrinter', printerName);
 }
 
-// Get preferred printer from localStorage
+// Get preferred printer from localStorage (for labels)
 export function getPreferredPrinter(): string | null {
   return localStorage.getItem('preferredPrinter');
+}
+
+// Save preferred delivery/irsaliye printer to localStorage
+export function saveDeliveryPrinter(printerName: string): void {
+  localStorage.setItem('deliveryPrinter', printerName);
+}
+
+// Get preferred delivery/irsaliye printer from localStorage
+export function getDeliveryPrinter(): string | null {
+  return localStorage.getItem('deliveryPrinter');
+}
+
+// Print PDF document to specific printer (for A4 documents like irsaliye)
+export async function printDocument(
+  pdfDataUri: string,
+  options: PrintOptions = {}
+): Promise<{ success: boolean; error?: string }> {
+  if (isElectron() && window.electronAPI) {
+    // Create HTML wrapper for PDF
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          @page { size: A4; margin: 0; }
+          @media print { html, body { margin: 0; padding: 0; } }
+          body { margin: 0; padding: 0; }
+          iframe { width: 100%; height: 100vh; border: none; }
+        </style>
+      </head>
+      <body>
+        <iframe src="${pdfDataUri}"></iframe>
+      </body>
+      </html>
+    `;
+    return window.electronAPI.printLabel(
+      html,
+      options.printerName || getDeliveryPrinter() || undefined,
+      options.copies || 1
+    );
+  }
+
+  // Browser fallback: Open PDF in new tab for printing
+  const printWindow = window.open(pdfDataUri, '_blank');
+  if (printWindow) {
+    printWindow.focus();
+    return { success: true };
+  }
+  return { success: false, error: 'Popup blocked' };
 }

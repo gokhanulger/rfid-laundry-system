@@ -127,8 +127,8 @@ function generateHtmlLabel(delivery: any, labelExtraData?: LabelExtraItem[]): st
   const ITEMS_PER_LABEL = 3;
   const totalLabels = Math.max(1, Math.ceil(itemTypeEntries.length / ITEMS_PER_LABEL));
 
-  // Generate a short barcode for this delivery
-  const shortCode = generateShortCode();
+  // Use delivery barcode for scanning compatibility
+  const shortCode = delivery.barcode || generateShortCode();
 
   // Generate HTML for each label
   let labelsHtml = '';
@@ -143,39 +143,25 @@ function generateHtmlLabel(delivery: any, labelExtraData?: LabelExtraItem[]): st
     const barcodeImg = isFirstLabel ? generateBarcodeBase64(shortCode) : null;
 
     if (labelIndex > 0) {
-      labelsHtml += '<div style="page-break-before: always;"></div>';
+      labelsHtml += '<div class="page-break"></div>';
     }
 
     if (isFirstLabel) {
       // FIRST LABEL: Hotel name (ALL CAPS) + Date + Barcode + Items
       labelsHtml += `
-        <div style="width: 60mm; height: 80mm; padding: 2mm; box-sizing: border-box; font-family: Arial, sans-serif; position: relative;">
-          <!-- Hotel Name - ALL CAPS, auto-fit -->
-          <div style="text-align: center; font-size: 14pt; font-weight: bold; margin-bottom: 1mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-            ${hotelName}
+        <div class="label">
+          <div class="hotel-name">${hotelName}</div>
+          <div class="date">${date}</div>
+          ${totalLabels > 1 ? `<div class="pagination">${labelIndex + 1}/${totalLabels}</div>` : ''}
+          <div class="separator"></div>
+          <div class="barcode-area">
+            ${barcodeImg ? `<img src="${barcodeImg}" class="barcode-img" />` : ''}
+            <div class="barcode-text">${shortCode}</div>
           </div>
-          <!-- Date below hotel name -->
-          <div style="text-align: center; font-size: 10pt; color: #000; margin-bottom: 2mm;">
-            ${date}
-          </div>
-          ${totalLabels > 1 ? `<div style="position: absolute; top: 2mm; right: 3mm; font-size: 8pt; font-weight: bold;">${labelIndex + 1}/${totalLabels}</div>` : ''}
-
-          <!-- Separator -->
-          <div style="border-bottom: 1px solid black; margin-bottom: 2mm;"></div>
-
-          <!-- Barcode area -->
-          <div style="text-align: center; margin-bottom: 2mm;">
-            ${barcodeImg ? `<img src="${barcodeImg}" style="width: 50mm; height: 12mm;" />` : ''}
-            <div style="font-family: Courier, monospace; font-size: 11pt; font-weight: bold; color: #333; letter-spacing: 1px;">
-              ${shortCode}
-            </div>
-          </div>
-
-          <!-- Items list - single column for portrait -->
-          <div style="margin-top: 2mm;">
+          <div class="items-list">
             ${itemsForThisLabel.map(([, item]) => `
-              <div style="font-size: 11pt; padding: 1mm 0; border-bottom: 1px dotted #ccc;">
-                <span style="font-weight: bold;">${item.count} adet</span> ${item.name}
+              <div class="item-row">
+                <span class="item-count">${item.count} adet</span> ${item.name}
               </div>
             `).join('')}
           </div>
@@ -184,20 +170,13 @@ function generateHtmlLabel(delivery: any, labelExtraData?: LabelExtraItem[]): st
     } else {
       // CONTINUATION LABELS: Only items list (no hotel name, no barcode)
       labelsHtml += `
-        <div style="width: 60mm; height: 80mm; padding: 3mm; box-sizing: border-box; font-family: Arial, sans-serif; position: relative;">
-          <!-- Pagination indicator -->
-          <div style="text-align: center; font-size: 10pt; font-weight: bold; margin-bottom: 2mm; color: #666;">
-            Devam ${labelIndex + 1}/${totalLabels}
-          </div>
-
-          <!-- Separator -->
-          <div style="border-bottom: 1px solid #ccc; margin-bottom: 2mm;"></div>
-
-          <!-- Items list - single column -->
-          <div style="margin-top: 2mm;">
+        <div class="label">
+          <div class="continuation-header">Devam ${labelIndex + 1}/${totalLabels}</div>
+          <div class="separator-light"></div>
+          <div class="items-list">
             ${itemsForThisLabel.map(([, item]) => `
-              <div style="font-size: 11pt; padding: 2mm 0; border-bottom: 1px dotted #ccc;">
-                <span style="font-weight: bold;">${item.count} adet</span> ${item.name}
+              <div class="item-row">
+                <span class="item-count">${item.count} adet</span> ${item.name}
               </div>
             `).join('')}
           </div>
@@ -211,28 +190,15 @@ function generateHtmlLabel(delivery: any, labelExtraData?: LabelExtraItem[]): st
     const labelText = hasDiscord
       ? 'DISCART URUN BU URUNU LUTFEN BIR DAHA KULLANMAYINIZ'
       : 'LEKELI URUN LUTFEN KULLANMAYINIZ';
-    const textColor = hasDiscord ? '#3B82F6' : '#EF4444';
+    const colorClass = hasDiscord ? 'warning-blue' : 'warning-red';
 
     labelsHtml += `
-      <div style="page-break-before: always;"></div>
-      <div style="width: 60mm; height: 80mm; padding: 2mm; box-sizing: border-box; font-family: Arial, sans-serif; position: relative;">
-        <!-- Hotel -->
-        <div style="text-align: center; font-size: 14pt; font-weight: bold; margin-bottom: 1mm;">
-          ${hotelName}
-        </div>
-        <!-- Date -->
-        <div style="text-align: center; font-size: 9pt; color: #666; margin-bottom: 2mm;">
-          ${date}
-        </div>
-
-        <!-- Separator -->
-        <div style="border-bottom: 1px solid black; margin-bottom: 3mm;"></div>
-
-        <!-- Big warning text (no barcode) -->
-        <div style="text-align: center; padding: 5mm 2mm; border: 2px solid ${textColor}; margin: 2mm 0;">
-          <div style="color: ${textColor}; font-size: 12pt; font-weight: bold; line-height: 1.3;">
-            ${labelText}
-          </div>
+      <div class="page-break"></div>
+      <div class="label warning-label">
+        <div class="warning-hotel">${hotelName}</div>
+        <div class="warning-date">${date}</div>
+        <div class="warning-box ${colorClass}">
+          <div class="warning-text">${labelText}</div>
         </div>
       </div>
     `;
@@ -242,13 +208,151 @@ function generateHtmlLabel(delivery: any, labelExtraData?: LabelExtraItem[]): st
     <!DOCTYPE html>
     <html>
     <head>
+      <meta charset="UTF-8">
       <style>
-        @page { size: 60mm 80mm; margin: 0; }
-        @media print {
-          body { margin: 0; padding: 0; }
+        @page {
+          size: 60mm 80mm;
+          margin: 0;
         }
-        body { margin: 0; padding: 0; }
-        * { box-sizing: border-box; }
+        @media print {
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 60mm;
+          }
+          .page-break {
+            page-break-before: always;
+            height: 0;
+            margin: 0;
+            padding: 0;
+          }
+        }
+        * {
+          box-sizing: border-box;
+          margin: 0;
+          padding: 0;
+        }
+        html, body {
+          margin: 0;
+          padding: 0;
+          font-family: Arial, sans-serif;
+          width: 60mm;
+        }
+        .label {
+          width: 60mm;
+          height: 80mm;
+          padding: 2mm;
+          position: relative;
+          overflow: hidden;
+        }
+        .hotel-name {
+          text-align: center;
+          font-size: 22pt;
+          font-weight: bold;
+          margin-bottom: 1mm;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .date {
+          text-align: center;
+          font-size: 11pt;
+          color: #000;
+          margin-bottom: 2mm;
+        }
+        .pagination {
+          position: absolute;
+          top: 1mm;
+          right: 2mm;
+          font-size: 8pt;
+          font-weight: bold;
+        }
+        .separator {
+          border-bottom: 2px solid black;
+          margin: 0 0 2mm 0;
+        }
+        .separator-light {
+          border-bottom: 2px solid #ccc;
+          margin: 0 0 2mm 0;
+        }
+        .barcode-area {
+          text-align: center;
+          margin-bottom: 2mm;
+        }
+        .barcode-img {
+          width: 54mm;
+          height: 10mm;
+          display: block;
+          margin: 0 auto;
+        }
+        .barcode-text {
+          font-family: Courier, monospace;
+          font-size: 12pt;
+          font-weight: bold;
+          color: #333;
+          letter-spacing: 2px;
+          margin-top: 1mm;
+        }
+        .items-list {
+          margin-top: 2mm;
+        }
+        .item-row {
+          font-size: 13pt;
+          padding: 1mm 0;
+          border-bottom: 1px dotted #ccc;
+        }
+        .item-count {
+          font-weight: bold;
+        }
+        .continuation-header {
+          text-align: center;
+          font-size: 12pt;
+          font-weight: bold;
+          margin-bottom: 2mm;
+          color: #666;
+        }
+        .warning-label {
+          padding: 0 2mm;
+        }
+        .warning-hotel {
+          text-align: center;
+          font-size: 12pt;
+          font-weight: bold;
+          margin: 0;
+          padding-top: 1mm;
+        }
+        .warning-date {
+          text-align: center;
+          font-size: 8pt;
+          margin: 0;
+        }
+        .warning-box {
+          text-align: center;
+          padding: 8mm 2mm;
+          border: 3px solid;
+          margin: 0 1mm;
+        }
+        .warning-box.warning-blue {
+          border-color: #3B82F6;
+        }
+        .warning-box.warning-red {
+          border-color: #EF4444;
+        }
+        .warning-text {
+          font-size: 14pt;
+          font-weight: bold;
+          line-height: 1.3;
+        }
+        .warning-blue .warning-text {
+          color: #3B82F6;
+        }
+        .warning-red .warning-text {
+          color: #EF4444;
+        }
+        .page-break {
+          page-break-before: always;
+          height: 0;
+        }
       </style>
     </head>
     <body>
@@ -637,11 +741,11 @@ function generateSingleLabel(
   yPos += 3;
 
   // ============================================
-  // 3. BARCODE - numeric code for readability
+  // 3. BARCODE - use delivery barcode for scanning
   // ============================================
-  const shortCode = generateShortCode();
+  const shortCode = delivery.barcode || generateShortCode();
 
-  // Draw barcode with numeric code
+  // Draw barcode with delivery barcode
   drawBarcode(doc, shortCode, margin + 2, yPos, LABEL_WIDTH - (margin * 2) - 4, 10);
 
   // Barcode text - full number, single size
@@ -805,7 +909,7 @@ export function generateManualLabel(data: ManualLabelData) {
 function generateManualSingleLabel(
   doc: jsPDF,
   data: ManualLabelData,
-  _barcode: string,
+  barcode: string,
   packageNumber: number,
   totalPackages: number
 ) {
@@ -866,9 +970,9 @@ function generateManualSingleLabel(
   yPos += 3;
 
   // ============================================
-  // 3. BARCODE - numeric code for readability
+  // 3. BARCODE - use provided barcode for scanning
   // ============================================
-  const shortCode = generateShortCode();
+  const shortCode = barcode || generateShortCode();
 
   // Draw barcode
   drawBarcode(doc, shortCode, margin + 2, yPos, LABEL_WIDTH - (margin * 2) - 4, 10);

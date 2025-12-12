@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { FileText, QrCode, Printer, RefreshCw, CheckCircle, Package, X, Trash2, History, Search, Building2, ShoppingBag } from 'lucide-react';
+import { FileText, QrCode, Printer, RefreshCw, CheckCircle, Package, X, Trash2, History, Search, Building2, ShoppingBag, Settings } from 'lucide-react';
 import { deliveriesApi, settingsApi, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/Toast';
 import type { Delivery, DeliveryPackage } from '../types';
 import { jsPDF } from 'jspdf';
 import JsBarcode from 'jsbarcode';
+import { isElectron, getPrinters, getDeliveryPrinter, saveDeliveryPrinter, type Printer as PrinterType } from '../lib/printer';
 
 interface ScannedPackage {
   delivery: Delivery;
@@ -54,28 +55,50 @@ export function IrsaliyePage() {
   const [selectedHotelFilter, setSelectedHotelFilter] = useState<string>('');
   const [expandedDeliveryId, setExpandedDeliveryId] = useState<string | null>(null);
 
+  // Printer settings
+  const [printers, setPrinters] = useState<PrinterType[]>([]);
+  const [selectedPrinter, setSelectedPrinter] = useState<string>(getDeliveryPrinter() || '');
+  const [showPrinterSettings, setShowPrinterSettings] = useState(false);
+
+  // Load printers on mount
+  useEffect(() => {
+    if (isElectron()) {
+      getPrinters().then(setPrinters);
+    }
+  }, []);
+
+  // Save printer selection
+  const handlePrinterChange = (printerName: string) => {
+    setSelectedPrinter(printerName);
+    saveDeliveryPrinter(printerName);
+    toast.success(`Irsaliye yazicisi secildi: ${printerName}`);
+  };
+
   // Get tenants for hotel selection
   const { data: tenants } = useQuery({
     queryKey: ['tenants'],
     queryFn: settingsApi.getTenants,
   });
 
-  // Get packaged deliveries ready for irsaliye
+  // Get packaged deliveries ready for irsaliye - auto-refresh every 5 seconds
   const { data: packagedDeliveries, isLoading, refetch } = useQuery({
     queryKey: ['deliveries', { status: 'packaged' }],
     queryFn: () => deliveriesApi.getAll({ status: 'packaged', limit: 100 }),
+    refetchInterval: 5000,
   });
 
-  // Get printed deliveries (label_printed status)
+  // Get printed deliveries (label_printed status) - auto-refresh
   const { data: printedDeliveries, refetch: refetchPrinted } = useQuery({
     queryKey: ['deliveries', { status: 'label_printed' }],
     queryFn: () => deliveriesApi.getAll({ status: 'label_printed', limit: 100 }),
+    refetchInterval: 5000,
   });
 
-  // Get picked_up deliveries (delivered)
+  // Get picked_up deliveries (delivered) - auto-refresh
   const { data: pickedUpDeliveries } = useQuery({
     queryKey: ['deliveries', { status: 'picked_up' }],
     queryFn: () => deliveriesApi.getAll({ status: 'picked_up', limit: 100 }),
+    refetchInterval: 5000,
   });
 
   const scanMutation = useMutation({
@@ -828,14 +851,87 @@ export function IrsaliyePage() {
             <p className="text-gray-500">Otel bazli paket yonetimi</p>
           </div>
         </div>
-        <button
-          onClick={handleRefresh}
-          className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
-        >
-          <RefreshCw className="w-4 h-4" />
-          Yenile
-        </button>
+        <div className="flex items-center gap-2">
+          {isElectron() && (
+            <button
+              onClick={() => setShowPrinterSettings(true)}
+              className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg border"
+            >
+              <Settings className="w-4 h-4" />
+              Yazici: {selectedPrinter || 'Secilmedi'}
+            </button>
+          )}
+          <button
+            onClick={handleRefresh}
+            className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Yenile
+          </button>
+        </div>
       </div>
+
+      {/* Printer Settings Modal */}
+      {showPrinterSettings && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                <Printer className="w-6 h-6 text-teal-600" />
+                Irsaliye Yazicisi
+              </h2>
+              <button
+                onClick={() => setShowPrinterSettings(false)}
+                className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-gray-600 text-sm mb-4">
+              Irsaliyeler bu yazicidan yazdirilacak (A4 kagit)
+            </p>
+
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {printers.length === 0 ? (
+                <p className="text-gray-500 text-center py-4">Yazici bulunamadi</p>
+              ) : (
+                printers.map(printer => (
+                  <button
+                    key={printer.name}
+                    onClick={() => {
+                      handlePrinterChange(printer.name);
+                      setShowPrinterSettings(false);
+                    }}
+                    className={`w-full text-left px-4 py-3 rounded-lg border-2 transition-all ${
+                      selectedPrinter === printer.name
+                        ? 'border-teal-500 bg-teal-50 text-teal-700'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">{printer.displayName}</span>
+                      {printer.isDefault && (
+                        <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">Varsayilan</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">{printer.name}</p>
+                  </button>
+                ))
+              )}
+            </div>
+
+            <div className="mt-4 pt-4 border-t">
+              <button
+                onClick={() => setShowPrinterSettings(false)}
+                className="w-full py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium"
+              >
+                Kapat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="bg-white rounded-xl shadow-lg overflow-hidden">
