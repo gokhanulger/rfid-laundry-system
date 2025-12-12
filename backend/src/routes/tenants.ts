@@ -9,6 +9,8 @@ import {
   users,
   scanSessions,
   scanEvents,
+  scanConflicts,
+  offlineSyncQueue,
   alerts,
   auditLogs,
   pickups,
@@ -181,8 +183,25 @@ tenantsRouter.delete('/:id', requireRole('system_admin'), async (req: AuthReques
       await db.delete(scanEvents).where(eq(scanEvents.sessionId, session.id));
     }
 
+    // Delete scan conflicts that reference this tenant's sessions
+    for (const session of tenantSessions) {
+      await db.delete(scanConflicts).where(eq(scanConflicts.winningSessionId, session.id));
+      await db.delete(scanConflicts).where(eq(scanConflicts.conflictingSessionId, session.id));
+    }
+
     // Delete scan sessions
     await db.delete(scanSessions).where(eq(scanSessions.tenantId, id));
+
+    // Get all devices for this tenant
+    const tenantDevices = await db.query.devices.findMany({
+      where: eq(devices.tenantId, id),
+      columns: { id: true },
+    });
+
+    // Delete offline sync queue for those devices
+    for (const device of tenantDevices) {
+      await db.delete(offlineSyncQueue).where(eq(offlineSyncQueue.deviceId, device.id));
+    }
 
     // Delete devices
     await db.delete(devices).where(eq(devices.tenantId, id));

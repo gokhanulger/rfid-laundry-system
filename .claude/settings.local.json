@@ -104,7 +104,8 @@
       "Bash(echo:*)",
       "Bash(done)",
       "Bash(__NEW_LINE__ echo \"\")",
-      "Bash(__NEW_LINE__ echo \"=== İLK OTELİ DENİYORUM ===\")"
+      "Bash(__NEW_LINE__ echo \"=== İLK OTELİ DENİYORUM ===\")",
+      "Bash(__NEW_LINE__ echo \"=== İLK OTELİ SİLİYORUM ===\")"
     ],
     "deny": [],
     "ask": []
