@@ -90,7 +90,11 @@
       "Bash(npx png-to-ico:*)",
       "Bash(ls:*)",
       "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImI2OTViNjFlLTg0YjItNDIzZi1hMDZhLTZiYmYwZGNkN2U5OCIsImVtYWlsIjoiYWRtaW5AbGF1bmRyeS5jb20iLCJmaXJzdE5hbWUiOiJTeXN0ZW0iLCJsYXN0TmFtZSI6IkFkbWluIiwicm9sZSI6InN5c3RlbV9hZG1pbiIsInRlbmFudElkIjpudWxsLCJpYXQiOjE3NjU1MjAyNDksImV4cCI6MTc2NjEyNTA0OX0.9bG6AZyd6GAO6PlXYE4UNgNKEsjVFdVwXEqdue0TfoE\")",
-      "Bash(npm run electron:build:win:packager:*)"
+      "Bash(npm run electron:build:win:packager:*)",
+      "WebFetch(domain:frontend-three-virid-27.vercel.app)",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6Ijk1NTFjMzBlLTk0ZmQtNDc2ZC04NjI3LWFiNTBhYmZkNGZkMiIsImVtYWlsIjoicGFja2FnZXJAbGF1bmRyeS5jb20iLCJmaXJzdE5hbWUiOiJQYWtldGNpIiwibGFzdE5hbWUiOiJVc2VyIiwicm9sZSI6InBhY2thZ2VyIiwidGVuYW50SWQiOm51bGwsImlhdCI6MTc2NTUyNDA1NCwiZXhwIjoxNzY2MTI4ODU0fQ.zZsikTotzvZWRdz-8X7mG_sh_-3HxwH-8HAxCTAs_y0\")",
+      "Bash(__NEW_LINE__ echo \"Testing cancel endpoint...\")",
+      "Bash(__NEW_LINE__ curl -s -X POST \"https://rfid-laundry-backend-production.up.railway.app/api/deliveries/5c634b3e-bdc1-4392-8977-d7528178495d/cancel\" )"
     ],
     "deny": [],
     "ask": []

@@ -552,9 +552,10 @@ export function IronerInterfacePage() {
     <div className="h-full animate-fade-in">
       {/* Main Content */}
       <div className="p-8 space-y-6 overflow-auto h-full">
-        {/* Header with Counter on Right */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        {/* Header with Hotels and Counter */}
+        <div className="flex items-center justify-between gap-4 sticky top-0 z-40 bg-white py-2">
+          {/* Left: Logo and Title */}
+          <div className="flex items-center gap-3 flex-shrink-0">
             <div className="p-3 bg-orange-100 rounded-lg">
               <Printer className="w-8 h-8 text-orange-600" />
             </div>
@@ -564,8 +565,59 @@ export function IronerInterfacePage() {
             </div>
           </div>
 
-          {/* Counter on Right */}
-          <div className="flex items-center gap-4 bg-gray-900 text-white rounded-xl px-6 py-3">
+          {/* Center: Selected Hotels */}
+          <div className="flex-1 flex items-center gap-2 flex-wrap justify-center">
+            {selectedHotelIds.map(hotelId => {
+              const hotel = tenantsArray.find((t: Tenant) => t.id === hotelId);
+              const isActive = activeHotelId === hotelId;
+              return (
+                <div
+                  key={hotelId}
+                  className={`flex items-center gap-1 pl-3 pr-1 py-1 rounded-full border transition-all ${
+                    isActive
+                      ? 'bg-orange-600 border-orange-600 text-white'
+                      : 'bg-orange-50 border-orange-200 hover:bg-orange-100'
+                  }`}
+                >
+                  <button
+                    onClick={() => setActiveHotelId(hotelId)}
+                    className="flex items-center gap-2"
+                  >
+                    <Building2 className={`w-4 h-4 ${isActive ? 'text-white' : 'text-orange-600'}`} />
+                    <span className={`font-medium text-sm ${isActive ? 'text-white' : 'text-gray-900'}`}>{hotel?.name}</span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const newSelection = selectedHotelIds.filter(id => id !== hotelId);
+                      saveSelectedHotels(newSelection);
+                      if (activeHotelId === hotelId) {
+                        setActiveHotelId(null);
+                      }
+                    }}
+                    className={`ml-1 p-1 rounded-full transition-colors ${
+                      isActive
+                        ? 'hover:bg-orange-500 text-white'
+                        : 'hover:bg-red-100 text-gray-400 hover:text-red-600'
+                    }`}
+                    title="Oteli kaldir"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              );
+            })}
+            <button
+              onClick={() => setShowHotelSelector(true)}
+              className="flex items-center gap-1 text-orange-600 hover:text-orange-700 text-sm font-medium px-2 py-1"
+            >
+              <Plus className="w-4 h-4" />
+              Otel Ekle
+            </button>
+          </div>
+
+          {/* Right: Counter */}
+          <div className="flex items-center gap-4 bg-gray-900 text-white rounded-xl px-6 py-3 flex-shrink-0">
             <div className={`flex items-center gap-2 py-1 px-3 rounded-lg ${
               currentShift === 'day'
                 ? 'bg-yellow-500/20 text-yellow-400'
@@ -589,60 +641,6 @@ export function IronerInterfacePage() {
             </div>
           </div>
         </div>
-
-      {/* Selected Hotels Bar - Sticky at top */}
-      <div className="bg-orange-50 rounded-lg p-4 flex items-center gap-3 flex-wrap sticky top-0 z-40 shadow-sm">
-        <span className="text-orange-700 font-medium">Calisilan:</span>
-        {selectedHotelIds.map(hotelId => {
-          const hotel = tenantsArray.find((t: Tenant) => t.id === hotelId);
-          const isActive = activeHotelId === hotelId;
-          return (
-            <div
-              key={hotelId}
-              className={`flex items-center gap-1 pl-3 pr-1 py-1 rounded-full border transition-all ${
-                isActive
-                  ? 'bg-orange-600 border-orange-600 text-white'
-                  : 'bg-white border-orange-200 hover:bg-orange-100'
-              }`}
-            >
-              <button
-                onClick={() => setActiveHotelId(hotelId)}
-                className="flex items-center gap-2"
-              >
-                <Building2 className={`w-4 h-4 ${isActive ? 'text-white' : 'text-orange-600'}`} />
-                <span className={`font-medium ${isActive ? 'text-white' : 'text-gray-900'}`}>{hotel?.name}</span>
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  // Remove hotel from selection
-                  const newSelection = selectedHotelIds.filter(id => id !== hotelId);
-                  saveSelectedHotels(newSelection);
-                  // Clear active if this was active
-                  if (activeHotelId === hotelId) {
-                    setActiveHotelId(null);
-                  }
-                }}
-                className={`ml-1 p-1 rounded-full transition-colors ${
-                  isActive
-                    ? 'hover:bg-orange-500 text-white'
-                    : 'hover:bg-red-100 text-gray-400 hover:text-red-600'
-                }`}
-                title="Oteli kaldir"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          );
-        })}
-        <button
-          onClick={() => setShowHotelSelector(true)}
-          className="flex items-center gap-1 text-orange-600 hover:text-orange-700 text-sm font-medium"
-        >
-          <Plus className="w-4 h-4" />
-          Otel Ekle
-        </button>
-      </div>
 
       {/* Hotel Selection Dialog */}
       {showHotelSelector && <HotelSelectionDialog />}
