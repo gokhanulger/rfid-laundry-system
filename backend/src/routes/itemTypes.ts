@@ -64,8 +64,17 @@ itemTypesRouter.post('/', requireRole('operator', 'laundry_manager', 'system_adm
 
     const { name, description, tenantId } = validation.data;
 
+    // Check for duplicate name
+    const existing = await db.query.itemTypes.findFirst({
+      where: eq(itemTypes.name, name.trim()),
+    });
+
+    if (existing) {
+      return res.status(400).json({ error: 'Bu isimde urun turu zaten mevcut' });
+    }
+
     const [newItemType] = await db.insert(itemTypes).values({
-      name,
+      name: name.trim(),
       description,
       tenantId: tenantId || null,
     }).returning();

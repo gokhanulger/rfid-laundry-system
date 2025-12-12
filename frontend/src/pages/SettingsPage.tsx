@@ -25,7 +25,7 @@ export function SettingsPage() {
   const [editingItemType, setEditingItemType] = useState<ItemType | null>(null);
   const [form, setForm] = useState<ItemTypeForm>(emptyForm);
   const [isImporting, setIsImporting] = useState(false);
-  const [importProgress, setImportProgress] = useState<{ total: number; current: number; results: { name: string; success: boolean }[] }>({ total: 0, current: 0, results: [] });
+  const [importProgress, setImportProgress] = useState<{ total: number; current: number; results: { name: string; success: boolean; error?: string }[] }>({ total: 0, current: 0, results: [] });
   const [showImportModal, setShowImportModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
@@ -123,17 +123,29 @@ export function SettingsPage() {
 
       setImportProgress({ total: jsonData.length, current: 0, results: [] });
 
-      const results: { name: string; success: boolean }[] = [];
+      const results: { name: string; success: boolean; error?: string }[] = [];
+
+      // Helper function to find column value (case insensitive)
+      const getColumnValue = (row: Record<string, string>, ...possibleNames: string[]): string => {
+        const keys = Object.keys(row);
+        for (const name of possibleNames) {
+          const found = keys.find(k => k.toLowerCase().trim() === name.toLowerCase().trim());
+          if (found && row[found]) {
+            return String(row[found]).trim();
+          }
+        }
+        return '';
+      };
 
       for (let i = 0; i < jsonData.length; i++) {
         const row = jsonData[i];
         const itemTypeData: ItemTypeForm = {
-          name: row['Urun Turu'] || row['name'] || row['Ad'] || row['Tur'] || '',
-          description: row['Aciklama'] || row['description'] || '',
+          name: getColumnValue(row, 'Urun Turu', 'Ürün Türü', 'name', 'Name', 'Ad', 'Tur', 'Tür', 'Isim', 'İsim'),
+          description: getColumnValue(row, 'Aciklama', 'Açıklama', 'description', 'Description', 'Tanim', 'Tanım'),
         };
 
         if (!itemTypeData.name) {
-          results.push({ name: `Satir ${i + 2}: Isim bos`, success: false });
+          results.push({ name: `Satir ${i + 2}: Isim bos`, success: false, error: 'Urun turu adi bulunamadi' });
           setImportProgress(prev => ({ ...prev, current: i + 1, results: [...results] }));
           continue;
         }
@@ -141,8 +153,9 @@ export function SettingsPage() {
         try {
           await api.post('/item-types', itemTypeData);
           results.push({ name: itemTypeData.name, success: true });
-        } catch {
-          results.push({ name: itemTypeData.name, success: false });
+        } catch (err: unknown) {
+          const errorMsg = err instanceof Error ? err.message : (err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Bilinmeyen hata';
+          results.push({ name: itemTypeData.name, success: false, error: errorMsg });
         }
 
         setImportProgress(prev => ({ ...prev, current: i + 1, results: [...results] }));
@@ -401,11 +414,16 @@ export function SettingsPage() {
                     }`}
                   >
                     {result.success ? (
-                      <Check className="w-4 h-4 text-green-600" />
+                      <Check className="w-4 h-4 text-green-600 flex-shrink-0" />
                     ) : (
-                      <X className="w-4 h-4 text-red-600" />
+                      <X className="w-4 h-4 text-red-600 flex-shrink-0" />
                     )}
-                    <span>{result.name}</span>
+                    <div className="flex-1 min-w-0">
+                      <span className="font-medium">{result.name}</span>
+                      {result.error && (
+                        <p className="text-xs text-red-600 truncate">{result.error}</p>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
