@@ -94,7 +94,8 @@
       "WebFetch(domain:frontend-three-virid-27.vercel.app)",
       "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6Ijk1NTFjMzBlLTk0ZmQtNDc2ZC04NjI3LWFiNTBhYmZkNGZkMiIsImVtYWlsIjoicGFja2FnZXJAbGF1bmRyeS5jb20iLCJmaXJzdE5hbWUiOiJQYWtldGNpIiwibGFzdE5hbWUiOiJVc2VyIiwicm9sZSI6InBhY2thZ2VyIiwidGVuYW50SWQiOm51bGwsImlhdCI6MTc2NTUyNDA1NCwiZXhwIjoxNzY2MTI4ODU0fQ.zZsikTotzvZWRdz-8X7mG_sh_-3HxwH-8HAxCTAs_y0\")",
       "Bash(__NEW_LINE__ echo \"Testing cancel endpoint...\")",
-      "Bash(__NEW_LINE__ curl -s -X POST \"https://rfid-laundry-backend-production.up.railway.app/api/deliveries/5c634b3e-bdc1-4392-8977-d7528178495d/cancel\" )"
+      "Bash(__NEW_LINE__ curl -s -X POST \"https://rfid-laundry-backend-production.up.railway.app/api/deliveries/5c634b3e-bdc1-4392-8977-d7528178495d/cancel\" )",
+      "Bash(echo \"Checking label_printed deliveries...\" curl -s \"https://rfid-laundry-backend-production.up.railway.app/api/deliveries?status=label_printed&limit=5\" -H \"Authorization: Bearer $TOKEN\")"
     ],
     "deny": [],
     "ask": []

@@ -43,15 +43,18 @@ export function PackagingPage() {
   };
 
   // Get deliveries that have labels printed (ready for packaging)
+  // Auto-refresh every 5 seconds to catch new labels from ironer
   const { data: deliveries, isLoading, refetch } = useQuery({
     queryKey: ['deliveries', { status: 'label_printed' }],
     queryFn: () => deliveriesApi.getAll({ status: 'label_printed', limit: 50 }),
+    refetchInterval: 5000, // Refresh every 5 seconds
   });
 
-  // Get recently packaged
+  // Get recently packaged - also auto-refresh
   const { data: packagedDeliveries } = useQuery({
     queryKey: ['deliveries', { status: 'packaged' }],
     queryFn: () => deliveriesApi.getAll({ status: 'packaged', limit: 10 }),
+    refetchInterval: 5000,
   });
 
   const scanMutation = useMutation({
