@@ -37,6 +37,8 @@ export function HotelManagementPage() {
   const [form, setForm] = useState<TenantForm>(emptyForm);
   const [qrModalTenant, setQrModalTenant] = useState<Tenant | null>(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState<{ total: number; current: number; results: { name: string; success: boolean }[] }>({ total: 0, current: 0, results: [] });
+  const [showImportModal, setShowImportModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -167,6 +169,8 @@ export function HotelManagementPage() {
     if (!file) return;
 
     setIsImporting(true);
+    setShowImportModal(true);
+    setImportProgress({ total: 0, current: 0, results: [] });
 
     try {
       const data = await file.arrayBuffer();
@@ -177,44 +181,54 @@ export function HotelManagementPage() {
 
       if (jsonData.length === 0) {
         toast.error('Excel dosyasi bos');
+        setShowImportModal(false);
         return;
       }
 
-      let successCount = 0;
-      let errorCount = 0;
+      setImportProgress({ total: jsonData.length, current: 0, results: [] });
 
-      for (const row of jsonData) {
+      const results: { name: string; success: boolean }[] = [];
+
+      for (let i = 0; i < jsonData.length; i++) {
+        const row = jsonData[i];
         const hotelData: TenantForm = {
-          name: row['Otel Adi'] || row['name'] || '',
-          email: row['E-posta'] || row['email'] || '',
-          phone: row['Telefon'] || row['phone'] || '',
+          name: row['Otel Adi'] || row['name'] || row['Otel'] || row['Hotel'] || '',
+          email: row['E-posta'] || row['email'] || row['Email'] || '',
+          phone: row['Telefon'] || row['phone'] || row['Tel'] || '',
           address: row['Adres'] || row['address'] || '',
           latitude: row['Enlem'] || row['latitude'] || '',
           longitude: row['Boylam'] || row['longitude'] || '',
         };
 
         if (!hotelData.name) {
-          errorCount++;
+          results.push({ name: `Satir ${i + 2}: Isim bos`, success: false });
+          setImportProgress(prev => ({ ...prev, current: i + 1, results: [...results] }));
           continue;
         }
 
         try {
           await api.post('/tenants', hotelData);
-          successCount++;
+          results.push({ name: hotelData.name, success: true });
         } catch {
-          errorCount++;
+          results.push({ name: hotelData.name, success: false });
         }
+
+        setImportProgress(prev => ({ ...prev, current: i + 1, results: [...results] }));
       }
+
+      const successCount = results.filter(r => r.success).length;
+      const errorCount = results.filter(r => !r.success).length;
 
       if (successCount > 0) {
         toast.success(`${successCount} otel basariyla eklendi`);
         queryClient.invalidateQueries({ queryKey: ['tenants'] });
       }
       if (errorCount > 0) {
-        toast.error(`${errorCount} otel eklenemedi (eksik bilgi veya tekrar)`);
+        toast.error(`${errorCount} otel eklenemedi`);
       }
     } catch (err) {
       toast.error('Excel dosyasi okunamadi');
+      setShowImportModal(false);
     } finally {
       setIsImporting(false);
       if (fileInputRef.current) {
@@ -791,6 +805,76 @@ export function HotelManagementPage() {
                 </>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import Progress Modal */}
+      {showImportModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[80vh] flex flex-col">
+            <div className="p-6 border-b flex items-center justify-between">
+              <h2 className="text-xl font-bold">Excel Yukleniyor</h2>
+              {!isImporting && (
+                <button onClick={() => setShowImportModal(false)} className="text-gray-500 hover:text-gray-700">
+                  <X className="w-5 h-5" />
+                </button>
+              )}
+            </div>
+            <div className="p-6 flex-1 overflow-auto">
+              {/* Progress Bar */}
+              <div className="mb-4">
+                <div className="flex justify-between text-sm mb-1">
+                  <span>{importProgress.current} / {importProgress.total}</span>
+                  <span>{importProgress.total > 0 ? Math.round((importProgress.current / importProgress.total) * 100) : 0}%</span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-3">
+                  <div
+                    className="bg-purple-600 h-3 rounded-full transition-all duration-300"
+                    style={{ width: `${importProgress.total > 0 ? (importProgress.current / importProgress.total) * 100 : 0}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Results List */}
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {importProgress.results.map((result, idx) => (
+                  <div
+                    key={idx}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${
+                      result.success ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'
+                    }`}
+                  >
+                    {result.success ? (
+                      <Check className="w-4 h-4 text-green-600" />
+                    ) : (
+                      <X className="w-4 h-4 text-red-600" />
+                    )}
+                    <span>{result.name}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Summary */}
+              {!isImporting && importProgress.results.length > 0 && (
+                <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+                  <p className="text-sm">
+                    <span className="text-green-600 font-bold">{importProgress.results.filter(r => r.success).length}</span> basarili,{' '}
+                    <span className="text-red-600 font-bold">{importProgress.results.filter(r => !r.success).length}</span> basarisiz
+                  </p>
+                </div>
+              )}
+            </div>
+            {!isImporting && (
+              <div className="p-4 border-t">
+                <button
+                  onClick={() => setShowImportModal(false)}
+                  className="w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                >
+                  Kapat
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

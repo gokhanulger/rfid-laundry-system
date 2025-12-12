@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Settings, Tags, Plus, Edit, Trash2, RefreshCw, X, Check } from 'lucide-react';
+import { Settings, Tags, Plus, Edit, Trash2, RefreshCw, X, Check, Upload, Download, FileSpreadsheet } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import api, { getErrorMessage } from '../lib/api';
 import { useToast } from '../components/Toast';
 
@@ -23,6 +24,10 @@ export function SettingsPage() {
   const [showModal, setShowModal] = useState(false);
   const [editingItemType, setEditingItemType] = useState<ItemType | null>(null);
   const [form, setForm] = useState<ItemTypeForm>(emptyForm);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState<{ total: number; current: number; results: { name: string; success: boolean }[] }>({ total: 0, current: 0, results: [] });
+  const [showImportModal, setShowImportModal] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const toast = useToast();
 
@@ -94,6 +99,91 @@ export function SettingsPage() {
     }
   };
 
+  // Excel Import
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    setShowImportModal(true);
+    setImportProgress({ total: 0, current: 0, results: [] });
+
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data);
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const jsonData = XLSX.utils.sheet_to_json(sheet) as Record<string, string>[];
+
+      if (jsonData.length === 0) {
+        toast.error('Excel dosyasi bos');
+        setShowImportModal(false);
+        return;
+      }
+
+      setImportProgress({ total: jsonData.length, current: 0, results: [] });
+
+      const results: { name: string; success: boolean }[] = [];
+
+      for (let i = 0; i < jsonData.length; i++) {
+        const row = jsonData[i];
+        const itemTypeData: ItemTypeForm = {
+          name: row['Urun Turu'] || row['name'] || row['Ad'] || row['Tur'] || '',
+          description: row['Aciklama'] || row['description'] || '',
+        };
+
+        if (!itemTypeData.name) {
+          results.push({ name: `Satir ${i + 2}: Isim bos`, success: false });
+          setImportProgress(prev => ({ ...prev, current: i + 1, results: [...results] }));
+          continue;
+        }
+
+        try {
+          await api.post('/item-types', itemTypeData);
+          results.push({ name: itemTypeData.name, success: true });
+        } catch {
+          results.push({ name: itemTypeData.name, success: false });
+        }
+
+        setImportProgress(prev => ({ ...prev, current: i + 1, results: [...results] }));
+      }
+
+      const successCount = results.filter(r => r.success).length;
+      const errorCount = results.filter(r => !r.success).length;
+
+      if (successCount > 0) {
+        toast.success(`${successCount} urun turu basariyla eklendi`);
+        queryClient.invalidateQueries({ queryKey: ['item-types'] });
+      }
+      if (errorCount > 0) {
+        toast.error(`${errorCount} urun turu eklenemedi`);
+      }
+    } catch (err) {
+      toast.error('Excel dosyasi okunamadi');
+      setShowImportModal(false);
+    } finally {
+      setIsImporting(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  // Download template
+  const downloadTemplate = () => {
+    const templateData = [
+      { 'Urun Turu': 'Nevresim', 'Aciklama': 'Yatak nevresimleri' },
+      { 'Urun Turu': 'Havlu', 'Aciklama': 'Banyo havlulari' },
+      { 'Urun Turu': 'Pike', 'Aciklama': 'Yatak pikeleri' },
+    ];
+
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Urun Turleri');
+    XLSX.writeFile(wb, 'Urun_Turleri_Sablon.xlsx');
+    toast.success('Sablon indirildi');
+  };
+
   return (
     <div className="p-8 space-y-6 animate-fade-in">
       {/* Header */}
@@ -109,7 +199,7 @@ export function SettingsPage() {
 
       {/* Item Types Section */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="p-4 border-b bg-teal-50 flex items-center justify-between">
+        <div className="p-4 border-b bg-teal-50 flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-3">
             <Tags className="w-6 h-6 text-teal-600" />
             <div>
@@ -117,7 +207,30 @@ export function SettingsPage() {
               <p className="text-sm text-gray-500">Tekstil urun turlerini tanimlayin</p>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={downloadTemplate}
+              className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:bg-white rounded-lg text-sm"
+              title="Excel sablonu indir"
+            >
+              <Download className="w-4 h-4" />
+              Sablon
+            </button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileUpload}
+              accept=".xlsx,.xls"
+              className="hidden"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isImporting}
+              className="flex items-center gap-2 px-3 py-2 bg-green-100 text-green-700 hover:bg-green-200 rounded-lg text-sm"
+            >
+              <Upload className="w-4 h-4" />
+              {isImporting ? 'Yukleniyor...' : 'Excel Yukle'}
+            </button>
             <button
               onClick={() => refetch()}
               className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:bg-white rounded-lg text-sm"
@@ -183,7 +296,7 @@ export function SettingsPage() {
           <div className="p-12 text-center">
             <Tags className="w-16 h-16 mx-auto text-gray-300 mb-4" />
             <p className="text-xl text-gray-500">Urun turu bulunamadi</p>
-            <p className="text-gray-400 mt-2">Baslamak icin ilk urun turunu ekleyin</p>
+            <p className="text-gray-400 mt-2">Baslamak icin ilk urun turunu ekleyin veya Excel yukleyin</p>
           </div>
         )}
       </div>
@@ -244,6 +357,79 @@ export function SettingsPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Import Progress Modal */}
+      {showImportModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[80vh] flex flex-col">
+            <div className="p-6 border-b flex items-center justify-between">
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <FileSpreadsheet className="w-6 h-6 text-teal-600" />
+                Excel Yukleniyor
+              </h2>
+              {!isImporting && (
+                <button onClick={() => setShowImportModal(false)} className="text-gray-500 hover:text-gray-700">
+                  <X className="w-5 h-5" />
+                </button>
+              )}
+            </div>
+            <div className="p-6 flex-1 overflow-auto">
+              {/* Progress Bar */}
+              <div className="mb-4">
+                <div className="flex justify-between text-sm mb-1">
+                  <span>{importProgress.current} / {importProgress.total}</span>
+                  <span>{importProgress.total > 0 ? Math.round((importProgress.current / importProgress.total) * 100) : 0}%</span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-3">
+                  <div
+                    className="bg-teal-600 h-3 rounded-full transition-all duration-300"
+                    style={{ width: `${importProgress.total > 0 ? (importProgress.current / importProgress.total) * 100 : 0}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Results List */}
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {importProgress.results.map((result, idx) => (
+                  <div
+                    key={idx}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${
+                      result.success ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'
+                    }`}
+                  >
+                    {result.success ? (
+                      <Check className="w-4 h-4 text-green-600" />
+                    ) : (
+                      <X className="w-4 h-4 text-red-600" />
+                    )}
+                    <span>{result.name}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Summary */}
+              {!isImporting && importProgress.results.length > 0 && (
+                <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+                  <p className="text-sm">
+                    <span className="text-green-600 font-bold">{importProgress.results.filter(r => r.success).length}</span> basarili,{' '}
+                    <span className="text-red-600 font-bold">{importProgress.results.filter(r => !r.success).length}</span> basarisiz
+                  </p>
+                </div>
+              )}
+            </div>
+            {!isImporting && (
+              <div className="p-4 border-t">
+                <button
+                  onClick={() => setShowImportModal(false)}
+                  className="w-full px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700"
+                >
+                  Kapat
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
