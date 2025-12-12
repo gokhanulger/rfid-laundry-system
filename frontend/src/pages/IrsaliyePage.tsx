@@ -26,6 +26,14 @@ interface HotelPackageStatus {
   totalItems: number;
 }
 
+// Bag/Sack interface - holds multiple packages
+interface Bag {
+  id: string;
+  bagCode: string;
+  packages: ScannedPackage[];
+  createdAt: Date;
+}
+
 type TabType = 'create' | 'history';
 
 export function IrsaliyePage() {
@@ -37,6 +45,9 @@ export function IrsaliyePage() {
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
   const queryClient = useQueryClient();
   const toast = useToast();
+
+  // Bags state - holds created bags for current hotel session
+  const [bags, setBags] = useState<Bag[]>([]);
 
   // History tab state
   const [searchTerm, setSearchTerm] = useState('');
@@ -168,7 +179,21 @@ export function IrsaliyePage() {
 
   const handleClearAll = () => {
     setScannedPackages([]);
+    setBags([]);
     setSelectedHotelId(null);
+  };
+
+  // Clear only scanned packages (keep bags)
+  const handleClearScanned = () => {
+    setScannedPackages([]);
+  };
+
+  // Get all packages in bags for this session
+  const packagesInBags = bags.flatMap(bag => bag.packages);
+
+  // Check if a package is already in a bag
+  const isPackageInBag = (deliveryId: string) => {
+    return packagesInBags.some(sp => sp.delivery.id === deliveryId);
   };
 
   const calculateTotals = () => {
@@ -244,16 +269,62 @@ export function IrsaliyePage() {
     return Object.values(totals);
   };
 
+  // Calculate totals including all bags
+  const calculateAllTotals = () => {
+    const totals: Record<string, { name: string; count: number }> = {};
+
+    // Include packages from all bags
+    const allPackages = [...packagesInBags, ...scannedPackages];
+
+    allPackages.forEach(({ delivery }) => {
+      if (delivery.notes) {
+        try {
+          const labelData = JSON.parse(delivery.notes);
+          if (Array.isArray(labelData)) {
+            labelData.forEach((item: any) => {
+              const typeName = item.typeName || 'Bilinmeyen';
+              const count = item.count || 0;
+              if (!totals[typeName]) {
+                totals[typeName] = { name: typeName, count: 0 };
+              }
+              totals[typeName].count += count;
+            });
+            return;
+          }
+        } catch {}
+      }
+
+      delivery.deliveryItems?.forEach((di: any) => {
+        const typeName = di.item?.itemType?.name || 'Bilinmeyen';
+        const typeId = di.item?.itemTypeId || 'unknown';
+        if (!totals[typeId]) {
+          totals[typeId] = { name: typeName, count: 0 };
+        }
+        totals[typeId].count++;
+      });
+    });
+
+    return Object.values(totals);
+  };
+
   const generateIrsaliyePDF = async () => {
-    if (scannedPackages.length === 0) {
-      toast.error('Lutfen once paketleri tarayin');
+    // Need at least one bag or some scanned packages
+    if (bags.length === 0 && scannedPackages.length === 0) {
+      toast.error('Lutfen once cuval olusturun veya paketleri tarayin');
+      return;
+    }
+
+    // If there are scanned packages, they should be in a bag first
+    if (scannedPackages.length > 0) {
+      toast.warning('Once secili paketler icin cuval etiketi basin!');
       return;
     }
 
     const hotel = tenants?.find(t => t.id === selectedHotelId);
-    const totals = calculateTotals();
+    const totals = calculateAllTotals();
     const documentNo = `A-${Date.now().toString().slice(-9)}`;
     const today = new Date().toLocaleDateString('tr-TR');
+    const totalPackageCount = packagesInBags.length;
 
     const doc = new jsPDF({
       orientation: 'portrait',
@@ -329,10 +400,15 @@ export function IrsaliyePage() {
 
     doc.setFontSize(14);
     doc.setFont('helvetica', 'bold');
-    doc.text('PAKET SAYISI :', margin, yPos);
-    doc.text(scannedPackages.length.toString(), pageWidth - margin - 20, yPos, { align: 'right' });
+    doc.text('CUVAL SAYISI :', margin, yPos);
+    doc.text(bags.length.toString(), pageWidth - margin - 20, yPos, { align: 'right' });
 
-    yPos += 20;
+    yPos += 8;
+
+    doc.text('PAKET SAYISI :', margin, yPos);
+    doc.text(totalPackageCount.toString(), pageWidth - margin - 20, yPos, { align: 'right' });
+
+    yPos += 15;
 
     doc.setLineWidth(0.5);
     doc.line(margin, yPos, pageWidth - margin, yPos);
@@ -358,18 +434,18 @@ export function IrsaliyePage() {
     const filename = `irsaliye-${hotel?.name?.replace(/\s+/g, '-') || 'otel'}-${documentNo}.pdf`;
     doc.save(filename);
 
-    // Get unique delivery IDs and mark them as picked_up for driver
-    const uniqueDeliveryIds = [...new Set(scannedPackages.map(({ delivery }) => delivery.id))];
+    // Get unique delivery IDs from all bags and mark them as picked_up
+    const uniqueDeliveryIds = [...new Set(packagesInBags.map(({ delivery }) => delivery.id))];
 
     // Call pickup API for each unique delivery
     try {
       await Promise.all(uniqueDeliveryIds.map(id => deliveriesApi.pickup(id)));
-      toast.success(`Irsaliye olusturuldu! ${uniqueDeliveryIds.length} paket sofor teslimatina eklendi.`);
+      toast.success(`Irsaliye olusturuldu! ${bags.length} cuval, ${totalPackageCount} paket sofor teslimatina eklendi.`);
     } catch (error) {
       toast.warning('Irsaliye olusturuldu, ancak bazi paketler sofor sistemine eklenemedi.');
     }
 
-    // Clear and refresh
+    // NOW clear everything and exit hotel view
     handleClearAll();
     setSelectedHotelId(null);
     queryClient.invalidateQueries({ queryKey: ['deliveries'] });
@@ -605,17 +681,26 @@ export function IrsaliyePage() {
       const filename = `cuval-${hotel?.name?.replace(/\s+/g, '-') || 'otel'}-${bagCode}.pdf`;
       doc.save(filename);
 
-      // Mark packages as picked up
-      await Promise.all(uniqueDeliveryIds.map(id => deliveriesApi.pickup(id)));
+      // DON'T mark packages as picked up yet - wait for irsaliye
+      // Just add the packages to a bag for visual tracking
 
-      toast.success(`Cuval etiketi olusturuldu! ${scannedPackages.length} paket ${bagCode} koduna baglandi.`);
+      // Add bag to bags list (visual tracking)
+      const newBag: Bag = {
+        id: `bag-${Date.now()}`,
+        bagCode,
+        packages: [...scannedPackages],
+        createdAt: new Date(),
+      };
+      setBags(prev => [...prev, newBag]);
 
-      // Clear and refresh
-      handleClearAll();
-      setSelectedHotelId(null);
+      toast.success(`Cuval etiketi basildi! ${scannedPackages.length} paket ${bagCode} cuvalina eklendi. Diger paketleri secmeye devam edin.`);
+
+      // Clear scanned packages but STAY on hotel view
+      handleClearScanned();
+
+      // Refresh to get updated data
       queryClient.invalidateQueries({ queryKey: ['deliveries'] });
       refetch();
-      refetchPrinted();
     } catch (error) {
       toast.error('Cuval etiketi olusturulamadi', getErrorMessage(error));
     }
@@ -931,10 +1016,38 @@ export function IrsaliyePage() {
                           )}
                         </div>
 
-                        {/* Summary */}
+                        {/* Created Bags Display */}
+                        {bags.length > 0 && (
+                          <div className="bg-orange-50 rounded-xl border-2 border-orange-200 p-4 shadow-sm">
+                            <h3 className="font-semibold mb-2 text-sm flex items-center gap-2 text-orange-800">
+                              <ShoppingBag className="w-4 h-4" />
+                              Olusturulan Cuvallar ({bags.length})
+                            </h3>
+                            <div className="space-y-2">
+                              {bags.map((bag, idx) => (
+                                <div key={bag.id} className="bg-white rounded-lg p-2 border border-orange-200">
+                                  <div className="flex items-center justify-between">
+                                    <span className="font-mono text-xs font-bold text-orange-700">
+                                      Cuval {idx + 1}: {bag.bagCode}
+                                    </span>
+                                    <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">
+                                      {bag.packages.length} paket
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="mt-3 pt-2 border-t border-orange-200 flex items-center justify-between text-sm">
+                              <span className="font-bold text-orange-800">TOPLAM</span>
+                              <span className="font-bold text-orange-700">{packagesInBags.length} paket</span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Summary for currently selected packages */}
                         {totals.length > 0 && (
                           <div className="bg-white rounded-xl border p-4 shadow-sm">
-                            <h3 className="font-semibold mb-2 text-sm">Secilen Urunler</h3>
+                            <h3 className="font-semibold mb-2 text-sm">Secilen Urunler (Yeni Cuval)</h3>
                             <div className="space-y-1 mb-3">
                               {totals.map((item, index) => (
                                 <div key={index} className="flex items-center justify-between py-1 border-b last:border-0 text-sm">
@@ -955,26 +1068,40 @@ export function IrsaliyePage() {
                           {scannedPackages.length > 0 ? (
                             <>
                               <button
-                                onClick={generateIrsaliyePDF}
-                                className="w-full py-3 bg-teal-600 text-white rounded-xl hover:bg-teal-700 font-bold flex items-center justify-center gap-2 shadow-lg"
-                              >
-                                <Printer className="w-5 h-5" />
-                                IRSALIYE YAZDIR ({scannedPackages.length} paket)
-                              </button>
-                              <button
                                 onClick={generateBagLabel}
                                 className="w-full py-3 bg-orange-500 text-white rounded-xl hover:bg-orange-600 font-bold flex items-center justify-center gap-2 shadow-lg"
                               >
                                 <ShoppingBag className="w-5 h-5" />
-                                CUVAL ETIKETI ({scannedPackages.length} paket)
+                                CUVAL ETIKETI BAS ({scannedPackages.length} paket)
                               </button>
+                              {bags.length > 0 && (
+                                <p className="text-xs text-center text-orange-600">
+                                  Once cuval etiketi basin, sonra irsaliye yazdirilir
+                                </p>
+                              )}
+                            </>
+                          ) : bags.length > 0 ? (
+                            <>
+                              <button
+                                onClick={generateIrsaliyePDF}
+                                className="w-full py-3 bg-teal-600 text-white rounded-xl hover:bg-teal-700 font-bold flex items-center justify-center gap-2 shadow-lg"
+                              >
+                                <Printer className="w-5 h-5" />
+                                IRSALIYE YAZDIR ({bags.length} cuval, {packagesInBags.length} paket)
+                              </button>
+                              <p className="text-xs text-center text-teal-600">
+                                Tum cuvallar hazir. Irsaliye yazdirabilirsiniz veya yeni cuval ekleyebilirsiniz.
+                              </p>
                             </>
                           ) : selectedHotelDeliveries.length > 0 && (
                             <>
                               <button
                                 onClick={() => {
-                                  // Add all packages from selected hotel
-                                  selectedHotelDeliveries.forEach((delivery: Delivery) => {
+                                  // Add all packages from selected hotel that are not already in a bag
+                                  const availableDeliveries = selectedHotelDeliveries.filter(
+                                    (d: Delivery) => !isPackageInBag(d.id)
+                                  );
+                                  availableDeliveries.forEach((delivery: Delivery) => {
                                     const pkg = delivery.deliveryPackages?.[0] || {
                                       id: `virtual-${delivery.id}`,
                                       deliveryId: delivery.id,
@@ -988,12 +1115,12 @@ export function IrsaliyePage() {
                                     };
                                     setScannedPackages(prev => [...prev, { delivery, pkg }]);
                                   });
-                                  toast.success(`${selectedHotelDeliveries.length} paket eklendi`);
+                                  toast.success(`${availableDeliveries.length} paket eklendi`);
                                 }}
                                 className="w-full py-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 font-bold flex items-center justify-center gap-2 shadow-lg"
                               >
                                 <Package className="w-5 h-5" />
-                                TUMUNU SEC ({selectedHotelDeliveries.length} paket)
+                                TUMUNU SEC ({selectedHotelDeliveries.filter((d: Delivery) => !isPackageInBag(d.id)).length} paket)
                               </button>
                               <p className="text-xs text-center text-gray-500">
                                 Paketleri secmek icin tiklayin veya barkod okutun
@@ -1030,6 +1157,10 @@ export function IrsaliyePage() {
                           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                             {selectedHotelDeliveries.map((delivery: Delivery) => {
                               const isScanned = scannedPackages.some(sp => sp.delivery.id === delivery.id);
+                              const inBag = isPackageInBag(delivery.id);
+                              const bagIndex = bags.findIndex(bag =>
+                                bag.packages.some(sp => sp.delivery.id === delivery.id)
+                              );
 
                               // Get item summary for this delivery
                               let deliveryItems: { name: string; count: number }[] = [];
@@ -1060,6 +1191,11 @@ export function IrsaliyePage() {
                                 <button
                                   key={delivery.id}
                                   onClick={() => {
+                                    if (inBag) {
+                                      // Already in bag, don't allow changes
+                                      toast.warning('Bu paket zaten bir cuvalda!');
+                                      return;
+                                    }
                                     if (!isScanned) {
                                       setBarcodeInput(delivery.barcode);
                                       setTimeout(() => handleScan(), 100);
@@ -1069,26 +1205,40 @@ export function IrsaliyePage() {
                                       if (idx >= 0) handleRemovePackage(idx);
                                     }
                                   }}
+                                  disabled={inBag}
                                   className={`
                                     relative rounded-xl border-2 p-3 text-left
                                     transition-all duration-200
-                                    ${isScanned
-                                      ? 'bg-teal-500 border-teal-600 text-white shadow-lg scale-[1.02]'
-                                      : 'bg-white border-gray-200 hover:border-teal-400 hover:shadow-md'
+                                    ${inBag
+                                      ? 'bg-orange-100 border-orange-300 text-orange-800 cursor-not-allowed opacity-75'
+                                      : isScanned
+                                        ? 'bg-teal-500 border-teal-600 text-white shadow-lg scale-[1.02]'
+                                        : 'bg-white border-gray-200 hover:border-teal-400 hover:shadow-md'
                                     }
                                   `}
                                 >
-                                  {isScanned && (
+                                  {inBag && (
+                                    <div className="absolute -top-2 -right-2 w-6 h-6 bg-orange-500 rounded-full flex items-center justify-center shadow">
+                                      <ShoppingBag className="w-3 h-3 text-white" />
+                                    </div>
+                                  )}
+                                  {isScanned && !inBag && (
                                     <div className="absolute -top-2 -right-2 w-6 h-6 bg-green-500 rounded-full flex items-center justify-center shadow">
                                       <CheckCircle className="w-4 h-4 text-white" />
                                     </div>
                                   )}
 
-                                  <p className={`font-mono text-xs font-bold mb-2 ${isScanned ? 'text-white' : 'text-gray-700'}`}>
+                                  {inBag && (
+                                    <p className="text-xs font-bold text-orange-600 mb-1">
+                                      Cuval {bagIndex + 1}
+                                    </p>
+                                  )}
+
+                                  <p className={`font-mono text-xs font-bold mb-2 ${inBag ? 'text-orange-700' : isScanned ? 'text-white' : 'text-gray-700'}`}>
                                     {delivery.barcode.slice(-8)}
                                   </p>
 
-                                  <div className={`space-y-0.5 text-xs ${isScanned ? 'text-teal-100' : 'text-gray-500'}`}>
+                                  <div className={`space-y-0.5 text-xs ${inBag ? 'text-orange-600' : isScanned ? 'text-teal-100' : 'text-gray-500'}`}>
                                     {deliveryItems.slice(0, 3).map((item, idx) => (
                                       <div key={idx} className="flex justify-between">
                                         <span className="truncate">{item.name}</span>
