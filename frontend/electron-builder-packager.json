@@ -1,0 +1,42 @@
+{
+  "appId": "com.rfid.packager",
+  "productName": "RFID Paketleme",
+  "directories": {
+    "output": "release-packager"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "public/**/*"
+  ],
+  "extraMetadata": {
+    "main": "electron/main-packager.cjs"
+  },
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": "public/icon.ico"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "installerIcon": "public/icon.ico",
+    "uninstallerIcon": "public/icon.ico",
+    "installerHeaderIcon": "public/icon.ico",
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "RFID Paketleme"
+  },
+  "mac": {
+    "target": "dmg",
+    "icon": "public/pwa-512x512.png"
+  },
+  "linux": {
+    "target": "AppImage",
+    "icon": "public/pwa-512x512.png"
+  }
+}

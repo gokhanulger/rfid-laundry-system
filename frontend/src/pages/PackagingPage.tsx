@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Package, CheckCircle, RefreshCw, QrCode, Box } from 'lucide-react';
+import { Package, CheckCircle, RefreshCw, QrCode, Box, Trash2 } from 'lucide-react';
 import { deliveriesApi, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/Toast';
 import type { Delivery } from '../types';
@@ -110,6 +110,17 @@ export function PackagingPage() {
     },
   });
 
+  // Cancel/delete delivery mutation
+  const cancelMutation = useMutation({
+    mutationFn: deliveriesApi.cancel,
+    onSuccess: () => {
+      toast.success('Teslimat silindi!');
+      queryClient.invalidateQueries({ queryKey: ['deliveries'] });
+      setScannedDelivery(null);
+    },
+    onError: (err) => toast.error('Silme başarısız', getErrorMessage(err)),
+  });
+
   const handleScan = () => {
     if (!barcodeInput.trim()) return;
     scanMutation.mutate(barcodeInput.trim());
@@ -118,6 +129,12 @@ export function PackagingPage() {
   const handlePackage = (delivery: Delivery) => {
     setPackagingDelivery(delivery);
     packageMutation.mutate(delivery.id);
+  };
+
+  const handleDelete = (deliveryId: string) => {
+    if (confirm('Bu teslimatı silmek istediğinize emin misiniz?')) {
+      cancelMutation.mutate(deliveryId);
+    }
   };
 
   const pendingDeliveries = deliveries?.data || [];
@@ -232,6 +249,14 @@ export function PackagingPage() {
                         İptal
                       </button>
                       <button
+                        onClick={() => handleDelete(scannedDelivery.id)}
+                        disabled={cancelMutation.isPending}
+                        className="flex items-center gap-2 px-4 py-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 disabled:opacity-50"
+                      >
+                        <Trash2 className="w-5 h-5" />
+                        Sil
+                      </button>
+                      <button
                         onClick={() => handlePackage(scannedDelivery)}
                         disabled={packageMutation.isPending}
                         className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
@@ -335,14 +360,24 @@ export function PackagingPage() {
                                 </p>
                               )}
                             </div>
-                            <button
-                              onClick={() => handlePackage(delivery)}
-                              disabled={packageMutation.isPending}
-                              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 ml-4"
-                            >
-                              <Box className="w-4 h-4" />
-                              Paketle
-                            </button>
+                            <div className="flex gap-2 ml-4">
+                              <button
+                                onClick={() => handlePackage(delivery)}
+                                disabled={packageMutation.isPending || cancelMutation.isPending}
+                                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                              >
+                                <Box className="w-4 h-4" />
+                                Paketle
+                              </button>
+                              <button
+                                onClick={() => handleDelete(delivery.id)}
+                                disabled={cancelMutation.isPending || packageMutation.isPending}
+                                className="flex items-center gap-2 px-3 py-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 disabled:opacity-50"
+                                title="Teslimatı Sil"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           </div>
                         </div>
                       );

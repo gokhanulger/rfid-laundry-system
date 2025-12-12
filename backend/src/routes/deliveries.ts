@@ -827,7 +827,7 @@ deliveriesRouter.post('/deliver-bag/:bagCode', requireRole('driver', 'laundry_ma
 });
 
 // Cancel delivery
-deliveriesRouter.post('/:id/cancel', requireRole('laundry_manager', 'system_admin'), async (req: AuthRequest, res) => {
+deliveriesRouter.post('/:id/cancel', requireRole('packager', 'laundry_manager', 'system_admin'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
 

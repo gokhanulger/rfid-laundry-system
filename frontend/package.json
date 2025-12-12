@@ -11,8 +11,10 @@
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3002 && electron .\"",
+    "electron:dev:packager": "concurrently \"npm run dev\" \"wait-on http://localhost:3002 && electron . --packager\"",
     "electron:build": "npm run build && electron-builder",
     "electron:build:win": "npm run build && electron-builder --win",
+    "electron:build:win:packager": "npm run build && electron-builder --win -c electron-builder-packager.json",
     "electron:build:mac": "npm run build && electron-builder --mac",
     "electron:build:linux": "npm run build && electron-builder --linux"
   },
