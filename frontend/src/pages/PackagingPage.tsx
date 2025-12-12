@@ -53,7 +53,7 @@ export function PackagingPage() {
   // Get recently packaged - also auto-refresh
   const { data: packagedDeliveries } = useQuery({
     queryKey: ['deliveries', { status: 'packaged' }],
-    queryFn: () => deliveriesApi.getAll({ status: 'packaged', limit: 10 }),
+    queryFn: () => deliveriesApi.getAll({ status: 'packaged', limit: 100 }),
     refetchInterval: 5000,
   });
 
@@ -144,7 +144,10 @@ export function PackagingPage() {
   const pendingDeliveries = (deliveries?.data || []).slice().sort((a, b) =>
     new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
-  const recentPackaged = packagedDeliveries?.data || [];
+  // Sort by packagedAt descending (newest first)
+  const recentPackaged = (packagedDeliveries?.data || []).slice().sort((a, b) =>
+    new Date(b.packagedAt || 0).getTime() - new Date(a.packagedAt || 0).getTime()
+  );
 
   return (
     <div className="p-8 space-y-6 animate-fade-in">
