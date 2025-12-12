@@ -86,33 +86,29 @@ export function IronerInterfacePage() {
     }
 
     // Load product counter
-    const savedCounter = localStorage.getItem(PRODUCT_COUNTER_KEY);
-    if (savedCounter) {
-      try {
-        setProductCounter(JSON.parse(savedCounter));
-      } catch {
-        // Ignore parse errors
+    const loadCounter = () => {
+      const savedCounter = localStorage.getItem(PRODUCT_COUNTER_KEY);
+      if (savedCounter) {
+        try {
+          setProductCounter(JSON.parse(savedCounter));
+        } catch {
+          // Ignore parse errors
+        }
       }
-    }
+    };
+    loadCounter();
 
     // Auto-detect shift based on Turkey time and update every minute
     const updateShift = () => setCurrentShift(getCurrentShiftTurkey());
     updateShift();
-    const shiftInterval = setInterval(updateShift, 60000); // Check every minute
-    return () => clearInterval(shiftInterval);
-  }, []);
 
-  // Increment product counter for current shift (adds product count, not label count)
-  const incrementProductCounter = (count: number) => {
-    setProductCounter(prev => {
-      const newCounter = {
-        ...prev,
-        [currentShift]: prev[currentShift] + count
-      };
-      localStorage.setItem(PRODUCT_COUNTER_KEY, JSON.stringify(newCounter));
-      return newCounter;
-    });
-  };
+    // Refresh counter and shift every 5 seconds (to catch packager updates)
+    const refreshInterval = setInterval(() => {
+      loadCounter();
+      updateShift();
+    }, 5000);
+    return () => clearInterval(refreshInterval);
+  }, []);
 
   // Save selected hotels to localStorage
   const saveSelectedHotels = (hotelIds: string[]) => {
@@ -247,9 +243,9 @@ export function IronerInterfacePage() {
       const totalProducts = (labelExtraData || []).reduce((sum, item) => sum + (item.count || 0), 0);
       return { delivery: fullDelivery, labelCount, totalProducts };
     },
-    onSuccess: (data) => {
+    onSuccess: () => {
       toast.success('Urunler temizlendi ve etiket basildi!');
-      incrementProductCounter(data.totalProducts); // Increment product counter
+      // Counter now increments when packager scans the label
       queryClient.invalidateQueries({ queryKey: ['dirty-items'] });
       queryClient.invalidateQueries({ queryKey: ['deliveries'] });
       queryClient.invalidateQueries({ queryKey: ['items'] });

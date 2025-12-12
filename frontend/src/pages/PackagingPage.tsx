@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Package, CheckCircle, RefreshCw, QrCode, Box } from 'lucide-react';
 import { deliveriesApi, getErrorMessage } from '../lib/api';
@@ -7,12 +7,40 @@ import type { Delivery } from '../types';
 
 type TabType = 'packaging' | 'history';
 
+// Storage key for product counter (shared with ironer)
+const PRODUCT_COUNTER_KEY = 'laundry_ironer_product_counter';
+
 export function PackagingPage() {
   const [activeTab, setActiveTab] = useState<TabType>('packaging');
   const [barcodeInput, setBarcodeInput] = useState('');
   const [scannedDelivery, setScannedDelivery] = useState<Delivery | null>(null);
   const queryClient = useQueryClient();
   const toast = useToast();
+
+  // Current shift for counter
+  const [currentShift, setCurrentShift] = useState<'day' | 'night'>('day');
+
+  // Determine current shift (day: 6:00-18:00, night: 18:00-6:00)
+  useEffect(() => {
+    const updateShift = () => {
+      const hour = new Date().getHours();
+      setCurrentShift(hour >= 6 && hour < 18 ? 'day' : 'night');
+    };
+    updateShift();
+    const interval = setInterval(updateShift, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Increment product counter (updates localStorage, ironer page will read it)
+  const incrementProductCounter = (count: number) => {
+    const savedCounter = localStorage.getItem(PRODUCT_COUNTER_KEY);
+    const currentCounter = savedCounter ? JSON.parse(savedCounter) : { day: 0, night: 0 };
+    const newCounter = {
+      ...currentCounter,
+      [currentShift]: currentCounter[currentShift] + count
+    };
+    localStorage.setItem(PRODUCT_COUNTER_KEY, JSON.stringify(newCounter));
+  };
 
   // Get deliveries that have labels printed (ready for packaging)
   const { data: deliveries, isLoading, refetch } = useQuery({
@@ -45,14 +73,41 @@ export function PackagingPage() {
     },
   });
 
+  // Track delivery being packaged for counter calculation
+  const [packagingDelivery, setPackagingDelivery] = useState<Delivery | null>(null);
+
   const packageMutation = useMutation({
     mutationFn: deliveriesApi.package,
     onSuccess: () => {
       toast.success('Teslimat başarıyla paketlendi!');
+
+      // Increment product counter based on delivery contents
+      if (packagingDelivery) {
+        let totalProducts = 0;
+        if (packagingDelivery.notes) {
+          try {
+            const labelData = JSON.parse(packagingDelivery.notes);
+            if (Array.isArray(labelData)) {
+              totalProducts = labelData.reduce((sum: number, item: any) => sum + (item.count || 0), 0);
+            }
+          } catch {}
+        }
+        if (totalProducts === 0 && packagingDelivery.deliveryItems) {
+          totalProducts = packagingDelivery.deliveryItems.length;
+        }
+        if (totalProducts > 0) {
+          incrementProductCounter(totalProducts);
+        }
+      }
+
       queryClient.invalidateQueries({ queryKey: ['deliveries'] });
       setScannedDelivery(null);
+      setPackagingDelivery(null);
     },
-    onError: (err) => toast.error('Paketleme başarısız', getErrorMessage(err)),
+    onError: (err) => {
+      toast.error('Paketleme başarısız', getErrorMessage(err));
+      setPackagingDelivery(null);
+    },
   });
 
   const handleScan = () => {
@@ -60,8 +115,9 @@ export function PackagingPage() {
     scanMutation.mutate(barcodeInput.trim());
   };
 
-  const handlePackage = (deliveryId: string) => {
-    packageMutation.mutate(deliveryId);
+  const handlePackage = (delivery: Delivery) => {
+    setPackagingDelivery(delivery);
+    packageMutation.mutate(delivery.id);
   };
 
   const pendingDeliveries = deliveries?.data || [];
@@ -176,7 +232,7 @@ export function PackagingPage() {
                         İptal
                       </button>
                       <button
-                        onClick={() => handlePackage(scannedDelivery.id)}
+                        onClick={() => handlePackage(scannedDelivery)}
                         disabled={packageMutation.isPending}
                         className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
                       >
@@ -280,7 +336,7 @@ export function PackagingPage() {
                               )}
                             </div>
                             <button
-                              onClick={() => handlePackage(delivery.id)}
+                              onClick={() => handlePackage(delivery)}
                               disabled={packageMutation.isPending}
                               className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 ml-4"
                             >
