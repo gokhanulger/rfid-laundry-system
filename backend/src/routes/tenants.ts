@@ -11,6 +11,7 @@ import {
   alerts,
   auditLogs,
   pickups,
+  devices,
 } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { requireAuth, AuthRequest, requireRole } from '../middleware/auth';
@@ -169,6 +170,9 @@ tenantsRouter.delete('/:id', requireRole('system_admin'), async (req: AuthReques
 
     // Delete scan sessions
     await db.delete(scanSessions).where(eq(scanSessions.tenantId, id));
+
+    // Delete devices
+    await db.delete(devices).where(eq(devices.tenantId, id));
 
     // Delete alerts
     await db.delete(alerts).where(eq(alerts.tenantId, id));
