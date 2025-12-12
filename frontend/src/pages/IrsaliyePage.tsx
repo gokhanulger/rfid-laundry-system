@@ -1306,35 +1306,35 @@ export function IrsaliyePage() {
                                     relative rounded-xl border-2 p-3 text-left
                                     transition-all duration-200
                                     ${inBag
-                                      ? 'bg-orange-100 border-orange-300 text-orange-800 cursor-not-allowed opacity-75'
+                                      ? 'bg-green-500 border-green-600 text-white cursor-not-allowed shadow-lg'
                                       : isScanned
-                                        ? 'bg-teal-500 border-teal-600 text-white shadow-lg scale-[1.02]'
-                                        : 'bg-white border-gray-200 hover:border-teal-400 hover:shadow-md'
+                                        ? 'bg-green-400 border-green-500 text-white shadow-lg scale-[1.02]'
+                                        : 'bg-yellow-100 border-yellow-400 text-yellow-900 hover:border-yellow-500 hover:shadow-md'
                                     }
                                   `}
                                 >
                                   {inBag && (
-                                    <div className="absolute -top-2 -right-2 w-6 h-6 bg-orange-500 rounded-full flex items-center justify-center shadow">
-                                      <ShoppingBag className="w-3 h-3 text-white" />
+                                    <div className="absolute -top-2 -right-2 w-6 h-6 bg-green-700 rounded-full flex items-center justify-center shadow">
+                                      <CheckCircle className="w-4 h-4 text-white" />
                                     </div>
                                   )}
                                   {isScanned && !inBag && (
-                                    <div className="absolute -top-2 -right-2 w-6 h-6 bg-green-500 rounded-full flex items-center justify-center shadow">
+                                    <div className="absolute -top-2 -right-2 w-6 h-6 bg-green-600 rounded-full flex items-center justify-center shadow">
                                       <CheckCircle className="w-4 h-4 text-white" />
                                     </div>
                                   )}
 
                                   {inBag && (
-                                    <p className="text-xs font-bold text-orange-600 mb-1">
-                                      Cuval {bagIndex + 1}
+                                    <p className="text-xs font-bold text-green-100 mb-1">
+                                      🟢 Cuval {bagIndex + 1}
                                     </p>
                                   )}
 
-                                  <p className={`font-mono text-xs font-bold mb-2 ${inBag ? 'text-orange-700' : isScanned ? 'text-white' : 'text-gray-700'}`}>
+                                  <p className={`font-mono text-xs font-bold mb-2 ${inBag ? 'text-white' : isScanned ? 'text-white' : 'text-yellow-800'}`}>
                                     {delivery.barcode.slice(-8)}
                                   </p>
 
-                                  <div className={`space-y-0.5 text-xs ${inBag ? 'text-orange-600' : isScanned ? 'text-teal-100' : 'text-gray-500'}`}>
+                                  <div className={`space-y-0.5 text-xs ${inBag ? 'text-green-100' : isScanned ? 'text-green-100' : 'text-yellow-700'}`}>
                                     {deliveryItems.slice(0, 3).map((item, idx) => (
                                       <div key={idx} className="flex justify-between">
                                         <span className="truncate">{item.name}</span>

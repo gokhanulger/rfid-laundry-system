@@ -67,10 +67,18 @@ export function HotelDeliveryPage() {
     );
   };
 
-  // Get deliveries picked up (from laundry, ready for hotel delivery)
+  // Get deliveries picked up (from laundry, ready for hotel delivery) - GREEN
   const { data: inTransitDeliveries, isLoading, refetch } = useQuery({
     queryKey: ['deliveries', { status: 'picked_up' }],
     queryFn: () => deliveriesApi.getAll({ status: 'picked_up', limit: 50 }),
+    refetchInterval: 5000,
+  });
+
+  // Get recently delivered (today) - BLUE
+  const { data: deliveredToday } = useQuery({
+    queryKey: ['deliveries', { status: 'delivered' }],
+    queryFn: () => deliveriesApi.getAll({ status: 'delivered', limit: 20 }),
+    refetchInterval: 5000,
   });
 
   const deliverMutation = useMutation({
@@ -331,6 +339,30 @@ export function HotelDeliveryPage() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Delivered Today - BLUE */}
+      {deliveredToday?.data && deliveredToday.data.length > 0 && (
+        <div className="mt-6 bg-blue-50 rounded-xl p-4 border-2 border-blue-200">
+          <h3 className="font-bold text-blue-800 mb-3 flex items-center gap-2">
+            <CheckCircle className="w-5 h-5" />
+            🔵 Teslim Edildi ({deliveredToday.data.length})
+          </h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            {deliveredToday.data.slice(0, 8).map((delivery: Delivery) => (
+              <div
+                key={delivery.id}
+                className="bg-blue-500 text-white rounded-lg p-3 shadow"
+              >
+                <p className="font-bold text-sm">{delivery.tenant?.name}</p>
+                <p className="font-mono text-xs opacity-80">{delivery.barcode.slice(-8)}</p>
+                <p className="text-xs opacity-70 mt-1">
+                  {new Date(delivery.deliveredAt || delivery.updatedAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+                </p>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

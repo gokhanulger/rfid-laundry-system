@@ -345,31 +345,31 @@ export function PackagingPage() {
                       });
 
                       return (
-                        <div key={delivery.id} className="p-4 hover:bg-gray-50">
+                        <div key={delivery.id} className="p-4 bg-red-50 border-l-4 border-red-500 hover:bg-red-100 transition-colors">
                           <div className="flex items-start justify-between">
                             <div className="flex-1">
                               <div className="flex items-center gap-3 mb-1">
-                                <span className="font-bold text-lg text-gray-900">{delivery.tenant?.name}</span>
-                                <span className="px-2 py-0.5 bg-purple-100 text-purple-800 rounded text-xs">
-                                  Etiket Yazdırıldı
+                                <span className="font-bold text-lg text-red-900">{delivery.tenant?.name}</span>
+                                <span className="px-2 py-0.5 bg-red-200 text-red-800 rounded text-xs font-bold">
+                                  🔴 Paketleme Bekliyor
                                 </span>
-                                <span className="text-sm text-gray-400">{createdDate}</span>
+                                <span className="text-sm text-red-400">{createdDate}</span>
                               </div>
 
                               {/* Item Contents */}
                               {itemContents.length > 0 ? (
                                 <div className="flex flex-wrap gap-2">
                                   {itemContents.map((item, idx) => (
-                                    <span key={idx} className="px-2 py-1 bg-indigo-50 text-indigo-700 rounded text-xs font-medium">
+                                    <span key={idx} className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-medium">
                                       {item.name}: {item.count} adet
                                     </span>
                                   ))}
-                                  <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs font-bold">
+                                  <span className="px-2 py-1 bg-red-200 text-red-800 rounded text-xs font-bold">
                                     Toplam: {totalItems}
                                   </span>
                                 </div>
                               ) : (
-                                <p className="text-xs text-gray-400">
+                                <p className="text-xs text-red-400">
                                   {delivery.deliveryItems?.length || 0} ürün
                                 </p>
                               )}
