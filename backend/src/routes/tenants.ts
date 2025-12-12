@@ -6,6 +6,7 @@ import {
   deliveryItems,
   deliveryPackages,
   items,
+  itemTypes,
   users,
   scanSessions,
   scanEvents,
@@ -147,86 +148,103 @@ tenantsRouter.delete('/:id', requireRole('system_admin'), async (req: AuthReques
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    // Delete related records first (cascade)
-    // Import all necessary tables at the top if not already imported
+    // Delete related records first (cascade) - ORDER MATTERS!
+    // Must delete in reverse dependency order
 
-    // Get all delivery IDs for this tenant
+    // 1. Get all IDs we need first
     const tenantDeliveries = await db.query.deliveries.findMany({
       where: eq(deliveries.tenantId, id),
       columns: { id: true },
     });
     const deliveryIds = tenantDeliveries.map(d => d.id);
 
-    // Delete delivery-related records
-    if (deliveryIds.length > 0) {
-      for (const deliveryId of deliveryIds) {
-        await db.delete(deliveryItems).where(eq(deliveryItems.deliveryId, deliveryId));
-        await db.delete(deliveryPackages).where(eq(deliveryPackages.deliveryId, deliveryId));
-      }
-      await db.delete(deliveries).where(eq(deliveries.tenantId, id));
-    }
-
-    // Delete items for this tenant
-    await db.delete(items).where(eq(items.tenantId, id));
-
-    // Delete users associated with this tenant
-    await db.delete(users).where(eq(users.tenantId, id));
-
-    // Get all scan sessions for this tenant
-    const tenantSessions = await db.query.scanSessions.findMany({
-      where: eq(scanSessions.tenantId, id),
-      columns: { id: true },
-    });
-
-    // Delete scan events for those sessions
-    for (const session of tenantSessions) {
-      await db.delete(scanEvents).where(eq(scanEvents.sessionId, session.id));
-    }
-
-    // Delete scan conflicts that reference this tenant's sessions
-    for (const session of tenantSessions) {
-      await db.delete(scanConflicts).where(eq(scanConflicts.winningSessionId, session.id));
-      await db.delete(scanConflicts).where(eq(scanConflicts.conflictingSessionId, session.id));
-    }
-
-    // Delete scan sessions
-    await db.delete(scanSessions).where(eq(scanSessions.tenantId, id));
-
-    // Get all devices for this tenant
-    const tenantDevices = await db.query.devices.findMany({
-      where: eq(devices.tenantId, id),
-      columns: { id: true },
-    });
-
-    // Delete offline sync queue for those devices
-    for (const device of tenantDevices) {
-      await db.delete(offlineSyncQueue).where(eq(offlineSyncQueue.deviceId, device.id));
-    }
-
-    // Delete devices
-    await db.delete(devices).where(eq(devices.tenantId, id));
-
-    // Delete alerts
-    await db.delete(alerts).where(eq(alerts.tenantId, id));
-
-    // Delete audit logs
-    await db.delete(auditLogs).where(eq(auditLogs.tenantId, id));
-
-    // Get all pickups for this tenant
     const tenantPickups = await db.query.pickups.findMany({
       where: eq(pickups.tenantId, id),
       columns: { id: true },
     });
 
-    // Delete pickup items for those pickups
+    const tenantSessions = await db.query.scanSessions.findMany({
+      where: eq(scanSessions.tenantId, id),
+      columns: { id: true },
+    });
+
+    const tenantDevices = await db.query.devices.findMany({
+      where: eq(devices.tenantId, id),
+      columns: { id: true },
+    });
+
+    const tenantItems = await db.query.items.findMany({
+      where: eq(items.tenantId, id),
+      columns: { id: true },
+    });
+    const itemIds = tenantItems.map(i => i.id);
+
+    // 2. Delete scan conflicts (references sessions and devices)
+    for (const session of tenantSessions) {
+      await db.delete(scanConflicts).where(eq(scanConflicts.winningSessionId, session.id));
+      await db.delete(scanConflicts).where(eq(scanConflicts.conflictingSessionId, session.id));
+    }
+    for (const device of tenantDevices) {
+      await db.delete(scanConflicts).where(eq(scanConflicts.winningDeviceId, device.id));
+      await db.delete(scanConflicts).where(eq(scanConflicts.conflictingDeviceId, device.id));
+    }
+
+    // 3. Delete scan events (references sessions and items)
+    for (const session of tenantSessions) {
+      await db.delete(scanEvents).where(eq(scanEvents.sessionId, session.id));
+    }
+
+    // 4. Delete scan sessions
+    await db.delete(scanSessions).where(eq(scanSessions.tenantId, id));
+
+    // 5. Delete offline sync queue (references devices)
+    for (const device of tenantDevices) {
+      await db.delete(offlineSyncQueue).where(eq(offlineSyncQueue.deviceId, device.id));
+    }
+
+    // 6. Delete devices
+    await db.delete(devices).where(eq(devices.tenantId, id));
+
+    // 7. Delete alerts (references tenant and items)
+    await db.delete(alerts).where(eq(alerts.tenantId, id));
+    for (const itemId of itemIds) {
+      await db.delete(alerts).where(eq(alerts.itemId, itemId));
+    }
+
+    // 8. Delete audit logs
+    await db.delete(auditLogs).where(eq(auditLogs.tenantId, id));
+
+    // 9. Delete delivery packages (references deliveries)
+    for (const deliveryId of deliveryIds) {
+      await db.delete(deliveryPackages).where(eq(deliveryPackages.deliveryId, deliveryId));
+    }
+
+    // 10. Delete delivery items (references deliveries and items)
+    for (const deliveryId of deliveryIds) {
+      await db.delete(deliveryItems).where(eq(deliveryItems.deliveryId, deliveryId));
+    }
+
+    // 11. Delete deliveries
+    await db.delete(deliveries).where(eq(deliveries.tenantId, id));
+
+    // 12. Delete pickup items (references pickups and items)
     for (const pickup of tenantPickups) {
       await db.delete(pickupItems).where(eq(pickupItems.pickupId, pickup.id));
     }
 
-    // Delete pickups
+    // 13. Delete pickups
     await db.delete(pickups).where(eq(pickups.tenantId, id));
 
-    // Finally delete the tenant
+    // 14. Delete items (references itemTypes and tenants)
+    await db.delete(items).where(eq(items.tenantId, id));
+
+    // 15. Delete tenant-specific item types
+    await db.delete(itemTypes).where(eq(itemTypes.tenantId, id));
+
+    // 16. Delete users
+    await db.delete(users).where(eq(users.tenantId, id));
+
+    // 17. Finally delete the tenant
     await db.delete(tenants).where(eq(tenants.id, id));
 
     res.json({ message: 'Tenant and all related data deleted' });
