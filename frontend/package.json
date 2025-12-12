@@ -4,7 +4,7 @@
   "description": "RFID Çamaşırhane Takip Sistemi",
   "type": "module",
   "engines": {
-    "node": ">=18.0.0"
+    "node": "20.x"
   },
   "main": "electron/main.cjs",
   "author": "RFID Laundry",
