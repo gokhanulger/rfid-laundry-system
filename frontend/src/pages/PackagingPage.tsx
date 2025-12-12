@@ -237,12 +237,8 @@ export function PackagingPage() {
                       <h3 className="text-lg font-bold text-indigo-900 mb-2">Paketlemeye Hazır</h3>
                       <div className="space-y-2">
                         <div className="flex items-center gap-4">
-                          <span className="text-sm text-indigo-700">Barkod:</span>
-                          <span className="font-mono font-bold text-xl">{scannedDelivery.barcode}</span>
-                        </div>
-                        <div className="flex items-center gap-4">
                           <span className="text-sm text-indigo-700">Otel:</span>
-                          <span className="font-medium">{scannedDelivery.tenant?.name}</span>
+                          <span className="font-bold text-xl">{scannedDelivery.tenant?.name}</span>
                         </div>
                         <div className="flex items-center gap-4">
                           <span className="text-sm text-indigo-700">Ürünler:</span>
@@ -338,18 +334,23 @@ export function PackagingPage() {
                         itemContents = Object.values(totals);
                       }
                       const totalItems = itemContents.reduce((sum, item) => sum + item.count, 0);
+                      // Format date/time for display
+                      const createdDate = new Date(delivery.createdAt).toLocaleString('tr-TR', {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      });
 
                       return (
                         <div key={delivery.id} className="p-4 hover:bg-gray-50">
                           <div className="flex items-start justify-between">
                             <div className="flex-1">
                               <div className="flex items-center gap-3 mb-1">
-                                <span className="font-mono font-bold">{delivery.barcode}</span>
+                                <span className="font-bold text-lg text-gray-900">{delivery.tenant?.name}</span>
                                 <span className="px-2 py-0.5 bg-purple-100 text-purple-800 rounded text-xs">
                                   Etiket Yazdırıldı
                                 </span>
+                                <span className="text-sm text-gray-400">{createdDate}</span>
                               </div>
-                              <p className="text-sm text-gray-600 mb-2">{delivery.tenant?.name}</p>
 
                               {/* Item Contents */}
                               {itemContents.length > 0 ? (
@@ -409,35 +410,65 @@ export function PackagingPage() {
                 </div>
               ) : (
                 <div className="divide-y border rounded-lg">
-                  {recentPackaged.map(delivery => (
-                    <div key={delivery.id} className="p-4 hover:bg-gray-50">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-1">
-                            <span className="font-mono font-bold text-lg">{delivery.barcode}</span>
-                            <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">
-                              Paketlendi
-                            </span>
+                  {recentPackaged.map(delivery => {
+                    // Get item contents from notes
+                    let itemContents: { name: string; count: number }[] = [];
+                    if (delivery.notes) {
+                      try {
+                        const labelData = JSON.parse(delivery.notes);
+                        if (Array.isArray(labelData)) {
+                          itemContents = labelData.map((item: any) => ({
+                            name: item.typeName || 'Bilinmeyen',
+                            count: item.count || 0
+                          }));
+                        }
+                      } catch {}
+                    }
+                    const totalItems = itemContents.reduce((sum, item) => sum + item.count, 0);
+
+                    return (
+                      <div key={delivery.id} className="p-4 hover:bg-gray-50">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-1">
+                              <span className="font-bold text-lg text-gray-900">{delivery.tenant?.name}</span>
+                              <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">
+                                Paketlendi
+                              </span>
+                            </div>
+                            <p className="text-sm text-gray-400">
+                              {delivery.packagedAt && new Date(delivery.packagedAt).toLocaleString('tr-TR')}
+                            </p>
+                            {/* Item Contents */}
+                            {itemContents.length > 0 ? (
+                              <div className="flex flex-wrap gap-2 mt-2">
+                                {itemContents.map((item, idx) => (
+                                  <span key={idx} className="px-2 py-1 bg-green-50 text-green-700 rounded text-xs font-medium">
+                                    {item.name}: {item.count} adet
+                                  </span>
+                                ))}
+                                <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs font-bold">
+                                  Toplam: {totalItems}
+                                </span>
+                              </div>
+                            ) : (
+                              <p className="text-sm text-gray-500 mt-1">
+                                {delivery.deliveryItems?.length || 0} ürün
+                              </p>
+                            )}
                           </div>
-                          <p className="text-gray-600">{delivery.tenant?.name}</p>
-                          <p className="text-sm text-gray-400 mt-1">
-                            {delivery.packagedAt && new Date(delivery.packagedAt).toLocaleString('tr-TR')}
-                          </p>
-                          <p className="text-sm text-gray-500 mt-1">
-                            {delivery.deliveryItems?.length || 0} ürün
-                          </p>
+                          <button
+                            onClick={() => handleDelete(delivery.id)}
+                            disabled={cancelMutation.isPending}
+                            className="flex items-center gap-2 px-3 py-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 disabled:opacity-50"
+                            title="Teslimatı Sil"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
-                        <button
-                          onClick={() => handleDelete(delivery.id)}
-                          disabled={cancelMutation.isPending}
-                          className="flex items-center gap-2 px-3 py-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 disabled:opacity-50"
-                          title="Teslimatı Sil"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
