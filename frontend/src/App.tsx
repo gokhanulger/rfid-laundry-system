@@ -21,6 +21,7 @@ import { DriverActivitiesPage } from './pages/DriverActivitiesPage';
 import { DeliveryLogsPage } from './pages/DeliveryLogsPage';
 import { LocationTestPage } from './pages/LocationTestPage';
 import { IronerInterfacePage } from './pages/IronerInterfacePage';
+import { IronerLoginPage } from './pages/IronerLoginPage';
 import { PackagingPage } from './pages/PackagingPage';
 import { HotelManagementPage } from './pages/HotelManagementPage';
 import { UserManagementPage } from './pages/UserManagementPage';
@@ -65,6 +66,7 @@ function App() {
           <HashRouter>
             <Routes>
               <Route path="/login" element={<LoginPage />} />
+              <Route path="/ironer" element={<IronerLoginPage />} />
               <Route
                 path="/"
                 element={

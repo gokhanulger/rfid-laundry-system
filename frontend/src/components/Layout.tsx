@@ -187,7 +187,7 @@ export function Layout() {
                 <p className="text-xs text-green-400 mt-1">Surucu Portali</p>
               )}
               {isIroner && (
-                <p className="text-xs text-orange-400 mt-1">Utu Istasyonu</p>
+                <p className="text-xs text-orange-400 mt-1">by Karbeyaz Demet Laundry</p>
               )}
               {isPackager && (
                 <p className="text-xs text-indigo-400 mt-1">Paketleme Istasyonu</p>

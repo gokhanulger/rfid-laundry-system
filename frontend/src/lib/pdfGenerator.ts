@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import JsBarcode from 'jsbarcode';
-import type { Delivery, DeliveryPackage, Tenant } from '../types';
+import type { Delivery, Tenant } from '../types';
 import { isElectron, getPreferredPrinter } from './printer';
 
 // QZ Tray loaded from CDN in index.html (only used as fallback in browser)
@@ -66,16 +66,36 @@ export function setPendingLabelData(delivery: any, labelExtraData?: LabelExtraIt
   pendingLabelData = { delivery, labelExtraData };
 }
 
-// Generate HTML label for Electron printing (no PDF)
-function generateHtmlLabel(delivery: any, labelExtraData?: LabelExtraItem[]): string {
-  const packages = delivery.deliveryPackages || [];
-  const labelsToGenerate = packages.length > 0
-    ? packages
-    : Array.from({ length: delivery.packageCount || 1 }, (_, i) => ({
-        packageBarcode: `${delivery.barcode}-PKG${i + 1}`,
-        sequenceNumber: i + 1,
-      }));
+// Generate barcode as base64 image
+function generateBarcodeBase64(code: string): string {
+  const canvas = document.createElement('canvas');
+  try {
+    JsBarcode(canvas, code, {
+      format: 'CODE128',
+      width: 2,
+      height: 50,
+      displayValue: false,
+      margin: 0,
+    });
+    return canvas.toDataURL('image/png');
+  } catch (error) {
+    console.error('Barcode generation failed:', error);
+    return '';
+  }
+}
 
+// Generate a numeric barcode code (8 digits - only numbers)
+function generateShortCode(): string {
+  let code = '';
+  for (let i = 0; i < 8; i++) {
+    code += Math.floor(Math.random() * 10).toString();
+  }
+  return code;
+}
+
+// Generate HTML label for Electron printing (no PDF)
+// Label size: 60mm width x 80mm height (portrait - taller than wide)
+function generateHtmlLabel(delivery: any, labelExtraData?: LabelExtraItem[]): string {
   // Group items by type
   const itemsByType: Record<string, { name: string; count: number; discardCount: number; hasarliCount: number }> = {};
 
@@ -91,7 +111,6 @@ function generateHtmlLabel(delivery: any, labelExtraData?: LabelExtraItem[]): st
   }
 
   const itemTypeEntries = Object.entries(itemsByType);
-  const totalItems = itemTypeEntries.reduce((sum, [, item]) => sum + item.count, 0);
   const hotelName = delivery.tenant?.name || 'Unknown Hotel';
   const date = new Date(delivery.createdAt || Date.now()).toLocaleDateString('tr-TR');
 
@@ -103,83 +122,117 @@ function generateHtmlLabel(delivery: any, labelExtraData?: LabelExtraItem[]): st
     if (item.hasarliCount > 0) hasLekeli = true;
   });
 
+  // Pagination: max 3 items per label (if more than 3, use 2nd label)
+  const ITEMS_PER_LABEL = 3;
+  const totalLabels = Math.max(1, Math.ceil(itemTypeEntries.length / ITEMS_PER_LABEL));
+
+  // Generate a short barcode for this delivery
+  const shortCode = generateShortCode();
+
   // Generate HTML for each label
   let labelsHtml = '';
 
-  labelsToGenerate.forEach((pkg: any, index: number) => {
-    if (index > 0) {
+  for (let labelIndex = 0; labelIndex < totalLabels; labelIndex++) {
+    const startIdx = labelIndex * ITEMS_PER_LABEL;
+    const endIdx = Math.min(startIdx + ITEMS_PER_LABEL, itemTypeEntries.length);
+    const itemsForThisLabel = itemTypeEntries.slice(startIdx, endIdx);
+    const isFirstLabel = labelIndex === 0;
+
+    // Generate barcode image only for first label
+    const barcodeImg = isFirstLabel ? generateBarcodeBase64(shortCode) : null;
+
+    if (labelIndex > 0) {
       labelsHtml += '<div style="page-break-before: always;"></div>';
     }
 
-    labelsHtml += `
-      <div style="width: 60mm; height: 80mm; padding: 3mm; box-sizing: border-box; font-family: Arial, sans-serif;">
-        <!-- Hotel Name -->
-        <div style="text-align: center; font-size: 14pt; font-weight: bold; margin-bottom: 2mm;">
-          ${hotelName.substring(0, 22)}
-          <span style="float: right; font-size: 8pt;">${pkg.sequenceNumber}/${labelsToGenerate.length}</span>
-        </div>
-
-        <!-- Separator -->
-        <div style="border-bottom: 1px solid black; margin-bottom: 2mm;"></div>
-
-        <!-- Barcode area -->
-        <div style="border: 1px solid black; padding: 2mm; margin-bottom: 2mm; text-align: center;">
-          <div style="font-family: 'Libre Barcode 128', monospace; font-size: 32pt;">${pkg.packageBarcode}</div>
-          <div style="font-family: Courier, monospace; font-size: 7pt; font-weight: bold;">${pkg.packageBarcode}</div>
-        </div>
-
-        <!-- Items header -->
-        <div style="background: black; color: white; padding: 1mm 2mm; text-align: center; font-size: 7pt; font-weight: bold; margin-bottom: 2mm;">
-          TOPLAM: ${totalItems} ADET
-        </div>
-
-        <!-- Items list -->
-        ${itemTypeEntries.map(([, item]) => `
-          <div style="display: flex; justify-content: space-between; font-size: 7pt; margin-bottom: 1mm;">
-            <span>${item.name.substring(0, 20)}</span>
-            <span style="font-weight: bold;">${item.count} adet</span>
+    if (isFirstLabel) {
+      // FIRST LABEL: Hotel name + Date + Barcode + Items
+      labelsHtml += `
+        <div style="width: 60mm; height: 80mm; padding: 2mm; box-sizing: border-box; font-family: Arial, sans-serif; position: relative;">
+          <!-- Hotel Name - Full width, larger font -->
+          <div style="text-align: center; font-size: 16pt; font-weight: bold; margin-bottom: 1mm;">
+            ${hotelName}
           </div>
-        `).join('')}
+          <!-- Date below hotel name -->
+          <div style="text-align: center; font-size: 9pt; color: #666; margin-bottom: 2mm;">
+            ${date}
+          </div>
+          ${totalLabels > 1 ? `<div style="position: absolute; top: 2mm; right: 3mm; font-size: 8pt; font-weight: bold;">${labelIndex + 1}/${totalLabels}</div>` : ''}
 
-        <!-- Date -->
-        <div style="position: absolute; bottom: 10mm; font-size: 5pt;">Tarih: ${date}</div>
+          <!-- Separator -->
+          <div style="border-bottom: 1px solid black; margin-bottom: 2mm;"></div>
 
-        <!-- Footer -->
-        <div style="position: absolute; bottom: 3mm; width: calc(100% - 6mm); text-align: center; border-top: 1px solid black; padding-top: 1mm; font-size: 4pt;">
-          RFID Laundry System
+          <!-- Barcode area -->
+          <div style="text-align: center; margin-bottom: 2mm;">
+            ${barcodeImg ? `<img src="${barcodeImg}" style="width: 50mm; height: 12mm;" />` : ''}
+            <div style="font-family: Courier, monospace; font-size: 11pt; font-weight: bold; color: #333; letter-spacing: 1px;">
+              ${shortCode}
+            </div>
+          </div>
+
+          <!-- Items list - single column for portrait -->
+          <div style="margin-top: 2mm;">
+            ${itemsForThisLabel.map(([, item]) => `
+              <div style="font-size: 11pt; padding: 1mm 0; border-bottom: 1px dotted #ccc;">
+                <span style="font-weight: bold;">${item.count} adet</span> ${item.name}
+              </div>
+            `).join('')}
+          </div>
         </div>
-      </div>
-    `;
-  });
+      `;
+    } else {
+      // CONTINUATION LABELS: Only items list (no hotel name, no barcode)
+      labelsHtml += `
+        <div style="width: 60mm; height: 80mm; padding: 3mm; box-sizing: border-box; font-family: Arial, sans-serif; position: relative;">
+          <!-- Pagination indicator -->
+          <div style="text-align: center; font-size: 10pt; font-weight: bold; margin-bottom: 2mm; color: #666;">
+            Devam ${labelIndex + 1}/${totalLabels}
+          </div>
 
-  // Add special label if discord or lekeli
+          <!-- Separator -->
+          <div style="border-bottom: 1px solid #ccc; margin-bottom: 2mm;"></div>
+
+          <!-- Items list - single column -->
+          <div style="margin-top: 2mm;">
+            ${itemsForThisLabel.map(([, item]) => `
+              <div style="font-size: 11pt; padding: 2mm 0; border-bottom: 1px dotted #ccc;">
+                <span style="font-weight: bold;">${item.count} adet</span> ${item.name}
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+  }
+
+  // Add special label if discord or lekeli (NO barcode, just warning text)
   if (hasDiscord || hasLekeli) {
-    const labelType = hasDiscord ? 'DISCORD' : 'LEKELI';
-    const bgColor = hasDiscord ? '#3B82F6' : '#EF4444';
+    const labelText = hasDiscord
+      ? 'DISCART URUN BU URUNU LUTFEN BIR DAHA KULLANMAYINIZ'
+      : 'LEKELI URUN LUTFEN KULLANMAYINIZ';
+    const textColor = hasDiscord ? '#3B82F6' : '#EF4444';
 
     labelsHtml += `
       <div style="page-break-before: always;"></div>
-      <div style="width: 60mm; height: 80mm; padding: 3mm; box-sizing: border-box; font-family: Arial, sans-serif;">
-        <!-- Header -->
-        <div style="background: ${bgColor}; color: white; padding: 2mm; text-align: center; font-size: 8pt; font-weight: bold;">
-          SPECIAL LABEL
-        </div>
-
+      <div style="width: 60mm; height: 80mm; padding: 2mm; box-sizing: border-box; font-family: Arial, sans-serif; position: relative;">
         <!-- Hotel -->
-        <div style="margin-top: 3mm; font-size: 9pt; font-weight: bold;">${hotelName.substring(0, 18)}</div>
-
-        <!-- Big label -->
-        <div style="background: ${bgColor}; color: white; margin-top: 10mm; padding: 5mm; text-align: center; font-size: 24pt; font-weight: bold;">
-          ${labelType}
+        <div style="text-align: center; font-size: 14pt; font-weight: bold; margin-bottom: 1mm;">
+          ${hotelName}
         </div>
-
-        <!-- Barcode -->
-        <div style="position: absolute; bottom: 25mm; left: 3mm; right: 3mm; border: 1px solid black; padding: 2mm; text-align: center;">
-          <div style="font-family: Courier, monospace; font-size: 6pt; font-weight: bold;">${delivery.barcode}</div>
-        </div>
-
         <!-- Date -->
-        <div style="position: absolute; bottom: 3mm; font-size: 5pt;">Tarih: ${date}</div>
+        <div style="text-align: center; font-size: 9pt; color: #666; margin-bottom: 2mm;">
+          ${date}
+        </div>
+
+        <!-- Separator -->
+        <div style="border-bottom: 1px solid black; margin-bottom: 3mm;"></div>
+
+        <!-- Big warning text (no barcode) -->
+        <div style="text-align: center; padding: 5mm 2mm; border: 2px solid ${textColor}; margin: 2mm 0;">
+          <div style="color: ${textColor}; font-size: 12pt; font-weight: bold; line-height: 1.3;">
+            ${labelText}
+          </div>
+        </div>
       </div>
     `;
   }
@@ -192,9 +245,9 @@ function generateHtmlLabel(delivery: any, labelExtraData?: LabelExtraItem[]): st
         @page { size: 60mm 80mm; margin: 0; }
         @media print {
           body { margin: 0; padding: 0; }
-          div { position: relative; }
         }
         body { margin: 0; padding: 0; }
+        * { box-sizing: border-box; }
       </style>
     </head>
     <body>
@@ -326,7 +379,7 @@ async function printLabel(doc: jsPDF): Promise<void> {
 }
 
 
-// Label size: 60mm x 80mm
+// Label size: 60mm x 80mm (portrait - taller than wide)
 const LABEL_WIDTH = 60;
 const LABEL_HEIGHT = 80;
 
@@ -351,6 +404,9 @@ export interface ManualLabelData {
   packageCount: number;
 }
 
+// Max items per label before pagination
+const MAX_ITEMS_PER_LABEL = 3;
+
 export function generateDeliveryLabel(delivery: Delivery, labelExtraData?: LabelExtraItem[]) {
   // Store data for Electron HTML generation
   if (isElectron()) {
@@ -363,23 +419,6 @@ export function generateDeliveryLabel(delivery: Delivery, labelExtraData?: Label
     format: [LABEL_WIDTH, LABEL_HEIGHT]
   });
 
-  const packages = delivery.deliveryPackages || [];
-
-  // If no packages exist, create labels based on packageCount
-  const labelsToGenerate = packages.length > 0
-    ? packages
-    : Array.from({ length: delivery.packageCount || 1 }, (_, i) => ({
-        id: `temp-${i}`,
-        deliveryId: delivery.id,
-        packageBarcode: `${delivery.barcode}-PKG${i + 1}`,
-        sequenceNumber: i + 1,
-        status: 'created' as const,
-        scannedAt: null,
-        scannedBy: null,
-        pickedUpAt: null,
-        createdAt: new Date().toISOString(),
-      } as DeliveryPackage));
-
   // Check if there's any discord or lekeli in the extra data
   let hasDiscord = false;
   let hasLekeli = false;
@@ -390,18 +429,32 @@ export function generateDeliveryLabel(delivery: Delivery, labelExtraData?: Label
     });
   }
 
-  labelsToGenerate.forEach((pkg, index) => {
-    if (index > 0) {
+  // Calculate total item types for pagination
+  const itemTypeCount = labelExtraData?.length || 0;
+  const totalContentLabels = Math.max(1, Math.ceil(itemTypeCount / MAX_ITEMS_PER_LABEL));
+
+  // Generate content labels with pagination
+  let pageIndex = 0;
+  for (let labelIdx = 0; labelIdx < totalContentLabels; labelIdx++) {
+    if (pageIndex > 0) {
       doc.addPage([LABEL_WIDTH, LABEL_HEIGHT]);
     }
 
-    generateSingleLabel(doc, delivery, pkg, labelsToGenerate.length, labelExtraData);
-  });
+    // Slice items for this label
+    const startIdx = labelIdx * MAX_ITEMS_PER_LABEL;
+    const endIdx = Math.min(startIdx + MAX_ITEMS_PER_LABEL, itemTypeCount);
+    const itemsForThisLabel = labelExtraData?.slice(startIdx, endIdx);
+
+    generateSingleLabel(doc, delivery, labelIdx + 1, totalContentLabels, itemsForThisLabel);
+    pageIndex++;
+  }
 
   // If discord or lekeli is selected, add a second special label
   if (hasDiscord || hasLekeli) {
     doc.addPage([LABEL_WIDTH, LABEL_HEIGHT]);
-    generateSpecialLabel(doc, delivery, hasDiscord ? 'DISCORD' : 'LEKELI');
+    generateSpecialLabel(doc, delivery, hasDiscord
+      ? 'DISCART URUN BU URUNU LUTFEN BIR DAHA KULLANMAYINIZ'
+      : 'LEKELI URUN LUTFEN KULLANMAYINIZ');
   }
 
   // Generate filename
@@ -413,88 +466,72 @@ export function generateDeliveryLabel(delivery: Delivery, labelExtraData?: Label
   return filename;
 }
 
-// Generate a special label with big text for DISCORD or LEKELI
-function generateSpecialLabel(doc: jsPDF, delivery: Delivery, labelType: 'DISCORD' | 'LEKELI') {
+// Generate a special label with warning text (NO barcode)
+function generateSpecialLabel(doc: jsPDF, delivery: Delivery, labelText: string) {
   const black = '#000000';
-  const white = '#FFFFFF';
   const margin = 3;
 
   // White background
   doc.setFillColor(255, 255, 255);
   doc.rect(0, 0, LABEL_WIDTH, LABEL_HEIGHT, 'F');
 
-  // Colored header bar based on type
-  if (labelType === 'DISCORD') {
-    doc.setFillColor(59, 130, 246); // Blue
-  } else {
-    doc.setFillColor(239, 68, 68); // Red
-  }
-  doc.rect(0, 0, LABEL_WIDTH, 12, 'F');
+  // Determine color based on type
+  const isDiscart = labelText.includes('DISCART');
+  const textColor = isDiscart ? [59, 130, 246] : [239, 68, 68]; // Blue or Red
 
-  // Title in white
-  doc.setTextColor(white);
-  doc.setFontSize(8);
-  doc.setFont('helvetica', 'bold');
-  doc.text('SPECIAL LABEL', LABEL_WIDTH / 2, 7, { align: 'center' });
+  let yPos = 5;
 
-  // Reset to black text
+  // Hotel Name at top
   doc.setTextColor(black);
-
-  let yPos = 18;
-
-  // Hotel Name
-  doc.setFontSize(5);
-  doc.setFont('helvetica', 'normal');
-  doc.text('HOTEL', margin, yPos);
-
-  doc.setFontSize(9);
+  doc.setFontSize(14);
   doc.setFont('helvetica', 'bold');
   const hotelName = delivery.tenant?.name || 'Unknown Hotel';
-  const maxHotelLen = 18;
-  const displayHotel = hotelName.length > maxHotelLen ? hotelName.substring(0, maxHotelLen) + '...' : hotelName;
-  doc.text(displayHotel, margin, yPos + 4);
+  const maxHotelLen = 20;
+  const displayHotel = hotelName.length > maxHotelLen ? hotelName.substring(0, maxHotelLen) + '..' : hotelName;
+  doc.text(displayHotel, LABEL_WIDTH / 2, yPos + 5, { align: 'center' });
 
-  yPos += 12;
+  // Date below hotel name
+  yPos += 8;
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  const date = new Date(delivery.createdAt || Date.now()).toLocaleDateString('tr-TR');
+  doc.text(date, LABEL_WIDTH / 2, yPos + 5, { align: 'center' });
 
-  // Big label type text - center of the label
-  const bigTextY = LABEL_HEIGHT / 2;
+  yPos += 10;
 
-  // Draw a big colored box for the label type
-  if (labelType === 'DISCORD') {
-    doc.setFillColor(59, 130, 246); // Blue
-  } else {
-    doc.setFillColor(239, 68, 68); // Red
-  }
-  doc.rect(margin, bigTextY - 12, LABEL_WIDTH - (margin * 2), 24, 'F');
+  // Separator line
+  doc.setDrawColor(0, 0, 0);
+  doc.setLineWidth(0.3);
+  doc.line(margin, yPos, LABEL_WIDTH - margin, yPos);
 
-  // Big text in white
-  doc.setTextColor(white);
-  doc.setFontSize(24);
+  yPos += 8;
+
+  // Warning text box (with border, no fill, NO BARCODE)
+  const boxY = yPos;
+  const boxHeight = 35;
+
+  // Draw border only (no fill)
+  doc.setDrawColor(textColor[0], textColor[1], textColor[2]);
+  doc.setLineWidth(1);
+  doc.rect(margin + 2, boxY, LABEL_WIDTH - (margin * 2) - 4, boxHeight, 'S');
+
+  // Warning text in color - split into lines
+  doc.setTextColor(textColor[0], textColor[1], textColor[2]);
+  doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
-  doc.text(labelType, LABEL_WIDTH / 2, bigTextY + 4, { align: 'center' });
+
+  // Split text to fit in box
+  const maxWidth = LABEL_WIDTH - (margin * 2) - 10;
+  const lines = doc.splitTextToSize(labelText, maxWidth);
+  const lineHeight = 5;
+  const textStartY = boxY + (boxHeight - lines.length * lineHeight) / 2 + lineHeight;
+
+  lines.forEach((line: string, i: number) => {
+    doc.text(line, LABEL_WIDTH / 2, textStartY + i * lineHeight, { align: 'center' });
+  });
 
   // Reset to black text
   doc.setTextColor(black);
-
-  // Barcode at the bottom
-  const barcodeY = LABEL_HEIGHT - 25;
-  doc.setDrawColor(0, 0, 0);
-  doc.setLineWidth(0.2);
-  doc.rect(margin, barcodeY, LABEL_WIDTH - (margin * 2), 15, 'S');
-
-  // Draw barcode
-  drawBarcode(doc, delivery.barcode, margin + 2, barcodeY + 2, LABEL_WIDTH - (margin * 2) - 4, 8);
-
-  // Barcode text
-  doc.setFontSize(6);
-  doc.setFont('courier', 'bold');
-  doc.text(delivery.barcode, LABEL_WIDTH / 2, barcodeY + 13, { align: 'center' });
-
-  // Date at the very bottom
-  doc.setFontSize(5);
-  doc.setFont('helvetica', 'normal');
-  const date = new Date(delivery.createdAt || Date.now()).toLocaleDateString('tr-TR');
-  doc.text(`Tarih: ${date}`, margin, LABEL_HEIGHT - 3);
 }
 
 // Generate a real CODE128 barcode using JsBarcode
@@ -526,13 +563,12 @@ function drawBarcode(doc: jsPDF, code: string, x: number, y: number, width: numb
 function generateSingleLabel(
   doc: jsPDF,
   delivery: Delivery,
-  pkg: DeliveryPackage,
-  totalPackages: number,
+  labelNumber: number,
+  totalLabels: number,
   labelExtraData?: LabelExtraItem[]
 ) {
   // All black and white - no colors
   const black = '#000000';
-  const white = '#FFFFFF';
   const margin = 3;
 
   // White background
@@ -542,23 +578,25 @@ function generateSingleLabel(
   let yPos = 3;
 
   // ============================================
-  // 1. HOTEL NAME - BIG at the top
+  // 1. HOTEL NAME - BIGGER at the top (24pt)
   // ============================================
   const hotelName = delivery.tenant?.name || 'Unknown Hotel';
   doc.setTextColor(black);
-  doc.setFontSize(14);
+  doc.setFontSize(24);
   doc.setFont('helvetica', 'bold');
 
   // Center the hotel name
-  const maxHotelLen = 22;
+  const maxHotelLen = 16;
   const displayHotel = hotelName.length > maxHotelLen ? hotelName.substring(0, maxHotelLen) + '..' : hotelName;
-  doc.text(displayHotel, LABEL_WIDTH / 2, yPos + 5, { align: 'center' });
+  doc.text(displayHotel, LABEL_WIDTH / 2, yPos + 7, { align: 'center' });
 
-  // Package count on right side
-  doc.setFontSize(8);
-  doc.text(`${pkg.sequenceNumber}/${totalPackages}`, LABEL_WIDTH - margin, yPos + 5, { align: 'right' });
+  // Label pagination on right side (only if multiple labels)
+  if (totalLabels > 1) {
+    doc.setFontSize(7);
+    doc.text(`${labelNumber}/${totalLabels}`, LABEL_WIDTH - margin, yPos + 5, { align: 'right' });
+  }
 
-  yPos += 12;
+  yPos += 10;
 
   // Thin separator line
   doc.setDrawColor(0, 0, 0);
@@ -568,21 +606,21 @@ function generateSingleLabel(
   yPos += 3;
 
   // ============================================
-  // 2. BARCODE - below hotel name
+  // 2. BARCODE - numeric code for readability
   // ============================================
-  doc.setDrawColor(0, 0, 0);
-  doc.setLineWidth(0.2);
-  doc.rect(margin, yPos, LABEL_WIDTH - (margin * 2), 18, 'S');
+  const shortCode = generateShortCode();
 
-  // Draw barcode
-  drawBarcode(doc, pkg.packageBarcode, margin + 2, yPos + 2, LABEL_WIDTH - (margin * 2) - 4, 10);
+  // Draw barcode with numeric code
+  drawBarcode(doc, shortCode, margin + 2, yPos, LABEL_WIDTH - (margin * 2) - 4, 10);
 
-  // Barcode text
-  doc.setFontSize(7);
+  // Barcode text - full number, single size
+  doc.setTextColor(50, 50, 50);
   doc.setFont('courier', 'bold');
-  doc.text(pkg.packageBarcode, LABEL_WIDTH / 2, yPos + 15, { align: 'center' });
+  doc.setFontSize(11);
+  doc.text(shortCode, LABEL_WIDTH / 2, yPos + 14, { align: 'center' });
+  doc.setTextColor(black);
 
-  yPos += 21;
+  yPos += 18;
 
   // ============================================
   // 3. ITEMS - 3 column layout if needed
@@ -635,7 +673,6 @@ function generateSingleLabel(
   }
 
   const itemTypeEntries = Object.entries(itemsByType);
-  const totalItems = itemTypeEntries.reduce((sum, [, item]) => sum + item.count, 0);
 
   // Calculate total discard and hasarli counts
   let totalDiscard = 0;
@@ -645,69 +682,24 @@ function generateSingleLabel(
     totalHasarli += item.hasarliCount;
   });
 
-  // Items section header with total
-  doc.setFillColor(0, 0, 0);
-  doc.rect(margin, yPos, LABEL_WIDTH - (margin * 2), 6, 'F');
-  doc.setTextColor(white);
-  doc.setFontSize(7);
-  doc.setFont('helvetica', 'bold');
-  doc.text(`TOPLAM: ${totalItems} ADET`, LABEL_WIDTH / 2, yPos + 4, { align: 'center' });
-  doc.setTextColor(black);
-
-  yPos += 9;
-
-  // Display items - 3 column layout if more than 3 items
+  // Display items - format: "2 adet Çarşaf"
   if (itemTypeEntries.length > 0) {
-    const useThreeColumns = itemTypeEntries.length > 3;
-    const colWidth = useThreeColumns ? (LABEL_WIDTH - margin * 2) / 3 : LABEL_WIDTH - margin * 2;
+    doc.setFontSize(10);
+    itemTypeEntries.forEach(([_typeId, itemType]) => {
+      const maxNameLen = 16;
+      const displayName = itemType.name.length > maxNameLen
+        ? itemType.name.substring(0, maxNameLen) + '..'
+        : itemType.name;
 
-    doc.setFontSize(7);
-    doc.setFont('helvetica', 'normal');
-
-    if (useThreeColumns) {
-      // 3-column layout
-      itemTypeEntries.forEach(([_typeId, itemType], index) => {
-        const col = index % 3;
-        const row = Math.floor(index / 3);
-        const xPos = margin + (col * colWidth);
-        const itemYPos = yPos + (row * 10);
-
-        // Truncate name for column
-        const maxNameLen = 8;
-        const displayName = itemType.name.length > maxNameLen
-          ? itemType.name.substring(0, maxNameLen) + '..'
-          : itemType.name;
-
-        // Count (bold)
-        doc.setFont('helvetica', 'bold');
-        doc.text(`${itemType.count}`, xPos + colWidth / 2, itemYPos, { align: 'center' });
-
-        // Type name (smaller, below)
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(5);
-        doc.text(displayName, xPos + colWidth / 2, itemYPos + 4, { align: 'center' });
-        doc.setFontSize(7);
-      });
-
-      // Update yPos based on rows
-      const rows = Math.ceil(itemTypeEntries.length / 3);
-      yPos += rows * 10 + 2;
-    } else {
-      // Single column layout for 3 or fewer items
-      itemTypeEntries.forEach(([_typeId, itemType]) => {
-        const maxNameLen = 20;
-        const displayName = itemType.name.length > maxNameLen
-          ? itemType.name.substring(0, maxNameLen) + '..'
-          : itemType.name;
-
-        doc.setFont('helvetica', 'normal');
-        doc.text(displayName, margin, yPos);
-        doc.setFont('helvetica', 'bold');
-        doc.text(`${itemType.count} adet`, LABEL_WIDTH - margin, yPos, { align: 'right' });
-        yPos += 5;
-      });
-      yPos += 2;
-    }
+      // Format: "2 adet Çarşaf"
+      doc.setFont('helvetica', 'bold');
+      doc.text(`${itemType.count} adet`, margin, yPos);
+      doc.setFont('helvetica', 'normal');
+      const countWidth = doc.getTextWidth(`${itemType.count} adet `);
+      doc.text(displayName, margin + countWidth, yPos);
+      yPos += 6;
+    });
+    yPos += 2;
   }
 
   // Show discord/lekeli totals if any
@@ -759,19 +751,31 @@ export function generateManualLabel(data: ManualLabelData) {
     if (item.hasarliCount > 0) hasLekeli = true;
   });
 
-  // Generate labels for each package
-  for (let pkgIndex = 0; pkgIndex < data.packageCount; pkgIndex++) {
-    if (pkgIndex > 0) {
+  // Calculate pagination for items
+  const totalContentLabels = Math.max(1, Math.ceil(data.items.length / MAX_ITEMS_PER_LABEL));
+
+  // Generate labels with pagination
+  let pageIndex = 0;
+  for (let labelIdx = 0; labelIdx < totalContentLabels; labelIdx++) {
+    if (pageIndex > 0) {
       doc.addPage([LABEL_WIDTH, LABEL_HEIGHT]);
     }
 
-    generateManualSingleLabel(doc, data, barcode, pkgIndex + 1, data.packageCount);
+    // Slice items for this label
+    const startIdx = labelIdx * MAX_ITEMS_PER_LABEL;
+    const endIdx = Math.min(startIdx + MAX_ITEMS_PER_LABEL, data.items.length);
+    const itemsForThisLabel = data.items.slice(startIdx, endIdx);
+
+    generateManualSingleLabel(doc, { ...data, items: itemsForThisLabel }, barcode, labelIdx + 1, totalContentLabels);
+    pageIndex++;
   }
 
   // If discord or lekeli is selected, add a special label
   if (hasDiscord || hasLekeli) {
     doc.addPage([LABEL_WIDTH, LABEL_HEIGHT]);
-    generateManualSpecialLabel(doc, data.tenant, barcode, hasDiscord ? 'DISCORD' : 'LEKELI');
+    generateManualSpecialLabel(doc, data.tenant, hasDiscord
+      ? 'DISCART URUN BU URUNU LUTFEN BIR DAHA KULLANMAYINIZ'
+      : 'LEKELI URUN LUTFEN KULLANMAYINIZ');
   }
 
   // Generate filename
@@ -786,7 +790,7 @@ export function generateManualLabel(data: ManualLabelData) {
 function generateManualSingleLabel(
   doc: jsPDF,
   data: ManualLabelData,
-  barcode: string,
+  _barcode: string,
   packageNumber: number,
   totalPackages: number
 ) {
@@ -801,23 +805,25 @@ function generateManualSingleLabel(
   let yPos = 3;
 
   // ============================================
-  // 1. HOTEL NAME - BIG at the top
+  // 1. HOTEL NAME - BIG at the top (24pt)
   // ============================================
   const hotelName = data.tenant?.name || 'Unknown Hotel';
   doc.setTextColor(black);
-  doc.setFontSize(14);
+  doc.setFontSize(24);
   doc.setFont('helvetica', 'bold');
 
   // Center the hotel name
-  const maxHotelLen = 22;
+  const maxHotelLen = 16;
   const displayHotel = hotelName.length > maxHotelLen ? hotelName.substring(0, maxHotelLen) + '..' : hotelName;
-  doc.text(displayHotel, LABEL_WIDTH / 2, yPos + 5, { align: 'center' });
+  doc.text(displayHotel, LABEL_WIDTH / 2, yPos + 7, { align: 'center' });
 
-  // Package count on right side
-  doc.setFontSize(8);
-  doc.text(`${packageNumber}/${totalPackages}`, LABEL_WIDTH - margin, yPos + 5, { align: 'right' });
+  // Package count on right side (only if multiple)
+  if (totalPackages > 1) {
+    doc.setFontSize(7);
+    doc.text(`${packageNumber}/${totalPackages}`, LABEL_WIDTH - margin, yPos + 5, { align: 'right' });
+  }
 
-  yPos += 12;
+  yPos += 10;
 
   // Thin separator line
   doc.setDrawColor(0, 0, 0);
@@ -827,25 +833,24 @@ function generateManualSingleLabel(
   yPos += 3;
 
   // ============================================
-  // 2. BARCODE - below hotel name
+  // 2. BARCODE - numeric code for readability
   // ============================================
-  const packageBarcode = `${barcode}-PKG${packageNumber}`;
-  doc.setDrawColor(0, 0, 0);
-  doc.setLineWidth(0.2);
-  doc.rect(margin, yPos, LABEL_WIDTH - (margin * 2), 18, 'S');
+  const shortCode = generateShortCode();
 
   // Draw barcode
-  drawBarcode(doc, packageBarcode, margin + 2, yPos + 2, LABEL_WIDTH - (margin * 2) - 4, 10);
+  drawBarcode(doc, shortCode, margin + 2, yPos, LABEL_WIDTH - (margin * 2) - 4, 10);
 
-  // Barcode text
-  doc.setFontSize(7);
+  // Barcode text - full number, single size
+  doc.setTextColor(50, 50, 50);
   doc.setFont('courier', 'bold');
-  doc.text(packageBarcode, LABEL_WIDTH / 2, yPos + 15, { align: 'center' });
+  doc.setFontSize(11);
+  doc.text(shortCode, LABEL_WIDTH / 2, yPos + 14, { align: 'center' });
+  doc.setTextColor(black);
 
-  yPos += 21;
+  yPos += 18;
 
   // ============================================
-  // 3. ITEMS - 3 column layout if needed
+  // 3. ITEMS
   // ============================================
 
   // Calculate totals
@@ -869,58 +874,24 @@ function generateManualSingleLabel(
 
   yPos += 9;
 
-  // Display items - 3 column layout if more than 3 items
+  // Display items - format: "2 adet Çarşaf"
   if (data.items.length > 0) {
-    const useThreeColumns = data.items.length > 3;
-    const colWidth = useThreeColumns ? (LABEL_WIDTH - margin * 2) / 3 : LABEL_WIDTH - margin * 2;
+    doc.setFontSize(10);
+    data.items.forEach((item) => {
+      const maxNameLen = 16;
+      const displayName = item.typeName.length > maxNameLen
+        ? item.typeName.substring(0, maxNameLen) + '..'
+        : item.typeName;
 
-    doc.setFontSize(7);
-    doc.setFont('helvetica', 'normal');
-
-    if (useThreeColumns) {
-      // 3-column layout
-      data.items.forEach((item, index) => {
-        const col = index % 3;
-        const row = Math.floor(index / 3);
-        const xPos = margin + (col * colWidth);
-        const itemYPos = yPos + (row * 10);
-
-        // Truncate name for column
-        const maxNameLen = 8;
-        const displayName = item.typeName.length > maxNameLen
-          ? item.typeName.substring(0, maxNameLen) + '..'
-          : item.typeName;
-
-        // Count (bold)
-        doc.setFont('helvetica', 'bold');
-        doc.text(`${item.count}`, xPos + colWidth / 2, itemYPos, { align: 'center' });
-
-        // Type name (smaller, below)
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(5);
-        doc.text(displayName, xPos + colWidth / 2, itemYPos + 4, { align: 'center' });
-        doc.setFontSize(7);
-      });
-
-      // Update yPos based on rows
-      const rows = Math.ceil(data.items.length / 3);
-      yPos += rows * 10 + 2;
-    } else {
-      // Single column layout for 3 or fewer items
-      data.items.forEach((item) => {
-        const maxNameLen = 20;
-        const displayName = item.typeName.length > maxNameLen
-          ? item.typeName.substring(0, maxNameLen) + '..'
-          : item.typeName;
-
-        doc.setFont('helvetica', 'normal');
-        doc.text(displayName, margin, yPos);
-        doc.setFont('helvetica', 'bold');
-        doc.text(`${item.count} adet`, LABEL_WIDTH - margin, yPos, { align: 'right' });
-        yPos += 5;
-      });
-      yPos += 2;
-    }
+      // Format: "2 adet Çarşaf"
+      doc.setFont('helvetica', 'bold');
+      doc.text(`${item.count} adet`, margin, yPos);
+      doc.setFont('helvetica', 'normal');
+      const countWidth = doc.getTextWidth(`${item.count} adet `);
+      doc.text(displayName, margin + countWidth, yPos);
+      yPos += 6;
+    });
+    yPos += 2;
   }
 
   // Show discord/lekeli totals if any
@@ -953,85 +924,69 @@ function generateManualSingleLabel(
   doc.text('RFID Laundry System', LABEL_WIDTH / 2, footerY + 3, { align: 'center' });
 }
 
-function generateManualSpecialLabel(doc: jsPDF, tenant: Tenant, barcode: string, labelType: 'DISCORD' | 'LEKELI') {
+function generateManualSpecialLabel(doc: jsPDF, tenant: Tenant, labelText: string) {
   const black = '#000000';
-  const white = '#FFFFFF';
   const margin = 3;
 
   // White background
   doc.setFillColor(255, 255, 255);
   doc.rect(0, 0, LABEL_WIDTH, LABEL_HEIGHT, 'F');
 
-  // Colored header bar based on type
-  if (labelType === 'DISCORD') {
-    doc.setFillColor(59, 130, 246); // Blue
-  } else {
-    doc.setFillColor(239, 68, 68); // Red
-  }
-  doc.rect(0, 0, LABEL_WIDTH, 12, 'F');
+  // Determine color based on type
+  const isDiscart = labelText.includes('DISCART');
+  const textColor = isDiscart ? [59, 130, 246] : [239, 68, 68]; // Blue or Red
 
-  // Title in white
-  doc.setTextColor(white);
-  doc.setFontSize(8);
-  doc.setFont('helvetica', 'bold');
-  doc.text('SPECIAL LABEL', LABEL_WIDTH / 2, 7, { align: 'center' });
+  let yPos = 5;
 
-  // Reset to black text
+  // Hotel Name at top
   doc.setTextColor(black);
-
-  let yPos = 18;
-
-  // Hotel Name
-  doc.setFontSize(5);
-  doc.setFont('helvetica', 'normal');
-  doc.text('HOTEL', margin, yPos);
-
-  doc.setFontSize(9);
+  doc.setFontSize(14);
   doc.setFont('helvetica', 'bold');
   const hotelName = tenant?.name || 'Unknown Hotel';
-  const maxHotelLen = 18;
-  const displayHotel = hotelName.length > maxHotelLen ? hotelName.substring(0, maxHotelLen) + '...' : hotelName;
-  doc.text(displayHotel, margin, yPos + 4);
+  const maxHotelLen = 20;
+  const displayHotel = hotelName.length > maxHotelLen ? hotelName.substring(0, maxHotelLen) + '..' : hotelName;
+  doc.text(displayHotel, LABEL_WIDTH / 2, yPos + 5, { align: 'center' });
 
-  yPos = Math.max(yPos, 30) + 12;
+  // Date below hotel name
+  yPos += 8;
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  const date = new Date().toLocaleDateString('tr-TR');
+  doc.text(date, LABEL_WIDTH / 2, yPos + 5, { align: 'center' });
 
-  // Big label type text - center of the label
-  const bigTextY = LABEL_HEIGHT / 2;
+  yPos += 10;
 
-  // Draw a big colored box for the label type
-  if (labelType === 'DISCORD') {
-    doc.setFillColor(59, 130, 246); // Blue
-  } else {
-    doc.setFillColor(239, 68, 68); // Red
-  }
-  doc.rect(margin, bigTextY - 12, LABEL_WIDTH - (margin * 2), 24, 'F');
+  // Separator line
+  doc.setDrawColor(0, 0, 0);
+  doc.setLineWidth(0.3);
+  doc.line(margin, yPos, LABEL_WIDTH - margin, yPos);
 
-  // Big text in white
-  doc.setTextColor(white);
-  doc.setFontSize(24);
+  yPos += 8;
+
+  // Warning text box (with border, no fill, NO BARCODE)
+  const boxY = yPos;
+  const boxHeight = 35;
+
+  // Draw border only (no fill)
+  doc.setDrawColor(textColor[0], textColor[1], textColor[2]);
+  doc.setLineWidth(1);
+  doc.rect(margin + 2, boxY, LABEL_WIDTH - (margin * 2) - 4, boxHeight, 'S');
+
+  // Warning text in color - split into lines
+  doc.setTextColor(textColor[0], textColor[1], textColor[2]);
+  doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
-  doc.text(labelType, LABEL_WIDTH / 2, bigTextY + 4, { align: 'center' });
+
+  // Split text to fit in box
+  const maxWidth = LABEL_WIDTH - (margin * 2) - 10;
+  const lines = doc.splitTextToSize(labelText, maxWidth);
+  const lineHeight = 5;
+  const textStartY = boxY + (boxHeight - lines.length * lineHeight) / 2 + lineHeight;
+
+  lines.forEach((line: string, i: number) => {
+    doc.text(line, LABEL_WIDTH / 2, textStartY + i * lineHeight, { align: 'center' });
+  });
 
   // Reset to black text
   doc.setTextColor(black);
-
-  // Barcode at the bottom
-  const barcodeY = LABEL_HEIGHT - 25;
-  doc.setDrawColor(0, 0, 0);
-  doc.setLineWidth(0.2);
-  doc.rect(margin, barcodeY, LABEL_WIDTH - (margin * 2), 15, 'S');
-
-  // Draw barcode
-  drawBarcode(doc, barcode, margin + 2, barcodeY + 2, LABEL_WIDTH - (margin * 2) - 4, 8);
-
-  // Barcode text
-  doc.setFontSize(6);
-  doc.setFont('courier', 'bold');
-  doc.text(barcode, LABEL_WIDTH / 2, barcodeY + 13, { align: 'center' });
-
-  // Date at the very bottom
-  doc.setFontSize(5);
-  doc.setFont('helvetica', 'normal');
-  const date = new Date().toLocaleDateString('tr-TR');
-  doc.text(`Tarih: ${date}`, margin, LABEL_HEIGHT - 3);
 }

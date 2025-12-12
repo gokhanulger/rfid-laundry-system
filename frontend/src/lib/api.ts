@@ -15,13 +15,11 @@ import type {
   CreateItemForm,
 } from '../types';
 
-// VITE_API_URL should be the full API base URL including /api
-// e.g., https://rfid-laundry-backend-production.up.railway.app/api
-// For Electron (file:// protocol), always use production URL
-const isElectron = window.location.protocol === 'file:' || (window as any).electronAPI;
-const apiBaseUrl = isElectron
-  ? 'https://rfid-laundry-backend-production.up.railway.app/api'
-  : (import.meta.env.VITE_API_URL || '/api');
+// Always use Railway backend for production
+const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+const apiBaseUrl = isLocalhost
+  ? '/api'
+  : 'https://rfid-laundry-backend-production.up.railway.app/api';
 
 // Token storage key
 const TOKEN_KEY = 'rfid_auth_token';

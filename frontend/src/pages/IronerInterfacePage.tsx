@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Printer, RefreshCw, Package, Tag, Sparkles, Building2, X, Plus, Search, Delete } from 'lucide-react';
+import { Printer, Sparkles, Building2, X, Plus, Search, Delete, Trash2, Sun, Moon } from 'lucide-react';
 import { itemsApi, deliveriesApi, settingsApi, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/Toast';
 import { generateDeliveryLabel } from '../lib/pdfGenerator';
@@ -8,37 +8,60 @@ import type { Item, Tenant } from '../types';
 
 // Storage keys
 const SELECTED_HOTELS_KEY = 'laundry_selected_hotels';
-const BATCH_THRESHOLDS_KEY = 'laundry_batch_thresholds';
 const LAST_PRINTED_TYPE_KEY = 'laundry_last_printed_type';
+const PRODUCT_COUNTER_KEY = 'laundry_product_counter';
 
-// Default batch threshold
-const DEFAULT_BATCH_SIZE = 10;
+// Shift type
+type ShiftType = 'day' | 'night';
+
+// Get current shift based on Turkey time (UTC+3)
+// Day: 08:00 - 18:00, Night: 18:00 - 08:00
+function getCurrentShiftTurkey(): ShiftType {
+  const now = new Date();
+  // Get Turkey time (UTC+3)
+  const turkeyHour = (now.getUTCHours() + 3) % 24;
+  // Day shift: 8 AM (08:00) to 6 PM (18:00)
+  if (turkeyHour >= 8 && turkeyHour < 18) {
+    return 'day';
+  }
+  return 'night';
+}
+
+// Type for print list items
+interface PrintListItem {
+  typeId: string;
+  typeName: string;
+  count: number;
+  discardCount: number;
+  hasarliCount: number;
+}
 
 export function IronerInterfacePage() {
-  const [expandedHotels, setExpandedHotels] = useState<Record<string, boolean>>({});
   const [selectedHotelIds, setSelectedHotelIds] = useState<string[]>([]);
   const [isWorking, setIsWorking] = useState(false); // True when user confirmed hotel selection
   const [showHotelSelector, setShowHotelSelector] = useState(false);
-  const [batchThresholds, setBatchThresholds] = useState<Record<string, number>>({});
-  const [showThresholdSettings, setShowThresholdSettings] = useState(false);
   // For the add item form per hotel
   const [addingTypeId, setAddingTypeId] = useState<Record<string, string>>({});
   const [addingCount, setAddingCount] = useState<Record<string, number>>({});
-  // Discard and hasarli state per hotel
+  // Discard and hasarli state per hotel (checkbox only, no count)
   const [addingDiscard, setAddingDiscard] = useState<Record<string, boolean>>({});
-  const [addingDiscardCount, setAddingDiscardCount] = useState<Record<string, number>>({});
   const [addingHasarli, setAddingHasarli] = useState<Record<string, boolean>>({});
-  const [addingHasarliCount, setAddingHasarliCount] = useState<Record<string, number>>({});
   // Last printed item type per hotel for dropdown sorting
   const [lastPrintedType, setLastPrintedType] = useState<Record<string, string>>({});
   // Hotel search filter
   const [hotelSearchFilter, setHotelSearchFilter] = useState('');
   // Active hotel for the right panel form
   const [activeHotelId, setActiveHotelId] = useState<string | null>(null);
+  // Print list per hotel - accumulates items before printing
+  const [printList, setPrintList] = useState<Record<string, PrintListItem[]>>({});
+  // Product counter per shift (counts products, not labels)
+  const [productCounter, setProductCounter] = useState<{ day: number; night: number }>({ day: 0, night: 0 });
+  // Current shift - auto-detected based on Turkey time
+  const [currentShift, setCurrentShift] = useState<ShiftType>(getCurrentShiftTurkey());
   const queryClient = useQueryClient();
   const toast = useToast();
 
-  // Load selected hotels and thresholds from localStorage on mount
+  // Load selected hotels from localStorage on mount
   useEffect(() => {
     const savedHotels = localStorage.getItem(SELECTED_HOTELS_KEY);
     if (savedHotels) {
@@ -53,15 +76,6 @@ export function IronerInterfacePage() {
       }
     }
 
-    const savedThresholds = localStorage.getItem(BATCH_THRESHOLDS_KEY);
-    if (savedThresholds) {
-      try {
-        setBatchThresholds(JSON.parse(savedThresholds));
-      } catch {
-        // Ignore parse errors
-      }
-    }
-
     const savedLastPrintedType = localStorage.getItem(LAST_PRINTED_TYPE_KEY);
     if (savedLastPrintedType) {
       try {
@@ -70,7 +84,35 @@ export function IronerInterfacePage() {
         // Ignore parse errors
       }
     }
+
+    // Load product counter
+    const savedCounter = localStorage.getItem(PRODUCT_COUNTER_KEY);
+    if (savedCounter) {
+      try {
+        setProductCounter(JSON.parse(savedCounter));
+      } catch {
+        // Ignore parse errors
+      }
+    }
+
+    // Auto-detect shift based on Turkey time and update every minute
+    const updateShift = () => setCurrentShift(getCurrentShiftTurkey());
+    updateShift();
+    const shiftInterval = setInterval(updateShift, 60000); // Check every minute
+    return () => clearInterval(shiftInterval);
   }, []);
+
+  // Increment product counter for current shift (adds product count, not label count)
+  const incrementProductCounter = (count: number) => {
+    setProductCounter(prev => {
+      const newCounter = {
+        ...prev,
+        [currentShift]: prev[currentShift] + count
+      };
+      localStorage.setItem(PRODUCT_COUNTER_KEY, JSON.stringify(newCounter));
+      return newCounter;
+    });
+  };
 
   // Save selected hotels to localStorage
   const saveSelectedHotels = (hotelIds: string[]) => {
@@ -95,22 +137,41 @@ export function IronerInterfacePage() {
     saveSelectedHotels([]);
   };
 
-  // Threshold management
-  const updateThreshold = (itemTypeId: string, value: number) => {
-    const newThresholds = {
-      ...batchThresholds,
-      [itemTypeId]: Math.max(1, value)
-    };
-    setBatchThresholds(newThresholds);
-    localStorage.setItem(BATCH_THRESHOLDS_KEY, JSON.stringify(newThresholds));
+  // Add item to print list
+  const addToPrintList = (hotelId: string, item: PrintListItem) => {
+    setPrintList(prev => {
+      const currentList = prev[hotelId] || [];
+      // Check if same type already exists, if so update count
+      const existingIndex = currentList.findIndex(i => i.typeId === item.typeId);
+      if (existingIndex >= 0) {
+        const updated = [...currentList];
+        updated[existingIndex] = {
+          ...updated[existingIndex],
+          count: updated[existingIndex].count + item.count,
+          discardCount: updated[existingIndex].discardCount + item.discardCount,
+          hasarliCount: updated[existingIndex].hasarliCount + item.hasarliCount,
+        };
+        return { ...prev, [hotelId]: updated };
+      }
+      return { ...prev, [hotelId]: [...currentList, item] };
+    });
   };
 
-  const getThreshold = (itemTypeId: string) => {
-    return batchThresholds[itemTypeId] || DEFAULT_BATCH_SIZE;
+  // Remove item from print list
+  const removeFromPrintList = (hotelId: string, typeId: string) => {
+    setPrintList(prev => {
+      const currentList = prev[hotelId] || [];
+      return { ...prev, [hotelId]: currentList.filter(i => i.typeId !== typeId) };
+    });
+  };
+
+  // Clear print list for a hotel
+  const clearPrintList = (hotelId: string) => {
+    setPrintList(prev => ({ ...prev, [hotelId]: [] }));
   };
 
   // Get dirty items (at_laundry or processing status)
-  const { data: dirtyItems, isLoading: loadingDirty, refetch: refetchDirty } = useQuery({
+  const { data: dirtyItems, refetch: refetchDirty } = useQuery({
     queryKey: ['dirty-items'],
     queryFn: () => itemsApi.getDirty(),
   });
@@ -182,10 +243,13 @@ export function IronerInterfacePage() {
         // Continue anyway - label was generated
       }
 
-      return { delivery: fullDelivery, labelCount };
+      // Calculate total product count from labelExtraData
+      const totalProducts = (labelExtraData || []).reduce((sum, item) => sum + (item.count || 0), 0);
+      return { delivery: fullDelivery, labelCount, totalProducts };
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       toast.success('Urunler temizlendi ve etiket basildi!');
+      incrementProductCounter(data.totalProducts); // Increment product counter
       queryClient.invalidateQueries({ queryKey: ['dirty-items'] });
       queryClient.invalidateQueries({ queryKey: ['deliveries'] });
       queryClient.invalidateQueries({ queryKey: ['items'] });
@@ -194,11 +258,6 @@ export function IronerInterfacePage() {
     },
     onError: (err) => toast.error('Failed to process items', getErrorMessage(err)),
   });
-
-  const handleRefresh = () => {
-    refetchDirty();
-    refetchPrinted();
-  };
 
   // Group dirty items by hotel (filter by selected hotels if any are selected)
   // Ensure dirtyItems is an array
@@ -474,16 +533,16 @@ export function IronerInterfacePage() {
       <>
         <div className="p-8 space-y-6">
           <div className="flex items-center gap-3">
-            <div className="p-3 bg-purple-100 rounded-lg">
-              <Printer className="w-8 h-8 text-purple-600" />
+            <div className="p-3 bg-orange-100 rounded-lg">
+              <Printer className="w-8 h-8 text-orange-600" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Ütü İstasyonu</h1>
-              <p className="text-gray-500">Isleme baslamak icin otel secin</p>
+              <h1 className="text-2xl font-bold text-gray-900">RFID Çamaşırhane</h1>
+              <p className="text-sm text-gray-500">by Karbeyaz Demet Laundry</p>
             </div>
           </div>
           <div className="bg-white rounded-lg shadow p-12 text-center">
-            <Building2 className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <Building2 className="w-16 h-16 text-orange-300 mx-auto mb-4" />
             <p className="text-xl text-gray-500 mb-2">Otel secilmedi</p>
             <p className="text-gray-400">Baslamak icin otelleri secin</p>
           </div>
@@ -494,80 +553,77 @@ export function IronerInterfacePage() {
   }
 
   return (
-    <div className="p-8 space-y-6 animate-fade-in">
-      {/* Header with selected hotels */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-purple-100 rounded-lg">
-            <Printer className="w-8 h-8 text-purple-600" />
+    <div className="flex h-full animate-fade-in">
+      {/* Left Sidebar - Counter and Shift Toggle */}
+      <div className="w-48 bg-gray-900 text-white flex flex-col">
+        {/* Shift Toggle */}
+        {/* Spacer */}
+        <div className="flex-1" />
+
+        {/* Counter at bottom - inside sidebar */}
+        <div className="p-4 border-t border-gray-700">
+          {/* Current shift indicator */}
+          <div className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg mb-3 ${
+            currentShift === 'day'
+              ? 'bg-yellow-500/20 text-yellow-400'
+              : 'bg-indigo-500/20 text-indigo-400'
+          }`}>
+            {currentShift === 'day' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            <span className="font-medium text-sm">
+              {currentShift === 'day' ? 'Gündüz Mesai' : 'Gece Mesai'}
+            </span>
           </div>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Ütü İstasyonu</h1>
-            <p className="text-gray-500">
-              Calisilan {selectedHotelIds.length} otel
+
+          <div className="text-center">
+            <p className="text-5xl font-bold text-white mb-1">
+              {productCounter[currentShift]}
+            </p>
+            <p className="text-xs text-gray-500">ürün işlendi</p>
+          </div>
+
+          {/* Other shift info */}
+          <div className="mt-3 pt-3 border-t border-gray-700">
+            <p className="text-xs text-gray-500 text-center">
+              {currentShift === 'day' ? 'Gece' : 'Gündüz'}: {productCounter[currentShift === 'day' ? 'night' : 'day']} ürün
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowThresholdSettings(!showThresholdSettings)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg ${
-              showThresholdSettings
-                ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                : 'text-gray-600 hover:bg-gray-100'
-            }`}
-          >
-            <Tag className="w-4 h-4" />
-            Ayarlar
-          </button>
-          <button
-            onClick={() => setShowHotelSelector(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200"
-          >
-            <Building2 className="w-4 h-4" />
-            Otel Degistir
-          </button>
-          <button
-            onClick={handleRefresh}
-            className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Yenile
-          </button>
-        </div>
       </div>
 
+      {/* Main Content */}
+      <div className="flex-1 p-8 space-y-6 overflow-auto">
+        {/* Header */}
+        <div className="flex items-center gap-3">
+          <div className="p-3 bg-orange-100 rounded-lg">
+            <Printer className="w-8 h-8 text-orange-600" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">RFID Çamaşırhane</h1>
+            <p className="text-sm text-gray-500">by Karbeyaz Demet Laundry</p>
+          </div>
+        </div>
+
       {/* Selected Hotels Bar - Sticky at top */}
-      <div className="bg-blue-50 rounded-lg p-4 flex items-center gap-3 flex-wrap sticky top-0 z-40 shadow-sm">
-        <span className="text-blue-700 font-medium">Calisilan:</span>
+      <div className="bg-orange-50 rounded-lg p-4 flex items-center gap-3 flex-wrap sticky top-0 z-40 shadow-sm">
+        <span className="text-orange-700 font-medium">Calisilan:</span>
         {selectedHotelIds.map(hotelId => {
           const hotel = tenantsArray.find((t: Tenant) => t.id === hotelId);
+          const isActive = activeHotelId === hotelId;
           return (
             <div
               key={hotelId}
               className={`flex items-center gap-1 pl-3 pr-1 py-1 rounded-full border transition-all ${
-                expandedHotels[hotelId]
-                  ? 'bg-blue-600 border-blue-600 text-white'
-                  : 'bg-white border-blue-200 hover:bg-blue-100'
+                isActive
+                  ? 'bg-orange-600 border-orange-600 text-white'
+                  : 'bg-white border-orange-200 hover:bg-orange-100'
               }`}
             >
               <button
-                onClick={() => {
-                  // Expand/collapse the hotel's work section
-                  setExpandedHotels(prev => ({
-                    ...prev,
-                    [hotelId]: !prev[hotelId]
-                  }));
-                  // Scroll to the hotel section
-                  const hotelElement = document.getElementById(`hotel-section-${hotelId}`);
-                  if (hotelElement) {
-                    hotelElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                  }
-                }}
+                onClick={() => setActiveHotelId(hotelId)}
                 className="flex items-center gap-2"
               >
-                <Building2 className={`w-4 h-4 ${expandedHotels[hotelId] ? 'text-white' : 'text-blue-600'}`} />
-                <span className={`font-medium ${expandedHotels[hotelId] ? 'text-white' : 'text-gray-900'}`}>{hotel?.name}</span>
+                <Building2 className={`w-4 h-4 ${isActive ? 'text-white' : 'text-orange-600'}`} />
+                <span className={`font-medium ${isActive ? 'text-white' : 'text-gray-900'}`}>{hotel?.name}</span>
               </button>
               <button
                 onClick={(e) => {
@@ -575,12 +631,14 @@ export function IronerInterfacePage() {
                   // Remove hotel from selection
                   const newSelection = selectedHotelIds.filter(id => id !== hotelId);
                   saveSelectedHotels(newSelection);
-                  // Collapse if expanded
-                  setExpandedHotels(prev => ({ ...prev, [hotelId]: false }));
+                  // Clear active if this was active
+                  if (activeHotelId === hotelId) {
+                    setActiveHotelId(null);
+                  }
                 }}
                 className={`ml-1 p-1 rounded-full transition-colors ${
-                  expandedHotels[hotelId]
-                    ? 'hover:bg-blue-500 text-white'
+                  isActive
+                    ? 'hover:bg-orange-500 text-white'
                     : 'hover:bg-red-100 text-gray-400 hover:text-red-600'
                 }`}
                 title="Oteli kaldir"
@@ -592,7 +650,7 @@ export function IronerInterfacePage() {
         })}
         <button
           onClick={() => setShowHotelSelector(true)}
-          className="flex items-center gap-1 text-blue-600 hover:text-blue-700 text-sm font-medium"
+          className="flex items-center gap-1 text-orange-600 hover:text-orange-700 text-sm font-medium"
         >
           <Plus className="w-4 h-4" />
           Otel Ekle
@@ -602,141 +660,73 @@ export function IronerInterfacePage() {
       {/* Hotel Selection Dialog */}
       {showHotelSelector && <HotelSelectionDialog />}
 
-      {/* Threshold Settings Panel */}
-      {showThresholdSettings && (
-        <div className="bg-white rounded-xl shadow-lg border-2 border-green-200 p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-              <Tag className="w-5 h-5 text-green-600" />
-              Grup Esik Ayarlari
-            </h3>
-            <button
-              onClick={() => setShowThresholdSettings(false)}
-              className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-          <p className="text-sm text-gray-500 mb-4">
-            Bir grubun yazdirma icin hazir olmasi gereken minimum urun sayisini ayarlayin
-          </p>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {itemTypes?.map((itemType: any) => (
-              <div key={itemType.id} className="bg-gray-50 rounded-lg p-4">
-                <p className="font-medium text-gray-900 mb-2">{itemType.name}</p>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => updateThreshold(itemType.id, getThreshold(itemType.id) - 1)}
-                    className="w-8 h-8 bg-white border border-gray-300 rounded text-lg font-bold hover:bg-gray-100"
-                  >
-                    -
-                  </button>
-                  <input
-                    type="number"
-                    min="1"
-                    value={getThreshold(itemType.id)}
-                    onChange={(e) => updateThreshold(itemType.id, parseInt(e.target.value) || 1)}
-                    className="w-16 h-8 text-center border border-gray-300 rounded focus:ring-2 focus:ring-green-500"
-                  />
-                  <button
-                    onClick={() => updateThreshold(itemType.id, getThreshold(itemType.id) + 1)}
-                    className="w-8 h-8 bg-white border border-gray-300 rounded text-lg font-bold hover:bg-gray-100"
-                  >
-                    +
-                  </button>
+      {/* Main Content: Form Panel */}
+      {!activeHotelId ? (
+        <div className="bg-white rounded-xl shadow-lg p-12 text-center border-2 border-dashed border-orange-300 max-w-2xl mx-auto">
+          <Sparkles className="w-16 h-16 mx-auto text-orange-300 mb-4" />
+          <p className="text-xl font-semibold text-gray-500">Otel Secin</p>
+          <p className="text-gray-400 mt-2">Yukaridaki otellerden birini secin</p>
+        </div>
+      ) : (() => {
+        const hotelId = activeHotelId;
+        const hotel = tenantsArray.find((t: Tenant) => t.id === hotelId);
+        const hotelItems = itemsByHotel[hotelId] || [];
+        const itemsByType = groupByType(hotelItems);
+        const currentPrintList = printList[hotelId] || [];
+
+        return (
+          <div className="flex gap-6">
+            {/* Left Panel: Print List (only shown when items are added) */}
+            {currentPrintList.length > 0 && (
+              <div className="w-72 flex-shrink-0">
+                <div className="bg-white rounded-xl shadow-lg border-2 border-green-200 overflow-hidden">
+                  <div className="bg-gradient-to-r from-green-600 to-green-500 px-4 py-3 flex items-center justify-between">
+                    <h3 className="text-lg font-bold text-white">Ekleneler</h3>
+                    <button
+                      onClick={() => clearPrintList(hotelId)}
+                      className="p-1 text-green-100 hover:text-white hover:bg-green-700 rounded"
+                      title="Listeyi temizle"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div className="p-3 space-y-2 max-h-96 overflow-y-auto">
+                    {currentPrintList.map((item, idx) => (
+                      <div key={idx} className="flex items-center justify-between bg-green-50 rounded-lg p-3 border border-green-200">
+                        <div>
+                          <p className="font-bold text-gray-900">{item.typeName}</p>
+                          <p className="text-sm text-green-700">{item.count} adet</p>
+                          {item.discardCount > 0 && <p className="text-xs text-blue-600">Discord: {item.discardCount}</p>}
+                          {item.hasarliCount > 0 && <p className="text-xs text-red-600">Lekeli: {item.hasarliCount}</p>}
+                        </div>
+                        <button
+                          onClick={() => removeFromPrintList(hotelId, item.typeId)}
+                          className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="p-3 border-t bg-gray-50">
+                    <p className="text-sm text-gray-600 text-center">
+                      Toplam: <span className="font-bold text-green-700">{currentPrintList.reduce((sum, i) => sum + i.count, 0)}</span> adet
+                    </p>
+                  </div>
                 </div>
               </div>
-            ))}
-          </div>
-          <div className="mt-4 pt-4 border-t flex justify-end">
-            <button
-              onClick={() => setShowThresholdSettings(false)}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-            >
-              Tamam
-            </button>
-          </div>
-        </div>
-      )}
+            )}
 
-      {/* Main Content: Two Column Layout */}
-      <div className="flex gap-6">
-        {/* Left Column: Hotel Cards */}
-        <div className="w-80 flex-shrink-0 space-y-3">
-          <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2 mb-4">
-            <Building2 className="w-5 h-5 text-orange-500" />
-            Oteller
-          </h2>
-
-          {loadingDirty ? (
-            <div className="flex items-center justify-center h-32 bg-white rounded-lg shadow">
-              <RefreshCw className="w-8 h-8 animate-spin text-purple-500" />
-            </div>
-          ) : selectedHotelIds.length === 0 ? (
-            <div className="p-8 text-center bg-white rounded-lg shadow">
-              <Package className="w-12 h-12 mx-auto text-gray-300 mb-2" />
-              <p className="text-gray-500">Otel secilmedi</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {selectedHotelIds.map((hotelId) => {
-                const hotel = tenantsArray.find((t: Tenant) => t.id === hotelId);
-                const hotelItems = itemsByHotel[hotelId] || [];
-                const isActive = activeHotelId === hotelId;
-
-                return (
-                  <button
-                    key={hotelId}
-                    id={`hotel-section-${hotelId}`}
-                    onClick={() => setActiveHotelId(hotelId)}
-                    className={`w-full text-left rounded-xl p-4 transition-all border-2 ${
-                      isActive
-                        ? 'bg-gradient-to-r from-orange-500 to-orange-400 border-orange-500 shadow-lg'
-                        : 'bg-white border-gray-200 hover:border-orange-300 hover:shadow-md'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <Building2 className={`w-5 h-5 ${isActive ? 'text-white' : 'text-orange-500'}`} />
-                        <span className={`font-bold ${isActive ? 'text-white' : 'text-gray-900'}`}>
-                          {hotel?.name || 'Bilinmeyen'}
-                        </span>
-                      </div>
-                      <div className={`text-right ${isActive ? 'text-white' : 'text-gray-600'}`}>
-                        <span className="text-2xl font-bold">{hotelItems.length}</span>
-                        <p className={`text-xs ${isActive ? 'text-orange-100' : 'text-gray-400'}`}>kirli</p>
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* Right Column: Form Panel */}
-        <div className="flex-1">
-          {!activeHotelId ? (
-            <div className="bg-white rounded-xl shadow-lg p-12 text-center border-2 border-dashed border-gray-300">
-              <Sparkles className="w-16 h-16 mx-auto text-gray-300 mb-4" />
-              <p className="text-xl font-semibold text-gray-500">Otel Secin</p>
-              <p className="text-gray-400 mt-2">Sol taraftan bir otel secin</p>
-            </div>
-          ) : (() => {
-            const hotelId = activeHotelId;
-            const hotel = tenantsArray.find((t: Tenant) => t.id === hotelId);
-            const hotelItems = itemsByHotel[hotelId] || [];
-            const itemsByType = groupByType(hotelItems);
-
-            return (
-              <div className="bg-white rounded-xl shadow-lg overflow-hidden border-2 border-purple-200">
+            {/* Right Panel: Form */}
+            <div className="flex-1">
+              <div className="bg-white rounded-xl shadow-lg overflow-hidden border-2 border-orange-200">
                 {/* Hotel Header */}
-                <div className="bg-gradient-to-r from-purple-600 to-purple-500 px-6 py-4">
+                <div className="bg-gradient-to-r from-orange-600 to-orange-500 px-6 py-4">
                   <h3 className="text-xl font-bold text-white flex items-center gap-3">
                     <Building2 className="w-6 h-6" />
                     {hotel?.name || 'Bilinmeyen Otel'}
                   </h3>
-                  <p className="text-purple-200 text-sm mt-1">{hotelItems.length} kirli urun</p>
+                  <p className="text-orange-200 text-sm mt-1">{hotelItems.length} kirli urun</p>
                 </div>
 
                 {/* Form Content */}
@@ -750,7 +740,7 @@ export function IronerInterfacePage() {
                       <select
                         value={addingTypeId[hotelId] || ''}
                         onChange={(e) => setAddingTypeId(prev => ({ ...prev, [hotelId]: e.target.value }))}
-                        className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                        className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
                       >
                         <option value="">Tur secin...</option>
                         {(itemTypes || [])
@@ -775,9 +765,9 @@ export function IronerInterfacePage() {
                     {/* Row 2: Adet counter + Numpad + Discord/Lekeli + Yazdir */}
                     <div className="flex items-start gap-4 justify-center flex-wrap">
                       {/* Adet display */}
-                      <div className="bg-purple-100 rounded-lg p-4 text-center min-w-[100px]">
-                        <p className="text-sm font-medium text-purple-600 mb-1">Adet</p>
-                        <p className="text-4xl font-bold text-purple-700">{addingCount[hotelId] || 0}</p>
+                      <div className="bg-orange-100 rounded-lg p-4 text-center min-w-[100px]">
+                        <p className="text-sm font-medium text-orange-600 mb-1">Adet</p>
+                        <p className="text-4xl font-bold text-orange-700">{addingCount[hotelId] || 0}</p>
                       </div>
 
                       {/* Numpad */}
@@ -788,7 +778,7 @@ export function IronerInterfacePage() {
                               type="button"
                               key={num}
                               onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) * 10 + num }))}
-                              className="h-14 w-14 rounded-lg font-bold text-2xl bg-white border-2 border-purple-300 text-gray-800 hover:bg-purple-100 active:bg-purple-200 transition-all shadow-sm"
+                              className="h-14 w-14 rounded-lg font-bold text-2xl bg-white border-2 border-orange-300 text-gray-800 hover:bg-orange-100 active:bg-orange-200 transition-all shadow-sm"
                             >
                               {num}
                             </button>
@@ -803,7 +793,7 @@ export function IronerInterfacePage() {
                           <button
                             type="button"
                             onClick={() => setAddingCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) * 10 }))}
-                            className="h-14 w-14 rounded-lg font-bold text-2xl bg-white border-2 border-purple-300 text-gray-800 hover:bg-purple-100 shadow-sm"
+                            className="h-14 w-14 rounded-lg font-bold text-2xl bg-white border-2 border-orange-300 text-gray-800 hover:bg-orange-100 shadow-sm"
                           >
                             0
                           </button>
@@ -817,10 +807,10 @@ export function IronerInterfacePage() {
                         </div>
                       </div>
 
-                      {/* Discord and Lekeli */}
+                      {/* Discord and Lekeli - simple checkboxes */}
                       <div className="flex flex-col gap-2">
                         {/* Discord section */}
-                        <div className={`rounded-lg p-3 border-2 transition-all ${addingDiscard[hotelId] ? 'bg-blue-50 border-blue-300' : 'bg-gray-50 border-gray-200'}`}>
+                        <div className={`rounded-lg p-3 border-2 transition-all ${addingDiscard[hotelId] ? 'bg-blue-100 border-blue-400' : 'bg-gray-50 border-gray-200'}`}>
                           <label className="flex items-center gap-2 cursor-pointer">
                             <input
                               type="checkbox"
@@ -828,38 +818,17 @@ export function IronerInterfacePage() {
                               onChange={(e) => {
                                 setAddingDiscard(prev => ({ ...prev, [hotelId]: e.target.checked }));
                                 if (e.target.checked) {
-                                  setAddingDiscardCount(prev => ({ ...prev, [hotelId]: 1 }));
                                   setAddingHasarli(prev => ({ ...prev, [hotelId]: false }));
-                                  setAddingHasarliCount(prev => ({ ...prev, [hotelId]: 0 }));
-                                } else {
-                                  setAddingDiscardCount(prev => ({ ...prev, [hotelId]: 0 }));
                                 }
                               }}
-                              className="w-5 h-5 text-blue-600 rounded"
+                              className="w-6 h-6 text-blue-600 rounded"
                             />
-                            <span className={`font-bold ${addingDiscard[hotelId] ? 'text-blue-700' : 'text-gray-500'}`}>Discord</span>
-                            {addingDiscard[hotelId] && (
-                              <div className="flex items-center gap-1 ml-2">
-                                <button
-                                  onClick={(e) => { e.preventDefault(); setAddingDiscardCount(prev => ({ ...prev, [hotelId]: Math.max(0, (prev[hotelId] || 0) - 1) })); }}
-                                  className="w-7 h-7 bg-blue-100 text-blue-700 rounded font-bold hover:bg-blue-200"
-                                >
-                                  -
-                                </button>
-                                <span className="w-8 text-center text-lg font-bold text-blue-700">{addingDiscardCount[hotelId] || 0}</span>
-                                <button
-                                  onClick={(e) => { e.preventDefault(); setAddingDiscardCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) + 1 })); }}
-                                  className="w-7 h-7 bg-blue-100 text-blue-700 rounded font-bold hover:bg-blue-200"
-                                >
-                                  +
-                                </button>
-                              </div>
-                            )}
+                            <span className={`font-bold text-lg ${addingDiscard[hotelId] ? 'text-blue-700' : 'text-gray-500'}`}>DISCORD</span>
                           </label>
                         </div>
 
                         {/* Lekeli section */}
-                        <div className={`rounded-lg p-3 border-2 transition-all ${addingHasarli[hotelId] ? 'bg-red-50 border-red-300' : 'bg-gray-50 border-gray-200'}`}>
+                        <div className={`rounded-lg p-3 border-2 transition-all ${addingHasarli[hotelId] ? 'bg-red-100 border-red-400' : 'bg-gray-50 border-gray-200'}`}>
                           <label className="flex items-center gap-2 cursor-pointer">
                             <input
                               type="checkbox"
@@ -867,99 +836,169 @@ export function IronerInterfacePage() {
                               onChange={(e) => {
                                 setAddingHasarli(prev => ({ ...prev, [hotelId]: e.target.checked }));
                                 if (e.target.checked) {
-                                  setAddingHasarliCount(prev => ({ ...prev, [hotelId]: 1 }));
                                   setAddingDiscard(prev => ({ ...prev, [hotelId]: false }));
-                                  setAddingDiscardCount(prev => ({ ...prev, [hotelId]: 0 }));
-                                } else {
-                                  setAddingHasarliCount(prev => ({ ...prev, [hotelId]: 0 }));
                                 }
                               }}
-                              className="w-5 h-5 text-red-600 rounded"
+                              className="w-6 h-6 text-red-600 rounded"
                             />
-                            <span className={`font-bold ${addingHasarli[hotelId] ? 'text-red-700' : 'text-gray-500'}`}>Lekeli</span>
-                            {addingHasarli[hotelId] && (
-                              <div className="flex items-center gap-1 ml-2">
-                                <button
-                                  onClick={(e) => { e.preventDefault(); setAddingHasarliCount(prev => ({ ...prev, [hotelId]: Math.max(0, (prev[hotelId] || 0) - 1) })); }}
-                                  className="w-7 h-7 bg-red-100 text-red-700 rounded font-bold hover:bg-red-200"
-                                >
-                                  -
-                                </button>
-                                <span className="w-8 text-center text-lg font-bold text-red-700">{addingHasarliCount[hotelId] || 0}</span>
-                                <button
-                                  onClick={(e) => { e.preventDefault(); setAddingHasarliCount(prev => ({ ...prev, [hotelId]: (prev[hotelId] || 0) + 1 })); }}
-                                  className="w-7 h-7 bg-red-100 text-red-700 rounded font-bold hover:bg-red-200"
-                                >
-                                  +
-                                </button>
-                              </div>
-                            )}
+                            <span className={`font-bold text-lg ${addingHasarli[hotelId] ? 'text-red-700' : 'text-gray-500'}`}>LEKELİ</span>
                           </label>
                         </div>
                       </div>
 
-                      {/* Print Button */}
-                      <button
-                        onClick={() => {
-                          const typeId = addingTypeId[hotelId];
-                          const count = addingCount[hotelId] || 0;
-                          const hasDiscard = addingDiscard[hotelId] || false;
-                          const discardCount = hasDiscard ? (addingDiscardCount[hotelId] || 0) : 0;
-                          const hasHasarli = addingHasarli[hotelId] || false;
-                          const hasarliCount = hasHasarli ? (addingHasarliCount[hotelId] || 0) : 0;
+                      {/* Buttons */}
+                      <div className="flex flex-col gap-2">
+                        {/* Add Button */}
+                        <button
+                          onClick={() => {
+                            const typeId = addingTypeId[hotelId];
+                            const count = addingCount[hotelId] || 0;
+                            const hasDiscard = addingDiscard[hotelId] || false;
+                            const hasHasarli = addingHasarli[hotelId] || false;
+                            // Discord/Lekeli: just mark as 1 if selected (for special label)
+                            const discardCount = hasDiscard ? 1 : 0;
+                            const hasarliCount = hasHasarli ? 1 : 0;
 
-                          if (!typeId) {
-                            toast.warning('Lutfen urun turu secin');
-                            return;
-                          }
+                            if (!typeId) {
+                              toast.warning('Lutfen urun turu secin');
+                              return;
+                            }
 
-                          if (count <= 0) {
-                            toast.warning('Lutfen adet girin');
-                            return;
-                          }
+                            if (count <= 0) {
+                              toast.warning('Lutfen adet girin');
+                              return;
+                            }
 
-                          const availableItems = itemsByType[typeId] || [];
+                            const itemType = itemTypes?.find((t: { id: string; name: string }) => t.id === typeId);
 
-                          const newLastPrintedType = { ...lastPrintedType, [hotelId]: typeId };
-                          setLastPrintedType(newLastPrintedType);
-                          localStorage.setItem(LAST_PRINTED_TYPE_KEY, JSON.stringify(newLastPrintedType));
-
-                          const itemIds = availableItems.slice(0, count).map(i => i.id);
-                          const itemType = itemTypes?.find((t: { id: string; name: string }) => t.id === typeId);
-
-                          processAndPrintMutation.mutate({
-                            hotelId,
-                            itemIds,
-                            labelCount: 1,
-                            labelExtraData: [{
+                            // Add to print list
+                            addToPrintList(hotelId, {
                               typeId,
                               typeName: itemType?.name || 'Bilinmeyen',
-                              count: count,
+                              count,
                               discardCount,
                               hasarliCount
-                            }]
-                          });
+                            });
 
-                          setAddingTypeId(prev => ({ ...prev, [hotelId]: '' }));
-                          setAddingCount(prev => ({ ...prev, [hotelId]: 0 }));
-                          setAddingDiscard(prev => ({ ...prev, [hotelId]: false }));
-                          setAddingDiscardCount(prev => ({ ...prev, [hotelId]: 0 }));
-                          setAddingHasarli(prev => ({ ...prev, [hotelId]: false }));
-                          setAddingHasarliCount(prev => ({ ...prev, [hotelId]: 0 }));
-                        }}
-                        disabled={!addingTypeId[hotelId] || processAndPrintMutation.isPending}
-                        className="h-32 px-8 flex flex-col items-center justify-center gap-2 bg-gradient-to-b from-purple-600 to-purple-700 text-white rounded-xl hover:from-purple-700 hover:to-purple-800 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed font-bold text-xl transition-all shadow-lg"
-                      >
-                        <Printer className="w-8 h-8" />
-                        {processAndPrintMutation.isPending ? 'Yazdiriliyor...' : 'YAZDIR'}
-                      </button>
+                            toast.success(`${count} adet ${itemType?.name || 'urun'} eklendi`);
+
+                            // Update last printed type for sorting
+                            const newLastPrintedType = { ...lastPrintedType, [hotelId]: typeId };
+                            setLastPrintedType(newLastPrintedType);
+                            localStorage.setItem(LAST_PRINTED_TYPE_KEY, JSON.stringify(newLastPrintedType));
+
+                            // Reset form for next entry
+                            setAddingTypeId(prev => ({ ...prev, [hotelId]: '' }));
+                            setAddingCount(prev => ({ ...prev, [hotelId]: 0 }));
+                            setAddingDiscard(prev => ({ ...prev, [hotelId]: false }));
+                            setAddingHasarli(prev => ({ ...prev, [hotelId]: false }));
+                          }}
+                          disabled={!addingTypeId[hotelId] || (addingCount[hotelId] || 0) <= 0}
+                          className="h-14 px-6 flex items-center justify-center gap-2 bg-gradient-to-b from-green-500 to-green-600 text-white rounded-xl hover:from-green-600 hover:to-green-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed font-bold text-lg transition-all shadow-lg"
+                        >
+                          <Plus className="w-5 h-5" />
+                          EKLE
+                        </button>
+
+                        {/* Print Button - prints all items in print list */}
+                        {/* If form has data, auto-add it before printing */}
+                        <button
+                          onClick={() => {
+                            let itemsToPrint = [...(printList[hotelId] || [])];
+
+                            // Validate form - check for incomplete entries
+                            const currentTypeId = addingTypeId[hotelId];
+                            const currentCount = addingCount[hotelId] || 0;
+
+                            // Warning if type selected but no count
+                            if (currentTypeId && currentCount <= 0) {
+                              toast.warning('Tur secildi ama adet girilmedi!');
+                              return;
+                            }
+
+                            // Warning if count entered but no type selected
+                            if (!currentTypeId && currentCount > 0) {
+                              toast.warning('Adet girildi ama tur secilmedi!');
+                              return;
+                            }
+
+                            // Auto-add current form data if filled
+                            if (currentTypeId && currentCount > 0) {
+                              const itemType = itemTypes?.find((t: { id: string; name: string }) => t.id === currentTypeId);
+                              const hasDiscard = addingDiscard[hotelId] || false;
+                              const discardCount = hasDiscard ? 1 : 0;
+                              const hasHasarli = addingHasarli[hotelId] || false;
+                              const hasarliCount = hasHasarli ? 1 : 0;
+
+                              // Check if same type already in list
+                              const existingIdx = itemsToPrint.findIndex(i => i.typeId === currentTypeId);
+                              if (existingIdx >= 0) {
+                                itemsToPrint[existingIdx] = {
+                                  ...itemsToPrint[existingIdx],
+                                  count: itemsToPrint[existingIdx].count + currentCount,
+                                  discardCount: itemsToPrint[existingIdx].discardCount + discardCount,
+                                  hasarliCount: itemsToPrint[existingIdx].hasarliCount + hasarliCount,
+                                };
+                              } else {
+                                itemsToPrint.push({
+                                  typeId: currentTypeId,
+                                  typeName: itemType?.name || 'Bilinmeyen',
+                                  count: currentCount,
+                                  discardCount,
+                                  hasarliCount
+                                });
+                              }
+
+                              // Clear form after auto-add
+                              setAddingTypeId(prev => ({ ...prev, [hotelId]: '' }));
+                              setAddingCount(prev => ({ ...prev, [hotelId]: 0 }));
+                              setAddingDiscard(prev => ({ ...prev, [hotelId]: false }));
+                              setAddingHasarli(prev => ({ ...prev, [hotelId]: false }));
+                            }
+
+                            if (itemsToPrint.length === 0) {
+                              toast.warning('Lutfen urun turu ve adet girin');
+                              return;
+                            }
+
+                            // Collect all item IDs from dirty items
+                            const allItemIds: string[] = [];
+                            itemsToPrint.forEach(item => {
+                              const availableItems = itemsByType[item.typeId] || [];
+                              allItemIds.push(...availableItems.slice(0, item.count).map(i => i.id));
+                            });
+
+                            processAndPrintMutation.mutate({
+                              hotelId,
+                              itemIds: allItemIds,
+                              labelCount: 1,
+                              labelExtraData: itemsToPrint.map(item => ({
+                                typeId: item.typeId,
+                                typeName: item.typeName,
+                                count: item.count,
+                                discardCount: item.discardCount,
+                                hasarliCount: item.hasarliCount
+                              }))
+                            });
+
+                            // Clear print list after printing
+                            clearPrintList(hotelId);
+                          }}
+                          disabled={processAndPrintMutation.isPending}
+                          className="h-14 px-6 flex items-center justify-center gap-2 bg-gradient-to-b from-orange-500 to-orange-600 text-white rounded-xl hover:from-orange-600 hover:to-orange-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed font-bold text-lg transition-all shadow-lg"
+                        >
+                          <Printer className="w-5 h-5" />
+                          {processAndPrintMutation.isPending ? 'Yazdiriliyor...' : 'YAZDIR'}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
-            );
-          })()}
-        </div>
+            </div>
+          </div>
+        );
+      })()}
       </div>
     </div>
   );

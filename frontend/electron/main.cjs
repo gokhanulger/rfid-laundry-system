@@ -22,15 +22,15 @@ function createWindow() {
     title: 'RFID Çamaşırhane Takip Sistemi'
   });
 
-  // Load the app
+  // Load the app - directly to ironer login page
   if (isDev) {
     // Development: Load from Vite dev server
-    mainWindow.loadURL('http://localhost:3002');
+    mainWindow.loadURL('http://localhost:3002/#/ironer');
     mainWindow.webContents.openDevTools();
   } else {
     // Production: Load from built files using app path
     const appPath = app.getAppPath();
-    mainWindow.loadFile(path.join(appPath, 'dist/index.html'));
+    mainWindow.loadFile(path.join(appPath, 'dist/index.html'), { hash: '/ironer' });
     // DevTools disabled for production
   }
 
