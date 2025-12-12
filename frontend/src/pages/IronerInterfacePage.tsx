@@ -717,37 +717,7 @@ export function IronerInterfacePage() {
                 {/* Form Content */}
                 <div className="p-6">
                   <div className="space-y-4">
-                    {/* Row 1: Dropdown */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Urun Turu
-                      </label>
-                      <select
-                        value={addingTypeId[hotelId] || ''}
-                        onChange={(e) => setAddingTypeId(prev => ({ ...prev, [hotelId]: e.target.value }))}
-                        className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                      >
-                        <option value="">Tur secin...</option>
-                        {(itemTypes || [])
-                          .slice()
-                          .sort((a: { id: string }, b: { id: string }) => {
-                            const lastType = lastPrintedType[hotelId];
-                            if (lastType === a.id) return -1;
-                            if (lastType === b.id) return 1;
-                            return 0;
-                          })
-                          .map((itemType: { id: string; name: string }) => {
-                            const isLastPrinted = lastPrintedType[hotelId] === itemType.id;
-                            return (
-                              <option key={itemType.id} value={itemType.id}>
-                                {isLastPrinted ? '★ ' : ''}{itemType.name}
-                              </option>
-                            );
-                          })}
-                      </select>
-                    </div>
-
-                    {/* Row 2: Adet counter + Numpad + Discord/Lekeli + Yazdir */}
+                    {/* All in one row: Adet + Numpad + Discord/Lekeli + Dropdown + Buttons */}
                     <div className="flex items-start gap-4 justify-center flex-wrap">
                       {/* Adet display */}
                       <div className="bg-orange-100 rounded-lg p-4 text-center min-w-[100px]">
@@ -831,8 +801,33 @@ export function IronerInterfacePage() {
                         </div>
                       </div>
 
-                      {/* Buttons */}
+                      {/* Dropdown + Buttons */}
                       <div className="flex flex-col gap-2">
+                        {/* Dropdown */}
+                        <select
+                          value={addingTypeId[hotelId] || ''}
+                          onChange={(e) => setAddingTypeId(prev => ({ ...prev, [hotelId]: e.target.value }))}
+                          className="w-48 px-3 py-2 border-2 border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                        >
+                          <option value="">Tür seçin...</option>
+                          {(itemTypes || [])
+                            .slice()
+                            .sort((a: { id: string }, b: { id: string }) => {
+                              const lastType = lastPrintedType[hotelId];
+                              if (lastType === a.id) return -1;
+                              if (lastType === b.id) return 1;
+                              return 0;
+                            })
+                            .map((itemType: { id: string; name: string }) => {
+                              const isLastPrinted = lastPrintedType[hotelId] === itemType.id;
+                              return (
+                                <option key={itemType.id} value={itemType.id}>
+                                  {isLastPrinted ? '★ ' : ''}{itemType.name}
+                                </option>
+                              );
+                            })}
+                        </select>
+
                         {/* Add Button */}
                         <button
                           onClick={() => {
