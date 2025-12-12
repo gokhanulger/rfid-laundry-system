@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Printer, Sparkles, Building2, X, Plus, Search, Delete, Trash2, Sun, Moon } from 'lucide-react';
+import { Printer, Sparkles, Building2, X, Plus, Search, Delete, Trash2, Sun, Moon, Settings } from 'lucide-react';
 import { itemsApi, deliveriesApi, settingsApi, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/Toast';
 import { generateDeliveryLabel } from '../lib/pdfGenerator';
+import { isElectron, getPrinters, savePreferredPrinter, getPreferredPrinter, type Printer as PrinterType } from '../lib/printer';
 import type { Item, Tenant } from '../types';
 
 // Storage keys
@@ -58,6 +59,10 @@ export function IronerInterfacePage() {
   const [productCounter, setProductCounter] = useState<{ day: number; night: number }>({ day: 0, night: 0 });
   // Current shift - auto-detected based on Turkey time
   const [currentShift, setCurrentShift] = useState<ShiftType>(getCurrentShiftTurkey());
+  // Printer selection
+  const [availablePrinters, setAvailablePrinters] = useState<PrinterType[]>([]);
+  const [selectedPrinter, setSelectedPrinter] = useState<string>(getPreferredPrinter() || '');
+  const [showPrinterModal, setShowPrinterModal] = useState(false);
   const queryClient = useQueryClient();
   const toast = useToast();
 
@@ -107,6 +112,20 @@ export function IronerInterfacePage() {
       loadCounter();
       updateShift();
     }, 5000);
+
+    // Load available printers (Electron only)
+    if (isElectron()) {
+      getPrinters().then(printers => {
+        setAvailablePrinters(printers);
+        // If no printer selected yet, use default
+        if (!getPreferredPrinter() && printers.length > 0) {
+          const defaultPrinter = printers.find(p => p.isDefault)?.name || printers[0].name;
+          setSelectedPrinter(defaultPrinter);
+          savePreferredPrinter(defaultPrinter);
+        }
+      });
+    }
+
     return () => clearInterval(refreshInterval);
   }, []);
 
@@ -616,34 +635,112 @@ export function IronerInterfacePage() {
             </button>
           </div>
 
-          {/* Right: Counter */}
-          <div className="flex items-center gap-4 bg-gray-900 text-white rounded-xl px-6 py-3 flex-shrink-0">
-            <div className={`flex items-center gap-2 py-1 px-3 rounded-lg ${
-              currentShift === 'day'
-                ? 'bg-yellow-500/20 text-yellow-400'
-                : 'bg-indigo-500/20 text-indigo-400'
-            }`}>
-              {currentShift === 'day' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-              <span className="font-medium text-sm">
-                {currentShift === 'day' ? 'Gündüz' : 'Gece'}
-              </span>
-            </div>
-            <div className="text-center">
-              <p className="text-3xl font-bold text-white">
-                {productCounter[currentShift]}
-              </p>
-              <p className="text-xs text-gray-400">ürün işlendi</p>
-            </div>
-            <div className="border-l border-gray-700 pl-4">
-              <p className="text-xs text-gray-500">
-                {currentShift === 'day' ? 'Gece' : 'Gündüz'}: {productCounter[currentShift === 'day' ? 'night' : 'day']}
-              </p>
+          {/* Right: Printer + Counter */}
+          <div className="flex items-center gap-3 flex-shrink-0">
+            {/* Printer Selection Button */}
+            {isElectron() && (
+              <button
+                onClick={() => setShowPrinterModal(true)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-all ${
+                  selectedPrinter
+                    ? 'bg-green-50 border-green-300 text-green-700 hover:bg-green-100'
+                    : 'bg-red-50 border-red-300 text-red-700 hover:bg-red-100'
+                }`}
+                title="Yazıcı Seç"
+              >
+                <Settings className="w-5 h-5" />
+                <span className="text-sm font-medium max-w-[120px] truncate">
+                  {selectedPrinter || 'Yazıcı Seç'}
+                </span>
+              </button>
+            )}
+
+            {/* Counter */}
+            <div className="flex items-center gap-4 bg-gray-900 text-white rounded-xl px-6 py-3">
+              <div className={`flex items-center gap-2 py-1 px-3 rounded-lg ${
+                currentShift === 'day'
+                  ? 'bg-yellow-500/20 text-yellow-400'
+                  : 'bg-indigo-500/20 text-indigo-400'
+              }`}>
+                {currentShift === 'day' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                <span className="font-medium text-sm">
+                  {currentShift === 'day' ? 'Gündüz' : 'Gece'}
+                </span>
+              </div>
+              <div className="text-center">
+                <p className="text-3xl font-bold text-white">
+                  {productCounter[currentShift]}
+                </p>
+                <p className="text-xs text-gray-400">ürün işlendi</p>
+              </div>
+              <div className="border-l border-gray-700 pl-4">
+                <p className="text-xs text-gray-500">
+                  {currentShift === 'day' ? 'Gece' : 'Gündüz'}: {productCounter[currentShift === 'day' ? 'night' : 'day']}
+                </p>
+              </div>
             </div>
           </div>
         </div>
 
       {/* Hotel Selection Dialog */}
       {showHotelSelector && <HotelSelectionDialog />}
+
+      {/* Printer Selection Modal */}
+      {showPrinterModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                <Printer className="w-6 h-6 text-orange-600" />
+                Yazıcı Seç
+              </h2>
+              <button
+                onClick={() => setShowPrinterModal(false)}
+                className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-2 max-h-80 overflow-y-auto">
+              {availablePrinters.length === 0 ? (
+                <p className="text-gray-500 text-center py-4">Yazıcı bulunamadı</p>
+              ) : (
+                availablePrinters.map((printer) => (
+                  <button
+                    key={printer.name}
+                    onClick={() => {
+                      setSelectedPrinter(printer.name);
+                      savePreferredPrinter(printer.name);
+                      setShowPrinterModal(false);
+                      toast.success(`Yazıcı seçildi: ${printer.displayName}`);
+                    }}
+                    className={`w-full text-left px-4 py-3 rounded-lg border-2 transition-all ${
+                      selectedPrinter === printer.name
+                        ? 'bg-orange-50 border-orange-500 text-orange-700'
+                        : 'bg-gray-50 border-gray-200 hover:border-gray-300 hover:bg-gray-100'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">{printer.displayName}</span>
+                      {printer.isDefault && (
+                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">Varsayılan</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">{printer.name}</p>
+                  </button>
+                ))
+              )}
+            </div>
+
+            <div className="mt-4 pt-4 border-t">
+              <p className="text-xs text-gray-500 text-center">
+                Seçilen yazıcı kaydedilecek ve etiketler bu yazıcıya gönderilecek
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Content: Form Panel */}
       {!activeHotelId ? (
