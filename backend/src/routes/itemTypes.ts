@@ -6,7 +6,7 @@ import { requireAuth, AuthRequest, requireRole } from '../middleware/auth';
 import { z } from 'zod';
 
 export const itemTypesRouter = Router();
-itemTypesRouter.use(requireAuth);
+// NOTE: Auth is applied per-route, not globally, so GET / can be public
 
 const createItemTypeSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -19,8 +19,8 @@ const updateItemTypeSchema = z.object({
   description: z.string().optional(),
 });
 
-// Get all item types
-itemTypesRouter.get('/', async (req: AuthRequest, res) => {
+// Get all item types - PUBLIC (no auth required for station apps)
+itemTypesRouter.get('/', async (req, res) => {
   try {
     const allItemTypes = await db.query.itemTypes.findMany({
       orderBy: (itemTypes, { asc }) => [asc(itemTypes.name)],
@@ -32,8 +32,8 @@ itemTypesRouter.get('/', async (req: AuthRequest, res) => {
   }
 });
 
-// Get item type by ID
-itemTypesRouter.get('/:id', async (req: AuthRequest, res) => {
+// Get item type by ID - requires auth
+itemTypesRouter.get('/:id', requireAuth, async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const itemType = await db.query.itemTypes.findFirst({
@@ -51,8 +51,8 @@ itemTypesRouter.get('/:id', async (req: AuthRequest, res) => {
   }
 });
 
-// Create item type
-itemTypesRouter.post('/', requireRole('operator', 'laundry_manager', 'system_admin'), async (req: AuthRequest, res) => {
+// Create item type - requires auth
+itemTypesRouter.post('/', requireAuth, requireRole('operator', 'laundry_manager', 'system_admin'), async (req: AuthRequest, res) => {
   try {
     const validation = createItemTypeSchema.safeParse(req.body);
     if (!validation.success) {
@@ -86,8 +86,8 @@ itemTypesRouter.post('/', requireRole('operator', 'laundry_manager', 'system_adm
   }
 });
 
-// Update item type
-itemTypesRouter.patch('/:id', requireRole('operator', 'laundry_manager', 'system_admin'), async (req: AuthRequest, res) => {
+// Update item type - requires auth
+itemTypesRouter.patch('/:id', requireAuth, requireRole('operator', 'laundry_manager', 'system_admin'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const validation = updateItemTypeSchema.safeParse(req.body);
@@ -119,8 +119,8 @@ itemTypesRouter.patch('/:id', requireRole('operator', 'laundry_manager', 'system
   }
 });
 
-// Delete item type
-itemTypesRouter.delete('/:id', requireRole('laundry_manager', 'system_admin'), async (req: AuthRequest, res) => {
+// Delete item type - requires auth
+itemTypesRouter.delete('/:id', requireAuth, requireRole('laundry_manager', 'system_admin'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
 

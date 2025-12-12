@@ -15,15 +15,29 @@ import type {
   CreateItemForm,
 } from '../types';
 
-// Check if running in Electron
-const isElectronApp = !!(window as any).electronAPI;
+// Check if running in Electron (multiple detection methods)
+const isElectronApp = !!(
+  (window as any).electronAPI ||
+  (window as any).process?.type === 'renderer' ||
+  navigator.userAgent.toLowerCase().includes('electron')
+);
 
-// Always use Railway backend for production and Electron
-// Only use /api proxy when running in browser with vite dev server
-const isViteDevServer = window.location.hostname === 'localhost' && window.location.port === '5173';
+// Check if running on localhost with vite dev server
+const isViteDevServer =
+  window.location.hostname === 'localhost' &&
+  window.location.port === '5173' &&
+  window.location.protocol === 'http:';
+
+// Always use Railway backend for:
+// - Electron app (no proxy available)
+// - Production builds (vercel, etc)
+// Only use /api proxy for local vite dev server
 const apiBaseUrl = isViteDevServer && !isElectronApp
   ? '/api'
   : 'https://rfid-laundry-backend-production.up.railway.app/api';
+
+// Debug log for troubleshooting
+console.log('API Config:', { isElectronApp, isViteDevServer, apiBaseUrl, userAgent: navigator.userAgent.substring(0, 50) });
 
 // Token storage key
 const TOKEN_KEY = 'rfid_auth_token';

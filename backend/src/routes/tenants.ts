@@ -24,7 +24,7 @@ import { requireAuth, AuthRequest, requireRole } from '../middleware/auth';
 import { z } from 'zod';
 
 export const tenantsRouter = Router();
-tenantsRouter.use(requireAuth);
+// NOTE: Auth is applied per-route, not globally, so GET / can be public
 
 // Generate unique QR code for hotel
 function generateQRCode(): string {
@@ -46,8 +46,8 @@ const updateTenantSchema = z.object({
   isActive: z.boolean().optional(),
 });
 
-// Get all tenants
-tenantsRouter.get('/', async (req: AuthRequest, res) => {
+// Get all tenants - PUBLIC (no auth required for station apps)
+tenantsRouter.get('/', async (req, res) => {
   try {
     const allTenants = await db.query.tenants.findMany({
       orderBy: (tenants, { asc }) => [asc(tenants.name)],
@@ -59,8 +59,8 @@ tenantsRouter.get('/', async (req: AuthRequest, res) => {
   }
 });
 
-// Get tenant by ID
-tenantsRouter.get('/:id', async (req: AuthRequest, res) => {
+// Get tenant by ID - requires auth
+tenantsRouter.get('/:id', requireAuth, async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const tenant = await db.query.tenants.findFirst({
@@ -78,8 +78,8 @@ tenantsRouter.get('/:id', async (req: AuthRequest, res) => {
   }
 });
 
-// Create tenant
-tenantsRouter.post('/', requireRole('system_admin', 'laundry_manager'), async (req: AuthRequest, res) => {
+// Create tenant - requires auth
+tenantsRouter.post('/', requireAuth, requireRole('system_admin', 'laundry_manager'), async (req: AuthRequest, res) => {
   try {
     const validation = createTenantSchema.safeParse(req.body);
     if (!validation.success) {
@@ -118,8 +118,8 @@ tenantsRouter.post('/', requireRole('system_admin', 'laundry_manager'), async (r
   }
 });
 
-// Update tenant
-tenantsRouter.patch('/:id', requireRole('system_admin', 'laundry_manager'), async (req: AuthRequest, res) => {
+// Update tenant - requires auth
+tenantsRouter.patch('/:id', requireAuth, requireRole('system_admin', 'laundry_manager'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const validation = updateTenantSchema.safeParse(req.body);
@@ -154,8 +154,8 @@ tenantsRouter.patch('/:id', requireRole('system_admin', 'laundry_manager'), asyn
   }
 });
 
-// Delete tenant with cascade
-tenantsRouter.delete('/:id', requireRole('system_admin'), async (req: AuthRequest, res) => {
+// Delete tenant with cascade - requires auth
+tenantsRouter.delete('/:id', requireAuth, requireRole('system_admin'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
 

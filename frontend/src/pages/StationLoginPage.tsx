@@ -21,15 +21,15 @@ const STATION_PINS: Record<string, string> = {
 const STATION_CREDENTIALS: Record<string, { email: string; password: string }> = {
   ironer: {
     email: 'ironer@laundry.com',
-    password: 'ironer123',
+    password: 'password123',
   },
   packager: {
     email: 'packager@laundry.com',
-    password: 'packager123',
+    password: 'password123',
   },
   auditor: {
     email: 'admin@laundry.com', // Use admin for auditor since they need full access
-    password: 'admin123',
+    password: 'password123',
   },
 };
 
@@ -85,13 +85,25 @@ export function StationLoginPage() {
             });
             if (response.data?.token) {
               setStoredToken(response.data.token);
+              setAuthenticatedStation(savedAuth as StationType);
+            } else {
+              // No token received, clear saved auth
+              localStorage.removeItem(STATION_AUTH_KEY);
             }
-          } catch (err) {
+          } catch (err: any) {
             console.error('Backend re-auth failed:', err);
-            // Continue anyway - will show errors on specific operations
+            // If rate limited (429) or auth failed (401), clear saved auth and require fresh login
+            if (err?.response?.status === 429 || err?.response?.status === 401) {
+              console.log('Clearing saved auth due to error:', err?.response?.status);
+              localStorage.removeItem(STATION_AUTH_KEY);
+            } else {
+              // For other errors (network etc), still allow access with saved auth
+              setAuthenticatedStation(savedAuth as StationType);
+            }
           }
+        } else {
+          localStorage.removeItem(STATION_AUTH_KEY);
         }
-        setAuthenticatedStation(savedAuth as StationType);
       }
       setIsLoading(false);
     };
@@ -117,15 +129,24 @@ export function StationLoginPage() {
               });
               if (response.data?.token) {
                 setStoredToken(response.data.token);
+                localStorage.setItem(STATION_AUTH_KEY, selectedStation);
+                setAuthenticatedStation(selectedStation);
+              } else {
+                setError('Giriş başarısız - token alınamadı');
+                setPin('');
               }
-              localStorage.setItem(STATION_AUTH_KEY, selectedStation);
-              setAuthenticatedStation(selectedStation);
-            } catch (err) {
+            } catch (err: any) {
               console.error('Backend auth failed:', err);
-              // Still allow station access even if backend auth fails
-              // The user can try operations and see specific errors
-              localStorage.setItem(STATION_AUTH_KEY, selectedStation);
-              setAuthenticatedStation(selectedStation);
+              if (err?.response?.status === 429) {
+                setError('Çok fazla deneme! 5 dakika bekleyin.');
+                setPin('');
+              } else if (err?.response?.status === 401) {
+                setError('Geçersiz kullanıcı bilgileri');
+                setPin('');
+              } else {
+                setError('Bağlantı hatası - tekrar deneyin');
+                setPin('');
+              }
             }
           } else {
             setError('Yanlış şifre');

@@ -331,15 +331,10 @@ export function IrsaliyePage() {
   };
 
   const generateIrsaliyePDF = async () => {
-    // Need at least one bag or some scanned packages
-    if (bags.length === 0 && scannedPackages.length === 0) {
-      toast.error('Lutfen once cuval olusturun veya paketleri tarayin');
-      return;
-    }
-
-    // If there are scanned packages, they should be in a bag first
-    if (scannedPackages.length > 0) {
-      toast.warning('Once secili paketler icin cuval etiketi basin!');
+    // Need at least some packages (in bags or scanned)
+    const allPackages = [...packagesInBags, ...scannedPackages];
+    if (allPackages.length === 0) {
+      toast.error('Lutfen once paketleri secin');
       return;
     }
 
@@ -347,7 +342,7 @@ export function IrsaliyePage() {
     const totals = calculateAllTotals();
     const documentNo = `A-${Date.now().toString().slice(-9)}`;
     const today = new Date().toLocaleDateString('tr-TR');
-    const totalPackageCount = packagesInBags.length;
+    const totalPackageCount = allPackages.length;
 
     const doc = new jsPDF({
       orientation: 'portrait',
@@ -454,21 +449,74 @@ export function IrsaliyePage() {
     doc.setFontSize(8);
     doc.text('RFID Camasirhane Sistemi', pageWidth / 2, yPos, { align: 'center' });
 
-    const filename = `irsaliye-${hotel?.name?.replace(/\s+/g, '-') || 'otel'}-${documentNo}.pdf`;
-    doc.save(filename);
+    // Print to selected printer or show print dialog
+    const pdfDataUri = doc.output('datauristring');
 
-    // Get unique delivery IDs from all bags and mark them as picked_up
-    const uniqueDeliveryIds = [...new Set(packagesInBags.map(({ delivery }) => delivery.id))];
+    if (isElectron() && selectedPrinter) {
+      // Electron: Create printable HTML and send to printer
+      const printHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            @page { size: A4; margin: 0; }
+            @media print { html, body { margin: 0; padding: 0; } }
+            body { margin: 0; padding: 0; }
+            embed { width: 100%; height: 100vh; }
+          </style>
+        </head>
+        <body>
+          <embed src="${pdfDataUri}" type="application/pdf" width="100%" height="100%">
+        </body>
+        </html>
+      `;
+
+      try {
+        const result = await window.electronAPI?.printLabel(printHtml, selectedPrinter, 1);
+        if (result?.success) {
+          toast.success('Irsaliye yaziciya gonderildi!');
+        } else {
+          // Fallback: save as file
+          const filename = `irsaliye-${hotel?.name?.replace(/\s+/g, '-') || 'otel'}-${documentNo}.pdf`;
+          doc.save(filename);
+          toast.info('Yazici hatasi, dosya olarak kaydedildi');
+        }
+      } catch {
+        const filename = `irsaliye-${hotel?.name?.replace(/\s+/g, '-') || 'otel'}-${documentNo}.pdf`;
+        doc.save(filename);
+      }
+    } else {
+      // Browser or no printer selected: Open print dialog
+      const printWindow = window.open('', '_blank');
+      if (printWindow) {
+        printWindow.document.write(`
+          <html>
+          <head><title>Irsaliye</title></head>
+          <body style="margin:0">
+            <embed src="${pdfDataUri}" type="application/pdf" width="100%" height="100%" style="position:absolute;top:0;left:0;right:0;bottom:0;">
+          </body>
+          </html>
+        `);
+        printWindow.document.close();
+        setTimeout(() => {
+          printWindow.focus();
+          printWindow.print();
+        }, 500);
+      }
+    }
+
+    // Get unique delivery IDs from all packages and mark them as picked_up
+    const uniqueDeliveryIds = [...new Set(allPackages.map(({ delivery }) => delivery.id))];
 
     // Call pickup API for each unique delivery
     try {
       await Promise.all(uniqueDeliveryIds.map(id => deliveriesApi.pickup(id)));
-      toast.success(`Irsaliye olusturuldu! ${bags.length} cuval, ${totalPackageCount} paket sofor teslimatina eklendi.`);
+      toast.success(`${totalPackageCount} paket sofor teslimatina eklendi.`);
     } catch (error) {
-      toast.warning('Irsaliye olusturuldu, ancak bazi paketler sofor sistemine eklenemedi.');
+      toast.warning('Bazi paketler sofor sistemine eklenemedi.');
     }
 
-    // NOW clear everything and exit hotel view
+    // Clear everything and exit hotel view
     handleClearAll();
     setSelectedHotelId(null);
     queryClient.invalidateQueries({ queryKey: ['deliveries'] });
@@ -1161,65 +1209,63 @@ export function IrsaliyePage() {
 
                         {/* Buttons - always show when hotel selected */}
                         <div className="space-y-2">
-                          {scannedPackages.length > 0 ? (
+                          {/* Tümünü Seç butonu - hiç paket seçilmemişse */}
+                          {scannedPackages.length === 0 && bags.length === 0 && selectedHotelDeliveries.length > 0 && (
+                            <button
+                              onClick={() => {
+                                const availableDeliveries = selectedHotelDeliveries.filter(
+                                  (d: Delivery) => !isPackageInBag(d.id)
+                                );
+                                availableDeliveries.forEach((delivery: Delivery) => {
+                                  const pkg = delivery.deliveryPackages?.[0] || {
+                                    id: `virtual-${delivery.id}`,
+                                    deliveryId: delivery.id,
+                                    packageBarcode: delivery.barcode,
+                                    sequenceNumber: 1,
+                                    status: 'created',
+                                    scannedAt: null,
+                                    scannedBy: null,
+                                    pickedUpAt: null,
+                                    createdAt: delivery.createdAt,
+                                  };
+                                  setScannedPackages(prev => [...prev, { delivery, pkg }]);
+                                });
+                                toast.success(`${availableDeliveries.length} paket eklendi`);
+                              }}
+                              className="w-full py-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 font-bold flex items-center justify-center gap-2 shadow-lg"
+                            >
+                              <Package className="w-5 h-5" />
+                              TUMUNU SEC ({selectedHotelDeliveries.filter((d: Delivery) => !isPackageInBag(d.id)).length} paket)
+                            </button>
+                          )}
+
+                          {/* Paketler seçildiyse - İrsaliye Yazdır ve opsiyonel Çuval Etiketi */}
+                          {(scannedPackages.length > 0 || bags.length > 0) && (
                             <>
-                              <button
-                                onClick={generateBagLabel}
-                                className="w-full py-3 bg-orange-500 text-white rounded-xl hover:bg-orange-600 font-bold flex items-center justify-center gap-2 shadow-lg"
-                              >
-                                <ShoppingBag className="w-5 h-5" />
-                                CUVAL ETIKETI BAS ({scannedPackages.length} paket)
-                              </button>
-                              {bags.length > 0 && (
-                                <p className="text-xs text-center text-orange-600">
-                                  Once cuval etiketi basin, sonra irsaliye yazdirilir
-                                </p>
-                              )}
-                            </>
-                          ) : bags.length > 0 ? (
-                            <>
+                              {/* Ana buton: İrsaliye Yazdır */}
                               <button
                                 onClick={generateIrsaliyePDF}
                                 className="w-full py-3 bg-teal-600 text-white rounded-xl hover:bg-teal-700 font-bold flex items-center justify-center gap-2 shadow-lg"
                               >
                                 <Printer className="w-5 h-5" />
-                                IRSALIYE YAZDIR ({bags.length} cuval, {packagesInBags.length} paket)
+                                IRSALIYE YAZDIR ({scannedPackages.length + packagesInBags.length} paket)
                               </button>
-                              <p className="text-xs text-center text-teal-600">
-                                Tum cuvallar hazir. Irsaliye yazdirabilirsiniz veya yeni cuval ekleyebilirsiniz.
-                              </p>
-                            </>
-                          ) : selectedHotelDeliveries.length > 0 && (
-                            <>
-                              <button
-                                onClick={() => {
-                                  // Add all packages from selected hotel that are not already in a bag
-                                  const availableDeliveries = selectedHotelDeliveries.filter(
-                                    (d: Delivery) => !isPackageInBag(d.id)
-                                  );
-                                  availableDeliveries.forEach((delivery: Delivery) => {
-                                    const pkg = delivery.deliveryPackages?.[0] || {
-                                      id: `virtual-${delivery.id}`,
-                                      deliveryId: delivery.id,
-                                      packageBarcode: delivery.barcode,
-                                      sequenceNumber: 1,
-                                      status: 'created',
-                                      scannedAt: null,
-                                      scannedBy: null,
-                                      pickedUpAt: null,
-                                      createdAt: delivery.createdAt,
-                                    };
-                                    setScannedPackages(prev => [...prev, { delivery, pkg }]);
-                                  });
-                                  toast.success(`${availableDeliveries.length} paket eklendi`);
-                                }}
-                                className="w-full py-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 font-bold flex items-center justify-center gap-2 shadow-lg"
-                              >
-                                <Package className="w-5 h-5" />
-                                TUMUNU SEC ({selectedHotelDeliveries.filter((d: Delivery) => !isPackageInBag(d.id)).length} paket)
-                              </button>
+
+                              {/* Opsiyonel: Çuval Etiketi Bas */}
+                              {scannedPackages.length > 0 && (
+                                <button
+                                  onClick={generateBagLabel}
+                                  className="w-full py-2 bg-orange-100 text-orange-700 border-2 border-orange-300 rounded-xl hover:bg-orange-200 font-medium flex items-center justify-center gap-2"
+                                >
+                                  <ShoppingBag className="w-4 h-4" />
+                                  Cuval Etiketi Bas (opsiyonel)
+                                </button>
+                              )}
+
                               <p className="text-xs text-center text-gray-500">
-                                Paketleri secmek icin tiklayin veya barkod okutun
+                                {bags.length > 0
+                                  ? `${bags.length} cuval + ${scannedPackages.length} yeni paket`
+                                  : 'Cuval etiketi opsiyoneldir'}
                               </p>
                             </>
                           )}

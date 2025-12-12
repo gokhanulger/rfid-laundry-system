@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, globalShortcut } = require('electron');
 const path = require('path');
 
 // Development or production mode
@@ -31,8 +31,18 @@ function createWindow() {
     // Production: Load from built files using app path
     const appPath = app.getAppPath();
     mainWindow.loadFile(path.join(appPath, 'dist/index.html'), { hash: '/station' });
-    // DevTools disabled for production
   }
+
+  // Enable F12 to open DevTools in both dev and production
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.key === 'F12') {
+      mainWindow.webContents.toggleDevTools();
+    }
+    // Ctrl+Shift+I also opens DevTools
+    if (input.control && input.shift && input.key === 'I') {
+      mainWindow.webContents.toggleDevTools();
+    }
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
