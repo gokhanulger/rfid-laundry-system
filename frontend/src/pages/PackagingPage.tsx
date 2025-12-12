@@ -402,19 +402,31 @@ export function PackagingPage() {
                 <div className="divide-y border rounded-lg">
                   {recentPackaged.map(delivery => (
                     <div key={delivery.id} className="p-4 hover:bg-gray-50">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-mono font-bold text-lg">{delivery.barcode}</span>
-                        <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">
-                          Paketlendi
-                        </span>
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-1">
+                            <span className="font-mono font-bold text-lg">{delivery.barcode}</span>
+                            <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">
+                              Paketlendi
+                            </span>
+                          </div>
+                          <p className="text-gray-600">{delivery.tenant?.name}</p>
+                          <p className="text-sm text-gray-400 mt-1">
+                            {delivery.packagedAt && new Date(delivery.packagedAt).toLocaleString('tr-TR')}
+                          </p>
+                          <p className="text-sm text-gray-500 mt-1">
+                            {delivery.deliveryItems?.length || 0} ürün
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => handleDelete(delivery.id)}
+                          disabled={cancelMutation.isPending}
+                          className="flex items-center gap-2 px-3 py-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 disabled:opacity-50"
+                          title="Teslimatı Sil"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
-                      <p className="text-gray-600">{delivery.tenant?.name}</p>
-                      <p className="text-sm text-gray-400 mt-1">
-                        {delivery.packagedAt && new Date(delivery.packagedAt).toLocaleString('tr-TR')}
-                      </p>
-                      <p className="text-sm text-gray-500 mt-1">
-                        {delivery.deliveryItems?.length || 0} ürün
-                      </p>
                     </div>
                   ))}
                 </div>

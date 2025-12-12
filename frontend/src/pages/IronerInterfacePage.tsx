@@ -534,7 +534,7 @@ export function IronerInterfacePage() {
             </div>
             <div>
               <h1 className="text-2xl font-bold text-gray-900">RFID Çamaşırhane</h1>
-              <p className="text-sm text-gray-500">by Karbeyaz Demet Laundry</p>
+              <p className="text-sm text-gray-500">by Karbeyaz & Demet Laundry</p>
             </div>
           </div>
           <div className="bg-white rounded-lg shadow p-12 text-center">
@@ -560,7 +560,7 @@ export function IronerInterfacePage() {
             </div>
             <div>
               <h1 className="text-2xl font-bold text-gray-900">RFID Çamaşırhane</h1>
-              <p className="text-sm text-gray-500">by Karbeyaz Demet Laundry</p>
+              <p className="text-sm text-gray-500">by Karbeyaz & Demet Laundry</p>
             </div>
           </div>
 

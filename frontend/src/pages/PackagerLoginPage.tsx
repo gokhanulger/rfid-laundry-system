@@ -75,8 +75,8 @@ export function PackagerLoginPage() {
           <div className="inline-flex items-center justify-center w-16 h-16 bg-indigo-100 rounded-full mb-4">
             <Package className="w-8 h-8 text-indigo-600" />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">RFID Paketleme</h1>
-          <p className="text-sm text-gray-500">by Karbeyaz Demet Laundry</p>
+          <h1 className="text-2xl font-bold text-gray-900">RFID Çamaşırhane</h1>
+          <p className="text-sm text-gray-500">by Karbeyaz & Demet Laundry</p>
           <p className="text-gray-500 mt-3">Şifre girin</p>
         </div>
 
