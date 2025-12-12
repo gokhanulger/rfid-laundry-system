@@ -85,8 +85,17 @@ tenantsRouter.post('/', requireRole('system_admin', 'laundry_manager'), async (r
 
     const { name, email, phone, address } = validation.data;
 
+    // Check for duplicate name
+    const existing = await db.query.tenants.findFirst({
+      where: eq(tenants.name, name.trim()),
+    });
+
+    if (existing) {
+      return res.status(400).json({ error: 'Bu isimde otel zaten mevcut' });
+    }
+
     const [newTenant] = await db.insert(tenants).values({
-      name,
+      name: name.trim(),
       email,
       phone,
       address,
