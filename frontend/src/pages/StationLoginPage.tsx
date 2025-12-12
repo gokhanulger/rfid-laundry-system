@@ -17,10 +17,20 @@ const STATION_PINS: Record<string, string> = {
   auditor: '1234',
 };
 
-// Backend credentials for stations (using packager account for all since it has the right permissions)
-const STATION_CREDENTIALS = {
-  email: 'packager@laundry.com',
-  password: 'packager123',
+// Backend credentials for each station type
+const STATION_CREDENTIALS: Record<string, { email: string; password: string }> = {
+  ironer: {
+    email: 'ironer@laundry.com',
+    password: 'ironer123',
+  },
+  packager: {
+    email: 'packager@laundry.com',
+    password: 'packager123',
+  },
+  auditor: {
+    email: 'admin@laundry.com', // Use admin for auditor since they need full access
+    password: 'admin123',
+  },
 };
 
 const STATION_INFO = {
@@ -66,17 +76,20 @@ export function StationLoginPage() {
       const savedAuth = localStorage.getItem(STATION_AUTH_KEY);
       if (savedAuth && ['ironer', 'packager', 'auditor'].includes(savedAuth)) {
         // Re-authenticate with backend to ensure token is valid
-        try {
-          const response = await api.post('/auth/login', {
-            email: STATION_CREDENTIALS.email,
-            password: STATION_CREDENTIALS.password,
-          });
-          if (response.data?.token) {
-            setStoredToken(response.data.token);
+        const creds = STATION_CREDENTIALS[savedAuth];
+        if (creds) {
+          try {
+            const response = await api.post('/auth/login', {
+              email: creds.email,
+              password: creds.password,
+            });
+            if (response.data?.token) {
+              setStoredToken(response.data.token);
+            }
+          } catch (err) {
+            console.error('Backend re-auth failed:', err);
+            // Continue anyway - will show errors on specific operations
           }
-        } catch (err) {
-          console.error('Backend re-auth failed:', err);
-          // Continue anyway - will show errors on specific operations
         }
         setAuthenticatedStation(savedAuth as StationType);
       }
@@ -96,10 +109,11 @@ export function StationLoginPage() {
         setTimeout(async () => {
           if (newPin === STATION_PINS[selectedStation]) {
             try {
-              // Authenticate with backend to get JWT token
+              // Authenticate with backend to get JWT token using station-specific credentials
+              const creds = STATION_CREDENTIALS[selectedStation];
               const response = await api.post('/auth/login', {
-                email: STATION_CREDENTIALS.email,
-                password: STATION_CREDENTIALS.password,
+                email: creds.email,
+                password: creds.password,
               });
               if (response.data?.token) {
                 setStoredToken(response.data.token);

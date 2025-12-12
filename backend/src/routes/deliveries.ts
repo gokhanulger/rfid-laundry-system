@@ -34,7 +34,7 @@ const createDeliverySchema = z.object({
 });
 
 // Create delivery
-deliveriesRouter.post('/', requireRole('operator', 'laundry_manager', 'system_admin', 'ironer'), async (req: AuthRequest, res) => {
+deliveriesRouter.post('/', requireRole('operator', 'laundry_manager', 'system_admin', 'ironer', 'packager'), async (req: AuthRequest, res) => {
   try {
     const validation = createDeliverySchema.safeParse(req.body);
     if (!validation.success) {
@@ -278,7 +278,7 @@ deliveriesRouter.get('/barcode/:barcode', async (req: AuthRequest, res) => {
 });
 
 // Print label
-deliveriesRouter.post('/:id/print-label', requireRole('operator', 'laundry_manager', 'system_admin', 'ironer'), async (req: AuthRequest, res) => {
+deliveriesRouter.post('/:id/print-label', requireRole('operator', 'laundry_manager', 'system_admin', 'ironer', 'packager'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
 
