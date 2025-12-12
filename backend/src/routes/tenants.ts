@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import crypto from 'crypto';
 import { db } from '../db';
 import {
   tenants,
@@ -24,6 +25,11 @@ import { z } from 'zod';
 
 export const tenantsRouter = Router();
 tenantsRouter.use(requireAuth);
+
+// Generate unique QR code for hotel
+function generateQRCode(): string {
+  return `HTL-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+}
 
 const createTenantSchema = z.object({
   name: z.string().min(1, 'Name is required'),
@@ -94,11 +100,15 @@ tenantsRouter.post('/', requireRole('system_admin', 'laundry_manager'), async (r
       return res.status(400).json({ error: 'Bu isimde otel zaten mevcut' });
     }
 
+    // Generate unique QR code
+    const qrCode = generateQRCode();
+
     const [newTenant] = await db.insert(tenants).values({
       name: name.trim(),
       email,
       phone,
       address,
+      qrCode,
     }).returning();
 
     res.status(201).json(newTenant);
