@@ -8,7 +8,7 @@ import type { Delivery } from '../types';
 type TabType = 'packaging' | 'history';
 
 // Storage key for product counter (shared with ironer)
-const PRODUCT_COUNTER_KEY = 'laundry_ironer_product_counter';
+const PRODUCT_COUNTER_KEY = 'laundry_product_counter';
 
 export function PackagingPage() {
   const [activeTab, setActiveTab] = useState<TabType>('packaging');
@@ -20,11 +20,15 @@ export function PackagingPage() {
   // Current shift for counter
   const [currentShift, setCurrentShift] = useState<'day' | 'night'>('day');
 
-  // Determine current shift (day: 6:00-18:00, night: 18:00-6:00)
+  // Determine current shift using Turkey time (UTC+3)
+  // Day: 08:00 - 18:00, Night: 18:00 - 08:00 (same as ironer)
   useEffect(() => {
     const updateShift = () => {
-      const hour = new Date().getHours();
-      setCurrentShift(hour >= 6 && hour < 18 ? 'day' : 'night');
+      const now = new Date();
+      // Get Turkey time (UTC+3)
+      const turkeyHour = (now.getUTCHours() + 3) % 24;
+      // Day shift: 8 AM (08:00) to 6 PM (18:00)
+      setCurrentShift(turkeyHour >= 8 && turkeyHour < 18 ? 'day' : 'night');
     };
     updateShift();
     const interval = setInterval(updateShift, 60000);
