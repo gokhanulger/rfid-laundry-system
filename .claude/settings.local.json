@@ -95,7 +95,15 @@
       "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6Ijk1NTFjMzBlLTk0ZmQtNDc2ZC04NjI3LWFiNTBhYmZkNGZkMiIsImVtYWlsIjoicGFja2FnZXJAbGF1bmRyeS5jb20iLCJmaXJzdE5hbWUiOiJQYWtldGNpIiwibGFzdE5hbWUiOiJVc2VyIiwicm9sZSI6InBhY2thZ2VyIiwidGVuYW50SWQiOm51bGwsImlhdCI6MTc2NTUyNDA1NCwiZXhwIjoxNzY2MTI4ODU0fQ.zZsikTotzvZWRdz-8X7mG_sh_-3HxwH-8HAxCTAs_y0\")",
       "Bash(__NEW_LINE__ echo \"Testing cancel endpoint...\")",
       "Bash(__NEW_LINE__ curl -s -X POST \"https://rfid-laundry-backend-production.up.railway.app/api/deliveries/5c634b3e-bdc1-4392-8977-d7528178495d/cancel\" )",
-      "Bash(echo \"Checking label_printed deliveries...\" curl -s \"https://rfid-laundry-backend-production.up.railway.app/api/deliveries?status=label_printed&limit=5\" -H \"Authorization: Bearer $TOKEN\")"
+      "Bash(echo \"Checking label_printed deliveries...\" curl -s \"https://rfid-laundry-backend-production.up.railway.app/api/deliveries?status=label_printed&limit=5\" -H \"Authorization: Bearer $TOKEN\")",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImI2OTViNjFlLTg0YjItNDIzZi1hMDZhLTZiYmYwZGNkN2U5OCIsImVtYWlsIjoiYWRtaW5AbGF1bmRyeS5jb20iLCJmaXJzdE5hbWUiOiJTeXN0ZW0iLCJsYXN0TmFtZSI6IkFkbWluIiwicm9sZSI6InN5c3RlbV9hZG1pbiIsInRlbmFudElkIjpudWxsLCJpYXQiOjE3NjUzNjIyMTgsImV4cCI6MTc2NTk2NzAxOH0.bqXcHj0fXJJfS6LTVcJJRuWRLRJ9UU8LLXlJ6I9W2Gg\")",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImI2OTViNjFlLTg0YjItNDIzZi1hMDZhLTZiYmYwZGNkN2U5OCIsImVtYWlsIjoiYWRtaW5AbGF1bmRyeS5jb20iLCJmaXJzdE5hbWUiOiJTeXN0ZW0iLCJsYXN0TmFtZSI6IkFkbWluIiwicm9sZSI6InN5c3RlbV9hZG1pbiIsInRlbmFudElkIjpudWxsLCJpYXQiOjE3NjU1MzAzMDEsImV4cCI6MTc2NjEzNTEwMX0.7ixZf4eF1NkJQp76V_GhbNhuCLR0-fD41jma-RbE-LE\")",
+      "Bash(__NEW_LINE__ echo \"=== TÜM OTELLERİ SİLİYORUM ===\")",
+      "Bash(for id in cca4aa5f-7cad-4ee1-b903-1071b2ccbb65 a7b6a586-6310-43b7-a8ce-5ce47dfd1c79 6960ceff-7841-4661-9957-7f0bae47b2f7 c6da7b85-1edf-40b9-8171-5eaf69a971b9 445f55d9-af26-442f-87c7-c1a951d33bc9 b0f8b488-6d4c-4664-89c6-b8fd33bab365 b8ab4399-c06f-42c9-9509-c1b6b1cd8b89 45ae170f-6391-4e88-abc0-94686d7c21f8 c0ddfb65-7bff-4c49-843c-52789fe5568b 0b5abe6a-174c-434b-8cea-3b71264a1854 a0b4a895-7683-47f6-acdb-097f5cb30dc0 5c7caec7-58df-4bec-a1c2-1090e4456949 245d9470-ff8a-4dca-a33e-b33aabb0bcc7 ee93d963-3faf-46ee-8ce3-7a0f1c673277 8340d1c2-f8ad-450d-ae23-acb0b9fbc0a2 133355cc-9d2d-4721-b816-8a44d292587a 89d1b806-743b-435d-adba-c6b4bc3badff 44df7ff7-a359-400d-a18b-9188345c5a20 4ad86b83-27d8-4173-ad5e-b8a1ac7336ae d32cb2a4-e1b2-47b8-b3ff-4e2fe89563f3 1ed24a1d-4da3-424e-9fc8-70e68a221109 f64cbd04-8b12-4579-97de-c7d879dae903 9de0e55b-c4a0-4073-a09f-3986d3e89f42)",
+      "Bash(do)",
+      "Bash(echo:*)",
+      "Bash(done)",
+      "Bash(__NEW_LINE__ echo \"\")"
     ],
     "deny": [],
     "ask": []

@@ -1,6 +1,17 @@
 import { Router } from 'express';
 import { db } from '../db';
-import { tenants } from '../db/schema';
+import {
+  tenants,
+  deliveries,
+  deliveryItems,
+  deliveryPackages,
+  items,
+  users,
+  scanSessions,
+  alerts,
+  auditLogs,
+  pickups,
+} from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { requireAuth, AuthRequest, requireRole } from '../middleware/auth';
 import { z } from 'zod';
@@ -118,7 +129,7 @@ tenantsRouter.patch('/:id', requireRole('system_admin', 'laundry_manager'), asyn
   }
 });
 
-// Delete tenant
+// Delete tenant with cascade
 tenantsRouter.delete('/:id', requireRole('system_admin'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
@@ -131,9 +142,47 @@ tenantsRouter.delete('/:id', requireRole('system_admin'), async (req: AuthReques
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
+    // Delete related records first (cascade)
+    // Import all necessary tables at the top if not already imported
+
+    // Get all delivery IDs for this tenant
+    const tenantDeliveries = await db.query.deliveries.findMany({
+      where: eq(deliveries.tenantId, id),
+      columns: { id: true },
+    });
+    const deliveryIds = tenantDeliveries.map(d => d.id);
+
+    // Delete delivery-related records
+    if (deliveryIds.length > 0) {
+      for (const deliveryId of deliveryIds) {
+        await db.delete(deliveryItems).where(eq(deliveryItems.deliveryId, deliveryId));
+        await db.delete(deliveryPackages).where(eq(deliveryPackages.deliveryId, deliveryId));
+      }
+      await db.delete(deliveries).where(eq(deliveries.tenantId, id));
+    }
+
+    // Delete items for this tenant
+    await db.delete(items).where(eq(items.tenantId, id));
+
+    // Delete users associated with this tenant
+    await db.delete(users).where(eq(users.tenantId, id));
+
+    // Delete scan sessions
+    await db.delete(scanSessions).where(eq(scanSessions.tenantId, id));
+
+    // Delete alerts
+    await db.delete(alerts).where(eq(alerts.tenantId, id));
+
+    // Delete audit logs
+    await db.delete(auditLogs).where(eq(auditLogs.tenantId, id));
+
+    // Delete pickups
+    await db.delete(pickups).where(eq(pickups.tenantId, id));
+
+    // Finally delete the tenant
     await db.delete(tenants).where(eq(tenants.id, id));
 
-    res.json({ message: 'Tenant deleted' });
+    res.json({ message: 'Tenant and all related data deleted' });
   } catch (error) {
     console.error('Delete tenant error:', error);
     res.status(500).json({ error: 'Internal server error' });
