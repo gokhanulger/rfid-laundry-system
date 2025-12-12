@@ -8,9 +8,11 @@ import {
   items,
   users,
   scanSessions,
+  scanEvents,
   alerts,
   auditLogs,
   pickups,
+  pickupItems,
   devices,
 } from '../db/schema';
 import { eq } from 'drizzle-orm';
@@ -168,6 +170,17 @@ tenantsRouter.delete('/:id', requireRole('system_admin'), async (req: AuthReques
     // Delete users associated with this tenant
     await db.delete(users).where(eq(users.tenantId, id));
 
+    // Get all scan sessions for this tenant
+    const tenantSessions = await db.query.scanSessions.findMany({
+      where: eq(scanSessions.tenantId, id),
+      columns: { id: true },
+    });
+
+    // Delete scan events for those sessions
+    for (const session of tenantSessions) {
+      await db.delete(scanEvents).where(eq(scanEvents.sessionId, session.id));
+    }
+
     // Delete scan sessions
     await db.delete(scanSessions).where(eq(scanSessions.tenantId, id));
 
@@ -179,6 +192,17 @@ tenantsRouter.delete('/:id', requireRole('system_admin'), async (req: AuthReques
 
     // Delete audit logs
     await db.delete(auditLogs).where(eq(auditLogs.tenantId, id));
+
+    // Get all pickups for this tenant
+    const tenantPickups = await db.query.pickups.findMany({
+      where: eq(pickups.tenantId, id),
+      columns: { id: true },
+    });
+
+    // Delete pickup items for those pickups
+    for (const pickup of tenantPickups) {
+      await db.delete(pickupItems).where(eq(pickupItems.pickupId, pickup.id));
+    }
 
     // Delete pickups
     await db.delete(pickups).where(eq(pickups.tenantId, id));
