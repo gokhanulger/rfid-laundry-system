@@ -193,7 +193,7 @@ export function HotelManagementPage() {
           longitude: row['Boylam'] || row['longitude'] || '',
         };
 
-        if (!hotelData.name || !hotelData.email) {
+        if (!hotelData.name) {
           errorCount++;
           continue;
         }
@@ -558,15 +558,14 @@ export function HotelManagementPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  E-posta *
+                  E-posta
                 </label>
                 <input
                   type="email"
-                  required
                   value={form.email}
                   onChange={(e) => setForm({ ...form, email: e.target.value })}
                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500"
-                  placeholder="otel@ornek.com"
+                  placeholder="otel@ornek.com (opsiyonel)"
                 />
               </div>
               <div>

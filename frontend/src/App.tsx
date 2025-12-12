@@ -28,7 +28,6 @@ import { PackagingPage } from './pages/PackagingPage';
 import { HotelManagementPage } from './pages/HotelManagementPage';
 import { UserManagementPage } from './pages/UserManagementPage';
 import { ItemManagementPage } from './pages/ItemManagementPage';
-import { ItemTypesPage } from './pages/ItemTypesPage';
 import { BulkTagAssignmentPage } from './pages/BulkTagAssignmentPage';
 import { ReconciliationPage } from './pages/ReconciliationPage';
 import { IrsaliyePage } from './pages/IrsaliyePage';
@@ -112,7 +111,6 @@ function App() {
                 <Route path="hotel-status-board" element={<HotelStatusBoardPage />} />
                 <Route path="users" element={<UserManagementPage />} />
                 <Route path="items" element={<ItemManagementPage />} />
-                <Route path="item-types" element={<ItemTypesPage />} />
                 <Route path="bulk-tag-assignment" element={<BulkTagAssignmentPage />} />
 
                 {/* Driver Pages */}

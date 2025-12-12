@@ -93,7 +93,7 @@ export const users = pgTable('users', {
 export const tenants = pgTable('tenants', {
   id: uuid('id').defaultRandom().primaryKey(),
   name: text('name').notNull(),
-  email: text('email').notNull(),
+  email: text('email'),
   phone: text('phone'),
   address: text('address'),
   latitude: text('latitude'), // Hotel GPS latitude
