@@ -106,6 +106,7 @@ export function Layout() {
     { name: 'Otel Yonetimi', href: '/hotels', icon: Building2 },
     { name: 'Kullanici Yonetimi', href: '/users', icon: Users },
     { name: 'Urun Yonetimi', href: '/items', icon: Tag },
+    { name: 'Urun Turleri', href: '/item-types', icon: Tags },
     { name: 'Toplu Tag Eslestirme', href: '/bulk-tag-assignment', icon: Tags },
     { name: 'Ayarlar', href: '/settings', icon: Settings },
   ];
