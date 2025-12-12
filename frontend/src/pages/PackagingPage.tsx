@@ -46,7 +46,7 @@ export function PackagingPage() {
   // Auto-refresh every 5 seconds to catch new labels from ironer
   const { data: deliveries, isLoading, refetch } = useQuery({
     queryKey: ['deliveries', { status: 'label_printed' }],
-    queryFn: () => deliveriesApi.getAll({ status: 'label_printed', limit: 50 }),
+    queryFn: () => deliveriesApi.getAll({ status: 'label_printed', limit: 500 }),
     refetchInterval: 5000, // Refresh every 5 seconds
   });
 
@@ -140,7 +140,10 @@ export function PackagingPage() {
     }
   };
 
-  const pendingDeliveries = deliveries?.data || [];
+  // Sort by createdAt descending (newest first)
+  const pendingDeliveries = (deliveries?.data || []).slice().sort((a, b) =>
+    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
   const recentPackaged = packagedDeliveries?.data || [];
 
   return (
