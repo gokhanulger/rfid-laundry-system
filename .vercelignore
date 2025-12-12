@@ -1,0 +1,16 @@
+# Electron builds
+frontend/release
+frontend/release-packager
+
+# Node modules
+node_modules
+**/node_modules
+
+# Git
+.git
+
+# Large files
+*.exe
+*.asar
+*.dmg
+*.AppImage
