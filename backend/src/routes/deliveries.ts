@@ -857,6 +857,9 @@ deliveriesRouter.post('/:id/cancel', requireRole('packager', 'laundry_manager', 
     // Delete delivery items
     await db.delete(deliveryItems).where(eq(deliveryItems.deliveryId, id));
 
+    // Delete delivery packages
+    await db.delete(deliveryPackages).where(eq(deliveryPackages.deliveryId, id));
+
     // Delete delivery
     await db.delete(deliveries).where(eq(deliveries.id, id));
 
