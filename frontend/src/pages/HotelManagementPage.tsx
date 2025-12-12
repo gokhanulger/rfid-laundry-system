@@ -37,7 +37,7 @@ export function HotelManagementPage() {
   const [form, setForm] = useState<TenantForm>(emptyForm);
   const [qrModalTenant, setQrModalTenant] = useState<Tenant | null>(null);
   const [isImporting, setIsImporting] = useState(false);
-  const [importProgress, setImportProgress] = useState<{ total: number; current: number; results: { name: string; success: boolean }[] }>({ total: 0, current: 0, results: [] });
+  const [importProgress, setImportProgress] = useState<{ total: number; current: number; results: { name: string; success: boolean; error?: string }[] }>({ total: 0, current: 0, results: [] });
   const [showImportModal, setShowImportModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
@@ -187,21 +187,33 @@ export function HotelManagementPage() {
 
       setImportProgress({ total: jsonData.length, current: 0, results: [] });
 
-      const results: { name: string; success: boolean }[] = [];
+      const results: { name: string; success: boolean; error?: string }[] = [];
+
+      // Helper function to find column value (case insensitive)
+      const getColumnValue = (row: Record<string, string>, ...possibleNames: string[]): string => {
+        const keys = Object.keys(row);
+        for (const name of possibleNames) {
+          const found = keys.find(k => k.toLowerCase().trim() === name.toLowerCase().trim());
+          if (found && row[found]) {
+            return String(row[found]).trim();
+          }
+        }
+        return '';
+      };
 
       for (let i = 0; i < jsonData.length; i++) {
         const row = jsonData[i];
         const hotelData: TenantForm = {
-          name: row['Otel Adi'] || row['name'] || row['Otel'] || row['Hotel'] || '',
-          email: row['E-posta'] || row['email'] || row['Email'] || '',
-          phone: row['Telefon'] || row['phone'] || row['Tel'] || '',
-          address: row['Adres'] || row['address'] || '',
-          latitude: row['Enlem'] || row['latitude'] || '',
-          longitude: row['Boylam'] || row['longitude'] || '',
+          name: getColumnValue(row, 'Otel Adi', 'Otel Adı', 'name', 'Name', 'Otel', 'Hotel', 'Ad', 'Isim', 'İsim'),
+          email: getColumnValue(row, 'E-posta', 'E-Posta', 'email', 'Email', 'Mail', 'Eposta'),
+          phone: getColumnValue(row, 'Telefon', 'phone', 'Phone', 'Tel', 'Gsm', 'Cep'),
+          address: getColumnValue(row, 'Adres', 'address', 'Address', 'Konum'),
+          latitude: getColumnValue(row, 'Enlem', 'latitude', 'Lat'),
+          longitude: getColumnValue(row, 'Boylam', 'longitude', 'Lng', 'Long'),
         };
 
         if (!hotelData.name) {
-          results.push({ name: `Satir ${i + 2}: Isim bos`, success: false });
+          results.push({ name: `Satir ${i + 2}: Isim bos`, success: false, error: 'Otel adi bulunamadi' });
           setImportProgress(prev => ({ ...prev, current: i + 1, results: [...results] }));
           continue;
         }
@@ -209,8 +221,9 @@ export function HotelManagementPage() {
         try {
           await api.post('/tenants', hotelData);
           results.push({ name: hotelData.name, success: true });
-        } catch {
-          results.push({ name: hotelData.name, success: false });
+        } catch (err: unknown) {
+          const errorMsg = err instanceof Error ? err.message : (err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Bilinmeyen hata';
+          results.push({ name: hotelData.name, success: false, error: errorMsg });
         }
 
         setImportProgress(prev => ({ ...prev, current: i + 1, results: [...results] }));
@@ -846,11 +859,16 @@ export function HotelManagementPage() {
                     }`}
                   >
                     {result.success ? (
-                      <Check className="w-4 h-4 text-green-600" />
+                      <Check className="w-4 h-4 text-green-600 flex-shrink-0" />
                     ) : (
-                      <X className="w-4 h-4 text-red-600" />
+                      <X className="w-4 h-4 text-red-600 flex-shrink-0" />
                     )}
-                    <span>{result.name}</span>
+                    <div className="flex-1 min-w-0">
+                      <span className="font-medium">{result.name}</span>
+                      {result.error && (
+                        <p className="text-xs text-red-600 truncate">{result.error}</p>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
