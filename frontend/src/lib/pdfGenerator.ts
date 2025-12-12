@@ -111,7 +111,8 @@ function generateHtmlLabel(delivery: any, labelExtraData?: LabelExtraItem[]): st
   }
 
   const itemTypeEntries = Object.entries(itemsByType);
-  const hotelName = delivery.tenant?.name || 'Unknown Hotel';
+  // Hotel name in ALL CAPS
+  const hotelName = (delivery.tenant?.name || 'UNKNOWN HOTEL').toUpperCase();
   const date = new Date(delivery.createdAt || Date.now()).toLocaleDateString('tr-TR');
 
   // Check for discord/lekeli
@@ -146,15 +147,15 @@ function generateHtmlLabel(delivery: any, labelExtraData?: LabelExtraItem[]): st
     }
 
     if (isFirstLabel) {
-      // FIRST LABEL: Hotel name + Date + Barcode + Items
+      // FIRST LABEL: Hotel name (ALL CAPS) + Date + Barcode + Items
       labelsHtml += `
         <div style="width: 60mm; height: 80mm; padding: 2mm; box-sizing: border-box; font-family: Arial, sans-serif; position: relative;">
-          <!-- Hotel Name - Full width, larger font -->
-          <div style="text-align: center; font-size: 16pt; font-weight: bold; margin-bottom: 1mm;">
+          <!-- Hotel Name - ALL CAPS, auto-fit -->
+          <div style="text-align: center; font-size: 14pt; font-weight: bold; margin-bottom: 1mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
             ${hotelName}
           </div>
           <!-- Date below hotel name -->
-          <div style="text-align: center; font-size: 9pt; color: #666; margin-bottom: 2mm;">
+          <div style="text-align: center; font-size: 10pt; color: #000; margin-bottom: 2mm;">
             ${date}
           </div>
           ${totalLabels > 1 ? `<div style="position: absolute; top: 2mm; right: 3mm; font-size: 8pt; font-weight: bold;">${labelIndex + 1}/${totalLabels}</div>` : ''}
@@ -479,25 +480,36 @@ function generateSpecialLabel(doc: jsPDF, delivery: Delivery, labelText: string)
   const isDiscart = labelText.includes('DISCART');
   const textColor = isDiscart ? [59, 130, 246] : [239, 68, 68]; // Blue or Red
 
-  let yPos = 5;
+  let yPos = 3;
 
-  // Hotel Name at top
+  // Hotel Name at top - ALL CAPS
+  const hotelName = (delivery.tenant?.name || 'UNKNOWN HOTEL').toUpperCase();
   doc.setTextColor(black);
-  doc.setFontSize(14);
   doc.setFont('helvetica', 'bold');
-  const hotelName = delivery.tenant?.name || 'Unknown Hotel';
-  const maxHotelLen = 20;
-  const displayHotel = hotelName.length > maxHotelLen ? hotelName.substring(0, maxHotelLen) + '..' : hotelName;
-  doc.text(displayHotel, LABEL_WIDTH / 2, yPos + 5, { align: 'center' });
+
+  // Auto-size font to fit hotel name
+  let fontSize = 16;
+  doc.setFontSize(fontSize);
+  let textWidth = doc.getTextWidth(hotelName);
+  const maxWidth = LABEL_WIDTH - (margin * 2);
+
+  while (textWidth > maxWidth && fontSize > 10) {
+    fontSize -= 1;
+    doc.setFontSize(fontSize);
+    textWidth = doc.getTextWidth(hotelName);
+  }
+
+  doc.text(hotelName, LABEL_WIDTH / 2, yPos + 5, { align: 'center' });
+
+  yPos += 8;
 
   // Date below hotel name
-  yPos += 8;
-  doc.setFontSize(8);
+  doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   const date = new Date(delivery.createdAt || Date.now()).toLocaleDateString('tr-TR');
-  doc.text(date, LABEL_WIDTH / 2, yPos + 5, { align: 'center' });
+  doc.text(date, LABEL_WIDTH / 2, yPos + 3, { align: 'center' });
 
-  yPos += 10;
+  yPos += 8;
 
   // Separator line
   doc.setDrawColor(0, 0, 0);
@@ -578,25 +590,44 @@ function generateSingleLabel(
   let yPos = 3;
 
   // ============================================
-  // 1. HOTEL NAME - BIGGER at the top (24pt)
+  // 1. HOTEL NAME - ALL CAPS at the top
   // ============================================
-  const hotelName = delivery.tenant?.name || 'Unknown Hotel';
+  const hotelName = (delivery.tenant?.name || 'UNKNOWN HOTEL').toUpperCase();
   doc.setTextColor(black);
-  doc.setFontSize(24);
   doc.setFont('helvetica', 'bold');
 
-  // Center the hotel name
-  const maxHotelLen = 16;
-  const displayHotel = hotelName.length > maxHotelLen ? hotelName.substring(0, maxHotelLen) + '..' : hotelName;
-  doc.text(displayHotel, LABEL_WIDTH / 2, yPos + 7, { align: 'center' });
+  // Auto-size font to fit hotel name
+  let fontSize = 20;
+  doc.setFontSize(fontSize);
+  let textWidth = doc.getTextWidth(hotelName);
+  const maxWidth = LABEL_WIDTH - (margin * 2);
+
+  // Reduce font size until it fits
+  while (textWidth > maxWidth && fontSize > 10) {
+    fontSize -= 1;
+    doc.setFontSize(fontSize);
+    textWidth = doc.getTextWidth(hotelName);
+  }
+
+  doc.text(hotelName, LABEL_WIDTH / 2, yPos + 6, { align: 'center' });
 
   // Label pagination on right side (only if multiple labels)
   if (totalLabels > 1) {
     doc.setFontSize(7);
-    doc.text(`${labelNumber}/${totalLabels}`, LABEL_WIDTH - margin, yPos + 5, { align: 'right' });
+    doc.text(`${labelNumber}/${totalLabels}`, LABEL_WIDTH - margin, yPos + 3, { align: 'right' });
   }
 
-  yPos += 10;
+  yPos += 9;
+
+  // ============================================
+  // 2. DATE - TR format right after hotel name
+  // ============================================
+  const date = new Date(delivery.createdAt || Date.now()).toLocaleDateString('tr-TR');
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.text(date, LABEL_WIDTH / 2, yPos + 3, { align: 'center' });
+
+  yPos += 6;
 
   // Thin separator line
   doc.setDrawColor(0, 0, 0);
@@ -606,7 +637,7 @@ function generateSingleLabel(
   yPos += 3;
 
   // ============================================
-  // 2. BARCODE - numeric code for readability
+  // 3. BARCODE - numeric code for readability
   // ============================================
   const shortCode = generateShortCode();
 
@@ -712,23 +743,7 @@ function generateSingleLabel(
     if (totalHasarli > 0) {
       doc.text(`Lekeli: ${totalHasarli}`, totalDiscard > 0 ? LABEL_WIDTH / 2 : margin, yPos);
     }
-    yPos += 4;
   }
-  // Date at the bottom
-  doc.setFontSize(5);
-  doc.setFont('helvetica', 'normal');
-  const date = new Date(delivery.createdAt || Date.now()).toLocaleDateString('tr-TR');
-  doc.text(`Tarih: ${date}`, margin, LABEL_HEIGHT - 8);
-
-  // Footer line
-  const footerY = LABEL_HEIGHT - 5;
-  doc.setDrawColor(0, 0, 0);
-  doc.setLineWidth(0.1);
-  doc.line(margin, footerY, LABEL_WIDTH - margin, footerY);
-
-  // Footer text
-  doc.setFontSize(4);
-  doc.text('RFID Laundry System', LABEL_WIDTH / 2, footerY + 3, { align: 'center' });
 }
 
 // Generate a manual label without backend delivery (for cases with no available items)
@@ -795,7 +810,6 @@ function generateManualSingleLabel(
   totalPackages: number
 ) {
   const black = '#000000';
-  const white = '#FFFFFF';
   const margin = 3;
 
   // White background
@@ -805,25 +819,44 @@ function generateManualSingleLabel(
   let yPos = 3;
 
   // ============================================
-  // 1. HOTEL NAME - BIG at the top (24pt)
+  // 1. HOTEL NAME - ALL CAPS at the top
   // ============================================
-  const hotelName = data.tenant?.name || 'Unknown Hotel';
+  const hotelName = (data.tenant?.name || 'UNKNOWN HOTEL').toUpperCase();
   doc.setTextColor(black);
-  doc.setFontSize(24);
   doc.setFont('helvetica', 'bold');
 
-  // Center the hotel name
-  const maxHotelLen = 16;
-  const displayHotel = hotelName.length > maxHotelLen ? hotelName.substring(0, maxHotelLen) + '..' : hotelName;
-  doc.text(displayHotel, LABEL_WIDTH / 2, yPos + 7, { align: 'center' });
+  // Auto-size font to fit hotel name
+  let fontSize = 20;
+  doc.setFontSize(fontSize);
+  let textWidth = doc.getTextWidth(hotelName);
+  const maxWidth = LABEL_WIDTH - (margin * 2);
+
+  // Reduce font size until it fits
+  while (textWidth > maxWidth && fontSize > 10) {
+    fontSize -= 1;
+    doc.setFontSize(fontSize);
+    textWidth = doc.getTextWidth(hotelName);
+  }
+
+  doc.text(hotelName, LABEL_WIDTH / 2, yPos + 6, { align: 'center' });
 
   // Package count on right side (only if multiple)
   if (totalPackages > 1) {
     doc.setFontSize(7);
-    doc.text(`${packageNumber}/${totalPackages}`, LABEL_WIDTH - margin, yPos + 5, { align: 'right' });
+    doc.text(`${packageNumber}/${totalPackages}`, LABEL_WIDTH - margin, yPos + 3, { align: 'right' });
   }
 
-  yPos += 10;
+  yPos += 9;
+
+  // ============================================
+  // 2. DATE - TR format right after hotel name
+  // ============================================
+  const date = new Date().toLocaleDateString('tr-TR');
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.text(date, LABEL_WIDTH / 2, yPos + 3, { align: 'center' });
+
+  yPos += 6;
 
   // Thin separator line
   doc.setDrawColor(0, 0, 0);
@@ -833,7 +866,7 @@ function generateManualSingleLabel(
   yPos += 3;
 
   // ============================================
-  // 2. BARCODE - numeric code for readability
+  // 3. BARCODE - numeric code for readability
   // ============================================
   const shortCode = generateShortCode();
 
@@ -850,29 +883,16 @@ function generateManualSingleLabel(
   yPos += 18;
 
   // ============================================
-  // 3. ITEMS
+  // 4. ITEMS
   // ============================================
 
   // Calculate totals
-  let totalItems = 0;
   let totalDiscard = 0;
   let totalHasarli = 0;
   data.items.forEach((item) => {
-    totalItems += item.count;
     totalDiscard += item.discardCount;
     totalHasarli += item.hasarliCount;
   });
-
-  // Items section header with total
-  doc.setFillColor(0, 0, 0);
-  doc.rect(margin, yPos, LABEL_WIDTH - (margin * 2), 6, 'F');
-  doc.setTextColor(white);
-  doc.setFontSize(7);
-  doc.setFont('helvetica', 'bold');
-  doc.text(`TOPLAM: ${totalItems} ADET`, LABEL_WIDTH / 2, yPos + 4, { align: 'center' });
-  doc.setTextColor(black);
-
-  yPos += 9;
 
   // Display items - format: "2 adet Çarşaf"
   if (data.items.length > 0) {
@@ -891,7 +911,6 @@ function generateManualSingleLabel(
       doc.text(displayName, margin + countWidth, yPos);
       yPos += 6;
     });
-    yPos += 2;
   }
 
   // Show discord/lekeli totals if any
@@ -904,24 +923,7 @@ function generateManualSingleLabel(
     if (totalHasarli > 0) {
       doc.text(`Lekeli: ${totalHasarli}`, totalDiscard > 0 ? LABEL_WIDTH / 2 : margin, yPos);
     }
-    yPos += 4;
   }
-
-  // Date at the bottom
-  doc.setFontSize(5);
-  doc.setFont('helvetica', 'normal');
-  const date = new Date().toLocaleDateString('tr-TR');
-  doc.text(`Tarih: ${date}`, margin, LABEL_HEIGHT - 8);
-
-  // Footer line
-  const footerY = LABEL_HEIGHT - 5;
-  doc.setDrawColor(0, 0, 0);
-  doc.setLineWidth(0.1);
-  doc.line(margin, footerY, LABEL_WIDTH - margin, footerY);
-
-  // Footer text
-  doc.setFontSize(4);
-  doc.text('RFID Laundry System', LABEL_WIDTH / 2, footerY + 3, { align: 'center' });
 }
 
 function generateManualSpecialLabel(doc: jsPDF, tenant: Tenant, labelText: string) {
@@ -936,25 +938,36 @@ function generateManualSpecialLabel(doc: jsPDF, tenant: Tenant, labelText: strin
   const isDiscart = labelText.includes('DISCART');
   const textColor = isDiscart ? [59, 130, 246] : [239, 68, 68]; // Blue or Red
 
-  let yPos = 5;
+  let yPos = 3;
 
-  // Hotel Name at top
+  // Hotel Name at top - ALL CAPS
+  const hotelName = (tenant?.name || 'UNKNOWN HOTEL').toUpperCase();
   doc.setTextColor(black);
-  doc.setFontSize(14);
   doc.setFont('helvetica', 'bold');
-  const hotelName = tenant?.name || 'Unknown Hotel';
-  const maxHotelLen = 20;
-  const displayHotel = hotelName.length > maxHotelLen ? hotelName.substring(0, maxHotelLen) + '..' : hotelName;
-  doc.text(displayHotel, LABEL_WIDTH / 2, yPos + 5, { align: 'center' });
+
+  // Auto-size font to fit hotel name
+  let fontSize = 16;
+  doc.setFontSize(fontSize);
+  let textWidth = doc.getTextWidth(hotelName);
+  const maxWidth = LABEL_WIDTH - (margin * 2);
+
+  while (textWidth > maxWidth && fontSize > 10) {
+    fontSize -= 1;
+    doc.setFontSize(fontSize);
+    textWidth = doc.getTextWidth(hotelName);
+  }
+
+  doc.text(hotelName, LABEL_WIDTH / 2, yPos + 5, { align: 'center' });
+
+  yPos += 8;
 
   // Date below hotel name
-  yPos += 8;
-  doc.setFontSize(8);
+  doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   const date = new Date().toLocaleDateString('tr-TR');
-  doc.text(date, LABEL_WIDTH / 2, yPos + 5, { align: 'center' });
+  doc.text(date, LABEL_WIDTH / 2, yPos + 3, { align: 'center' });
 
-  yPos += 10;
+  yPos += 8;
 
   // Separator line
   doc.setDrawColor(0, 0, 0);
