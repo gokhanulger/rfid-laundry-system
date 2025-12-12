@@ -533,8 +533,8 @@ function generateSpecialLabel(doc: jsPDF, delivery: Delivery, labelText: string)
   doc.setFont('helvetica', 'bold');
 
   // Split text to fit in box
-  const maxWidth = LABEL_WIDTH - (margin * 2) - 10;
-  const lines = doc.splitTextToSize(labelText, maxWidth);
+  const textMaxWidth = LABEL_WIDTH - (margin * 2) - 10;
+  const lines = doc.splitTextToSize(labelText, textMaxWidth);
   const lineHeight = 5;
   const textStartY = boxY + (boxHeight - lines.length * lineHeight) / 2 + lineHeight;
 
@@ -991,8 +991,8 @@ function generateManualSpecialLabel(doc: jsPDF, tenant: Tenant, labelText: strin
   doc.setFont('helvetica', 'bold');
 
   // Split text to fit in box
-  const maxWidth = LABEL_WIDTH - (margin * 2) - 10;
-  const lines = doc.splitTextToSize(labelText, maxWidth);
+  const textMaxWidth = LABEL_WIDTH - (margin * 2) - 10;
+  const lines = doc.splitTextToSize(labelText, textMaxWidth);
   const lineHeight = 5;
   const textStartY = boxY + (boxHeight - lines.length * lineHeight) / 2 + lineHeight;
 
