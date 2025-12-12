@@ -553,53 +553,44 @@ export function IronerInterfacePage() {
   }
 
   return (
-    <div className="flex h-full animate-fade-in">
-      {/* Left Sidebar - Counter and Shift Toggle */}
-      <div className="w-48 bg-gray-900 text-white flex flex-col">
-        {/* Shift Toggle */}
-        {/* Spacer */}
-        <div className="flex-1" />
-
-        {/* Counter at bottom - inside sidebar */}
-        <div className="p-4 border-t border-gray-700">
-          {/* Current shift indicator */}
-          <div className={`flex items-center justify-center gap-2 py-2 px-3 rounded-lg mb-3 ${
-            currentShift === 'day'
-              ? 'bg-yellow-500/20 text-yellow-400'
-              : 'bg-indigo-500/20 text-indigo-400'
-          }`}>
-            {currentShift === 'day' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-            <span className="font-medium text-sm">
-              {currentShift === 'day' ? 'Gündüz Mesai' : 'Gece Mesai'}
-            </span>
-          </div>
-
-          <div className="text-center">
-            <p className="text-5xl font-bold text-white mb-1">
-              {productCounter[currentShift]}
-            </p>
-            <p className="text-xs text-gray-500">ürün işlendi</p>
-          </div>
-
-          {/* Other shift info */}
-          <div className="mt-3 pt-3 border-t border-gray-700">
-            <p className="text-xs text-gray-500 text-center">
-              {currentShift === 'day' ? 'Gece' : 'Gündüz'}: {productCounter[currentShift === 'day' ? 'night' : 'day']} ürün
-            </p>
-          </div>
-        </div>
-      </div>
-
+    <div className="h-full animate-fade-in">
       {/* Main Content */}
-      <div className="flex-1 p-8 space-y-6 overflow-auto">
-        {/* Header */}
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-orange-100 rounded-lg">
-            <Printer className="w-8 h-8 text-orange-600" />
+      <div className="p-8 space-y-6 overflow-auto h-full">
+        {/* Header with Counter on Right */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-orange-100 rounded-lg">
+              <Printer className="w-8 h-8 text-orange-600" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">RFID Çamaşırhane</h1>
+              <p className="text-sm text-gray-500">by Karbeyaz Demet Laundry</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">RFID Çamaşırhane</h1>
-            <p className="text-sm text-gray-500">by Karbeyaz Demet Laundry</p>
+
+          {/* Counter on Right */}
+          <div className="flex items-center gap-4 bg-gray-900 text-white rounded-xl px-6 py-3">
+            <div className={`flex items-center gap-2 py-1 px-3 rounded-lg ${
+              currentShift === 'day'
+                ? 'bg-yellow-500/20 text-yellow-400'
+                : 'bg-indigo-500/20 text-indigo-400'
+            }`}>
+              {currentShift === 'day' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              <span className="font-medium text-sm">
+                {currentShift === 'day' ? 'Gündüz' : 'Gece'}
+              </span>
+            </div>
+            <div className="text-center">
+              <p className="text-3xl font-bold text-white">
+                {productCounter[currentShift]}
+              </p>
+              <p className="text-xs text-gray-400">ürün işlendi</p>
+            </div>
+            <div className="border-l border-gray-700 pl-4">
+              <p className="text-xs text-gray-500">
+                {currentShift === 'day' ? 'Gece' : 'Gündüz'}: {productCounter[currentShift === 'day' ? 'night' : 'day']}
+              </p>
+            </div>
           </div>
         </div>
 
