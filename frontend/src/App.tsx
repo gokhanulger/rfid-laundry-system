@@ -23,6 +23,7 @@ import { LocationTestPage } from './pages/LocationTestPage';
 import { IronerInterfacePage } from './pages/IronerInterfacePage';
 import { IronerLoginPage } from './pages/IronerLoginPage';
 import { PackagerLoginPage } from './pages/PackagerLoginPage';
+import { StationLoginPage } from './pages/StationLoginPage';
 import { PackagingPage } from './pages/PackagingPage';
 import { HotelManagementPage } from './pages/HotelManagementPage';
 import { UserManagementPage } from './pages/UserManagementPage';
@@ -69,6 +70,7 @@ function App() {
               <Route path="/login" element={<LoginPage />} />
               <Route path="/ironer" element={<IronerLoginPage />} />
               <Route path="/packager" element={<PackagerLoginPage />} />
+              <Route path="/station" element={<StationLoginPage />} />
               <Route
                 path="/"
                 element={
