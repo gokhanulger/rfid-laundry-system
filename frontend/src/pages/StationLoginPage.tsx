@@ -75,7 +75,7 @@ export function StationLoginPage() {
     const initAuth = async () => {
       const savedAuth = localStorage.getItem(STATION_AUTH_KEY);
       if (savedAuth && ['ironer', 'packager', 'auditor'].includes(savedAuth)) {
-        // Re-authenticate with backend to ensure token is valid
+        // Try to re-authenticate with backend for full access
         const creds = STATION_CREDENTIALS[savedAuth];
         if (creds) {
           try {
@@ -85,25 +85,14 @@ export function StationLoginPage() {
             });
             if (response.data?.token) {
               setStoredToken(response.data.token);
-              setAuthenticatedStation(savedAuth as StationType);
-            } else {
-              // No token received, clear saved auth
-              localStorage.removeItem(STATION_AUTH_KEY);
             }
           } catch (err: any) {
-            console.error('Backend re-auth failed:', err);
-            // If rate limited (429) or auth failed (401), clear saved auth and require fresh login
-            if (err?.response?.status === 429 || err?.response?.status === 401) {
-              console.log('Clearing saved auth due to error:', err?.response?.status);
-              localStorage.removeItem(STATION_AUTH_KEY);
-            } else {
-              // For other errors (network etc), still allow access with saved auth
-              setAuthenticatedStation(savedAuth as StationType);
-            }
+            console.error('Backend re-auth failed (continuing anyway):', err);
+            // Continue without token - public endpoints will still work
           }
-        } else {
-          localStorage.removeItem(STATION_AUTH_KEY);
         }
+        // Always restore session if saved auth exists
+        setAuthenticatedStation(savedAuth as StationType);
       }
       setIsLoading(false);
     };
@@ -120,8 +109,8 @@ export function StationLoginPage() {
       if (newPin.length === 4) {
         setTimeout(async () => {
           if (newPin === STATION_PINS[selectedStation]) {
+            // Try to authenticate with backend for full access
             try {
-              // Authenticate with backend to get JWT token using station-specific credentials
               const creds = STATION_CREDENTIALS[selectedStation];
               const response = await api.post('/auth/login', {
                 email: creds.email,
@@ -129,25 +118,14 @@ export function StationLoginPage() {
               });
               if (response.data?.token) {
                 setStoredToken(response.data.token);
-                localStorage.setItem(STATION_AUTH_KEY, selectedStation);
-                setAuthenticatedStation(selectedStation);
-              } else {
-                setError('Giriş başarısız - token alınamadı');
-                setPin('');
               }
             } catch (err: any) {
-              console.error('Backend auth failed:', err);
-              if (err?.response?.status === 429) {
-                setError('Çok fazla deneme! 5 dakika bekleyin.');
-                setPin('');
-              } else if (err?.response?.status === 401) {
-                setError('Geçersiz kullanıcı bilgileri');
-                setPin('');
-              } else {
-                setError('Bağlantı hatası - tekrar deneyin');
-                setPin('');
-              }
+              console.error('Backend auth failed (continuing anyway):', err);
+              // Continue without token - public endpoints will still work
             }
+            // Always allow access if PIN is correct
+            localStorage.setItem(STATION_AUTH_KEY, selectedStation);
+            setAuthenticatedStation(selectedStation);
           } else {
             setError('Yanlış şifre');
             setPin('');
