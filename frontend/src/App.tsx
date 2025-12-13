@@ -34,6 +34,7 @@ import { IrsaliyePage } from './pages/IrsaliyePage';
 import { HotelIrsaliyePage } from './pages/HotelIrsaliyePage';
 import HotelQRCodesPage from './pages/HotelQRCodesPage';
 import { HotelStatusBoardPage } from './pages/HotelStatusBoardPage';
+import { EtaIntegrationPage } from './pages/EtaIntegrationPage';
 
 // Driver Pages
 import { DirtyPickupPage } from './pages/driver/DirtyPickupPage';
@@ -112,6 +113,7 @@ function App() {
                 <Route path="users" element={<UserManagementPage />} />
                 <Route path="items" element={<ItemManagementPage />} />
                 <Route path="bulk-tag-assignment" element={<BulkTagAssignmentPage />} />
+                <Route path="eta-integration" element={<EtaIntegrationPage />} />
 
                 {/* Driver Pages */}
                 <Route path="driver" element={<Navigate to="/driver/dirty-pickup" replace />} />

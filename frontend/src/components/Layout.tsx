@@ -25,6 +25,7 @@ import {
   ChevronRight,
   MapPin,
   Grid3X3,
+  Database,
 } from 'lucide-react';
 
 // Storage key for sidebar state
@@ -107,6 +108,7 @@ export function Layout() {
     { name: 'Kullanici Yonetimi', href: '/users', icon: Users },
     { name: 'Urun Yonetimi', href: '/items', icon: Tag },
     { name: 'Toplu Tag Eslestirme', href: '/bulk-tag-assignment', icon: Tags },
+    { name: 'ETA Entegrasyonu', href: '/eta-integration', icon: Database },
     { name: 'Ayarlar', href: '/settings', icon: Settings },
   ];
 
