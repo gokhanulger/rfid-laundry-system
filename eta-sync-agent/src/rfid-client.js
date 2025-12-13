@@ -213,8 +213,8 @@ RfidClient.prototype.getDeliveredDeliveries = function(retryCount) {
   retryCount = retryCount || 0;
 
   // Birden fazla status icin ayri istekler yap
-  // label_printed ve delivered - etiketi basilan tum teslimatlar
-  var statuses = ['label_printed', 'delivered'];
+  // label_printed ve sonraki tum durumlar - etiketi basilan tum teslimatlar
+  var statuses = ['label_printed', 'packaged', 'picked_up', 'delivered'];
   var allDeliveries = [];
 
   function fetchStatus(index) {

@@ -579,16 +579,9 @@ export function IrsaliyePage() {
       }
     }
 
-    // Get unique delivery IDs from all packages and mark them as picked_up
-    const uniqueDeliveryIds = [...new Set(allPackages.map(({ delivery }) => delivery.id))];
-
-    // Call pickup API for each unique delivery
-    try {
-      await Promise.all(uniqueDeliveryIds.map(id => deliveriesApi.pickup(id)));
-      toast.success(`${totalPackageCount} paket sofor teslimatina eklendi.`);
-    } catch (error) {
-      toast.warning('Bazi paketler sofor sistemine eklenemedi.');
-    }
+    // NOT: Irsaliye yazdirildiginda status DEGISTIRME
+    // Sofor teslimati kendi ekranindan yapacak
+    toast.success(`${totalPackageCount} paket icin irsaliye yazdirildi.`);
 
     // Clear everything and exit hotel view
     handleClearAll();
