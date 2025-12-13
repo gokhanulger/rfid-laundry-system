@@ -26,6 +26,7 @@ interface ElectronAPI {
   getPrinters: () => Promise<PrinterInfo[]>;
   printDocument: (options: PrintOptions) => Promise<PrintResult>;
   printLabel: (html: string, printerName?: string, copies?: number) => Promise<PrintResult>;
+  printIrsaliye: (html: string, printerName?: string, copies?: number) => Promise<PrintResult>;
   isElectron: boolean;
   platform: string;
 }

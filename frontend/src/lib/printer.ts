@@ -119,6 +119,33 @@ export function getDeliveryPrinter(): string | null {
   return localStorage.getItem('deliveryPrinter');
 }
 
+// Save preferred bag label printer to localStorage
+export function saveBagPrinter(printerName: string): void {
+  localStorage.setItem('bagPrinter', printerName);
+}
+
+// Get preferred bag label printer from localStorage
+export function getBagPrinter(): string | null {
+  return localStorage.getItem('bagPrinter');
+}
+
+// Print irsaliye HTML silently (205mm x 217.5mm paper)
+export async function printIrsaliye(
+  html: string,
+  options: PrintOptions = {}
+): Promise<{ success: boolean; error?: string }> {
+  if (isElectron() && window.electronAPI) {
+    return window.electronAPI.printIrsaliye(
+      html,
+      options.printerName || getDeliveryPrinter() || undefined,
+      options.copies || 1
+    );
+  }
+
+  // Browser fallback: Open print dialog
+  return printInBrowser(html);
+}
+
 // Print PDF document to specific printer (for A4 documents like irsaliye)
 export async function printDocument(
   pdfDataUri: string,

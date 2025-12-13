@@ -171,6 +171,8 @@ export const deliveries = pgTable('deliveries', {
   deliveryAddress: text('delivery_address'), // Optional human-readable address
   bagCode: text('bag_code'), // Bag code for grouping multiple deliveries for driver
   notes: text('notes'),
+  etaSynced: boolean('eta_synced').default(false), // Whether synced to ETA accounting system
+  etaRefNo: text('eta_ref_no'), // Reference number from ETA system
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

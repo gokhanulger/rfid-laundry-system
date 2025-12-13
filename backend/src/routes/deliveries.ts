@@ -689,8 +689,13 @@ deliveriesRouter.post('/create-bag', requireRole('operator', 'laundry_manager', 
       return res.status(400).json({ error: 'deliveryIds is required and must be a non-empty array' });
     }
 
-    // Generate unique bag code
-    const bagCode = `BAG-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
+    // Generate unique bag code (max 8 characters: C + 7 alphanumeric)
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // No I, O, 0, 1 for clarity
+    let code = '';
+    for (let i = 0; i < 7; i++) {
+      code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    const bagCode = `C${code}`;
 
     // Update all deliveries with the bag code
     await db.update(deliveries)
@@ -835,6 +840,41 @@ deliveriesRouter.post('/deliver-bag/:bagCode', requireRole('driver', 'laundry_ma
     });
   } catch (error) {
     console.error('Deliver bag error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Update delivery (for ETA sync - only etaSynced and etaRefNo fields)
+deliveriesRouter.patch('/:id', requireRole('operator', 'laundry_manager', 'system_admin'), async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const { etaSynced, etaRefNo } = req.body;
+
+    // Verify delivery exists
+    const existingDelivery = await db.query.deliveries.findFirst({
+      where: eq(deliveries.id, id),
+    });
+    if (!existingDelivery) {
+      return res.status(404).json({ error: 'Delivery not found' });
+    }
+
+    // Only allow updating etaSynced and etaRefNo - do NOT change status
+    const updateData: any = { updatedAt: new Date() };
+    if (typeof etaSynced === 'boolean') {
+      updateData.etaSynced = etaSynced;
+    }
+    if (etaRefNo !== undefined) {
+      updateData.etaRefNo = etaRefNo;
+    }
+
+    const [updatedDelivery] = await db.update(deliveries)
+      .set(updateData)
+      .where(eq(deliveries.id, id))
+      .returning();
+
+    res.json(updatedDelivery);
+  } catch (error) {
+    console.error('Update delivery error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -65,8 +65,10 @@ export function PackagingPage() {
     mutationFn: (barcode: string) => deliveriesApi.getByBarcode(barcode),
     onSuccess: (delivery) => {
       if (delivery.status === 'label_printed') {
-        setScannedDelivery(delivery);
-        toast.success('Teslimat bulundu!');
+        // Otomatik olarak paketle ve irsaliye'ye geç
+        toast.success('Teslimat bulundu, paketleniyor...');
+        setPackagingDelivery(delivery);
+        packageMutation.mutate(delivery.id);
       } else if (delivery.status === 'packaged') {
         toast.warning('Bu teslimat zaten paketlendi');
       } else {
@@ -86,7 +88,7 @@ export function PackagingPage() {
   const packageMutation = useMutation({
     mutationFn: deliveriesApi.package,
     onSuccess: () => {
-      toast.success('Teslimat başarıyla paketlendi!');
+      toast.success('Teslimat başarıyla paketlendi! İrsaliye sayfasına yönlendiriliyor...');
 
       // Increment product counter based on delivery contents
       if (packagingDelivery) {
@@ -110,6 +112,7 @@ export function PackagingPage() {
       queryClient.invalidateQueries({ queryKey: ['deliveries'] });
       setScannedDelivery(null);
       setPackagingDelivery(null);
+      // Paketçi kendi ekranında kalır, paket irsaliye ekranına düşer
     },
     onError: (err) => {
       toast.error('Paketleme başarısız', getErrorMessage(err));

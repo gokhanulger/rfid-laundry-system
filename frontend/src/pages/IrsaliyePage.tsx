@@ -6,7 +6,7 @@ import { useToast } from '../components/Toast';
 import type { Delivery, DeliveryPackage } from '../types';
 import { jsPDF } from 'jspdf';
 import JsBarcode from 'jsbarcode';
-import { isElectron, getPrinters, getDeliveryPrinter, saveDeliveryPrinter, type Printer as PrinterType } from '../lib/printer';
+import { isElectron, getPrinters, getDeliveryPrinter, saveDeliveryPrinter, getBagPrinter, saveBagPrinter, printIrsaliye, printLabel, type Printer as PrinterType } from '../lib/printer';
 
 interface ScannedPackage {
   delivery: Delivery;
@@ -58,7 +58,9 @@ export function IrsaliyePage() {
   // Printer settings
   const [printers, setPrinters] = useState<PrinterType[]>([]);
   const [selectedPrinter, setSelectedPrinter] = useState<string>(getDeliveryPrinter() || '');
+  const [selectedBagPrinter, setSelectedBagPrinter] = useState<string>(getBagPrinter() || '');
   const [showPrinterSettings, setShowPrinterSettings] = useState(false);
+  const [printerTab, setPrinterTab] = useState<'irsaliye' | 'bag'>('irsaliye');
 
   // Load printers on mount
   useEffect(() => {
@@ -72,6 +74,13 @@ export function IrsaliyePage() {
     setSelectedPrinter(printerName);
     saveDeliveryPrinter(printerName);
     toast.success(`Irsaliye yazicisi secildi: ${printerName}`);
+  };
+
+  // Save bag printer selection
+  const handleBagPrinterChange = (printerName: string) => {
+    setSelectedBagPrinter(printerName);
+    saveBagPrinter(printerName);
+    toast.success(`Cuval etiketi yazicisi secildi: ${printerName}`);
   };
 
   // Get tenants for hotel selection
@@ -449,34 +458,106 @@ export function IrsaliyePage() {
     doc.setFontSize(8);
     doc.text('RFID Camasirhane Sistemi', pageWidth / 2, yPos, { align: 'center' });
 
-    // Print to selected printer or show print dialog
-    const pdfDataUri = doc.output('datauristring');
+    // Generate HTML for printing (pure HTML, no PDF embedding)
+    const printHtml = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <style>
+          @page {
+            size: 205mm 217.5mm;
+            margin: 5mm;
+          }
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body {
+            font-family: Arial, sans-serif;
+            font-size: 12pt;
+            padding: 10mm;
+          }
+          .header { text-align: right; font-size: 16pt; font-weight: bold; margin-bottom: 10mm; }
+          .customer { margin-bottom: 5mm; }
+          .customer-label { font-size: 10pt; font-weight: bold; }
+          .customer-name { font-size: 14pt; font-weight: bold; }
+          .customer-address { font-size: 9pt; color: #333; }
+          .doc-info { position: absolute; top: 10mm; right: 10mm; text-align: right; font-size: 10pt; }
+          .divider { border-top: 1px solid #000; margin: 5mm 0; }
+          .table-header { display: flex; justify-content: space-between; font-weight: bold; font-size: 10pt; padding: 2mm 0; border-bottom: 1px solid #333; }
+          .table-row { display: flex; justify-content: space-between; font-size: 11pt; padding: 2mm 0; }
+          .totals { margin-top: 10mm; font-size: 14pt; font-weight: bold; }
+          .totals-row { display: flex; justify-content: space-between; padding: 2mm 0; }
+          .signature-section { margin-top: 15mm; display: flex; justify-content: space-around; text-align: center; }
+          .signature-box { width: 40%; }
+          .signature-label { font-size: 10pt; margin-bottom: 15mm; }
+          .signature-line { border-top: 1px solid #000; width: 80%; margin: 0 auto; }
+          .footer { text-align: center; font-size: 8pt; color: #666; margin-top: 10mm; }
+        </style>
+      </head>
+      <body>
+        <div class="header">TEMIZ IRSALIYESI</div>
+
+        <div class="customer">
+          <div class="customer-label">Sayin:</div>
+          <div class="customer-name">${hotel?.name || 'Bilinmeyen Otel'}</div>
+          ${hotel?.address ? `<div class="customer-address">${hotel.address.replace(/\n/g, '<br>')}</div>` : ''}
+        </div>
+
+        <div class="doc-info">
+          <div><strong>Belge No:</strong> ${documentNo}</div>
+          <div><strong>Tarih:</strong> ${today}</div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="table-header">
+          <span>CINSI</span>
+          <span>MIKTARI</span>
+        </div>
+
+        ${totals.map(item => `
+          <div class="table-row">
+            <span>${item.name.toUpperCase()}</span>
+            <span>${item.count} adet</span>
+          </div>
+        `).join('')}
+
+        <div class="divider"></div>
+
+        <div class="totals">
+          <div class="totals-row">
+            <span>CUVAL SAYISI:</span>
+            <span>${bags.length}</span>
+          </div>
+          <div class="totals-row">
+            <span>PAKET SAYISI:</span>
+            <span>${totalPackageCount}</span>
+          </div>
+        </div>
+
+        <div class="signature-section">
+          <div class="signature-box">
+            <div class="signature-label">Teslim Eden</div>
+            <div class="signature-line"></div>
+          </div>
+          <div class="signature-box">
+            <div class="signature-label">Teslim Alan</div>
+            <div class="signature-line"></div>
+          </div>
+        </div>
+
+        <div class="footer">RFID Camasirhane Sistemi</div>
+      </body>
+      </html>
+    `;
 
     if (isElectron() && selectedPrinter) {
-      // Electron: Create printable HTML and send to printer
-      const printHtml = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <style>
-            @page { size: A4; margin: 0; }
-            @media print { html, body { margin: 0; padding: 0; } }
-            body { margin: 0; padding: 0; }
-            embed { width: 100%; height: 100vh; }
-          </style>
-        </head>
-        <body>
-          <embed src="${pdfDataUri}" type="application/pdf" width="100%" height="100%">
-        </body>
-        </html>
-      `;
-
+      // Electron: Send HTML to irsaliye printer (205mm x 217.5mm)
       try {
-        const result = await window.electronAPI?.printLabel(printHtml, selectedPrinter, 1);
+        const result = await printIrsaliye(printHtml, { printerName: selectedPrinter });
         if (result?.success) {
           toast.success('Irsaliye yaziciya gonderildi!');
         } else {
-          // Fallback: save as file
+          // Fallback: save as PDF file
           const filename = `irsaliye-${hotel?.name?.replace(/\s+/g, '-') || 'otel'}-${documentNo}.pdf`;
           doc.save(filename);
           toast.info('Yazici hatasi, dosya olarak kaydedildi');
@@ -486,17 +567,10 @@ export function IrsaliyePage() {
         doc.save(filename);
       }
     } else {
-      // Browser or no printer selected: Open print dialog
+      // Browser or no printer selected: Open print dialog with HTML
       const printWindow = window.open('', '_blank');
       if (printWindow) {
-        printWindow.document.write(`
-          <html>
-          <head><title>Irsaliye</title></head>
-          <body style="margin:0">
-            <embed src="${pdfDataUri}" type="application/pdf" width="100%" height="100%" style="position:absolute;top:0;left:0;right:0;bottom:0;">
-          </body>
-          </html>
-        `);
+        printWindow.document.write(printHtml);
         printWindow.document.close();
         setTimeout(() => {
           printWindow.focus();
@@ -654,7 +728,7 @@ export function IrsaliyePage() {
   // Generate bag label for driver scanning
   const generateBagLabel = async () => {
     if (scannedPackages.length === 0) {
-      toast.error('Lutfen once paketleri tarayin');
+      toast.error('Lütfen önce paketleri tarayın');
       return;
     }
 
@@ -670,87 +744,143 @@ export function IrsaliyePage() {
       const totals = calculateTotals();
       const today = new Date().toLocaleDateString('tr-TR');
 
-      // Create PDF label (60mm x 80mm)
-      const doc = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: [60, 80],
-      });
-
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const margin = 3;
-      let yPos = 5;
-
-      // Header
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'bold');
-      doc.text('CUVAL', pageWidth / 2, yPos, { align: 'center' });
-
-      yPos += 5;
-
-      // Hotel name (truncate if too long)
-      doc.setFontSize(8);
-      const hotelName = hotel?.name || 'Bilinmeyen Otel';
-      const truncatedName = hotelName.length > 20 ? hotelName.substring(0, 18) + '...' : hotelName;
-      doc.text(truncatedName, pageWidth / 2, yPos, { align: 'center' });
-
-      yPos += 4;
-
-      // Date and package count
-      doc.setFontSize(7);
-      doc.setFont('helvetica', 'normal');
-      doc.text(`${today} - ${scannedPackages.length} Paket`, pageWidth / 2, yPos, { align: 'center' });
-
-      yPos += 5;
-
-      // Items list (compact)
-      doc.setFontSize(6);
-      doc.setLineWidth(0.2);
-      doc.line(margin, yPos, pageWidth - margin, yPos);
-      yPos += 3;
-
-      // Show max 4 items
-      const displayTotals = totals.slice(0, 4);
-      displayTotals.forEach(item => {
-        const itemName = item.name.length > 12 ? item.name.substring(0, 10) + '..' : item.name;
-        doc.text(itemName, margin, yPos);
-        doc.text(`${item.count}`, pageWidth - margin, yPos, { align: 'right' });
-        yPos += 3.5;
-      });
-      if (totals.length > 4) {
-        doc.text(`+${totals.length - 4} tur daha`, margin, yPos);
-        yPos += 3.5;
-      }
-
-      doc.line(margin, yPos, pageWidth - margin, yPos);
-      yPos += 4;
-
-      // Generate barcode as SVG, convert to image
+      // Generate barcode as image
       const canvas = document.createElement('canvas');
       JsBarcode(canvas, bagCode, {
         format: 'CODE128',
-        width: 1.5,
-        height: 30,
+        width: 2,
+        height: 40,
         displayValue: true,
-        fontSize: 10,
-        margin: 2,
+        fontSize: 14,
+        margin: 5,
       });
-
-      // Add barcode image to PDF
       const barcodeDataUrl = canvas.toDataURL('image/png');
-      const barcodeWidth = pageWidth - margin * 2;
-      const barcodeHeight = 18;
-      doc.addImage(barcodeDataUrl, 'PNG', margin, yPos, barcodeWidth, barcodeHeight);
 
-      yPos += barcodeHeight + 3;
+      // Create HTML label (60mm x 80mm) with Turkish character support
+      const hotelName = hotel?.name || 'Bilinmeyen Otel';
+      const truncatedName = hotelName.length > 25 ? hotelName.substring(0, 23) + '...' : hotelName;
 
-      // Footer
-      doc.setFontSize(5);
-      doc.text('El terminalinden okutun', pageWidth / 2, yPos, { align: 'center' });
+      const printHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <style>
+            @page {
+              size: 60mm 80mm;
+              margin: 0;
+            }
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body {
+              font-family: Arial, sans-serif;
+              width: 60mm;
+              height: 80mm;
+              padding: 2mm;
+              display: flex;
+              flex-direction: column;
+            }
+            .header {
+              text-align: center;
+              font-size: 12pt;
+              font-weight: bold;
+              margin-bottom: 2mm;
+            }
+            .hotel {
+              text-align: center;
+              font-size: 9pt;
+              font-weight: bold;
+              margin-bottom: 1mm;
+            }
+            .info {
+              text-align: center;
+              font-size: 8pt;
+              color: #333;
+              margin-bottom: 2mm;
+            }
+            .divider {
+              border-top: 1px solid #000;
+              margin: 1mm 0;
+            }
+            .items {
+              font-size: 7pt;
+              flex: 1;
+            }
+            .item-row {
+              display: flex;
+              justify-content: space-between;
+              padding: 0.5mm 0;
+            }
+            .barcode-container {
+              text-align: center;
+              margin-top: auto;
+            }
+            .barcode-container img {
+              max-width: 100%;
+              height: auto;
+            }
+            .footer {
+              text-align: center;
+              font-size: 6pt;
+              color: #666;
+              margin-top: 1mm;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">ÇUVAL</div>
+          <div class="hotel">${truncatedName}</div>
+          <div class="info">${today} - ${scannedPackages.length} Paket</div>
 
-      // Save PDF
-      const filename = `cuval-${hotel?.name?.replace(/\s+/g, '-') || 'otel'}-${bagCode}.pdf`;
-      doc.save(filename);
+          <div class="divider"></div>
+
+          <div class="items">
+            ${totals.slice(0, 5).map(item => `
+              <div class="item-row">
+                <span>${item.name.length > 15 ? item.name.substring(0, 13) + '..' : item.name}</span>
+                <span>${item.count}</span>
+              </div>
+            `).join('')}
+            ${totals.length > 5 ? `<div class="item-row"><span>+${totals.length - 5} tür daha</span><span></span></div>` : ''}
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="barcode-container">
+            <img src="${barcodeDataUrl}" alt="${bagCode}">
+          </div>
+
+          <div class="footer">El terminalinden okutun</div>
+        </body>
+        </html>
+      `;
+
+      // Print to selected bag printer or show print dialog
+      if (isElectron() && selectedBagPrinter) {
+        try {
+          const result = await printLabel(printHtml, { printerName: selectedBagPrinter });
+          if (result?.success) {
+            toast.success(`Çuval etiketi yazıcıya gönderildi!`);
+          } else {
+            toast.warning('Yazıcı hatası, tarayıcıda açılıyor...');
+            const printWindow = window.open('', '_blank');
+            if (printWindow) {
+              printWindow.document.write(printHtml);
+              printWindow.document.close();
+              setTimeout(() => { printWindow.focus(); printWindow.print(); }, 500);
+            }
+          }
+        } catch {
+          toast.warning('Yazıcı hatası');
+        }
+      } else {
+        // Browser or no printer selected: Open print dialog
+        const printWindow = window.open('', '_blank');
+        if (printWindow) {
+          printWindow.document.write(printHtml);
+          printWindow.document.close();
+          setTimeout(() => { printWindow.focus(); printWindow.print(); }, 500);
+        }
+      }
 
       // DON'T mark packages as picked up yet - wait for irsaliye
       // Just add the packages to a bag for visual tracking
@@ -764,7 +894,7 @@ export function IrsaliyePage() {
       };
       setBags(prev => [...prev, newBag]);
 
-      toast.success(`Cuval etiketi basildi! ${scannedPackages.length} paket ${bagCode} cuvalina eklendi. Diger paketleri secmeye devam edin.`);
+      toast.success(`${scannedPackages.length} paket ${bagCode} çuvalına eklendi.`);
 
       // Clear scanned packages but STAY on hotel view
       handleClearScanned();
@@ -773,7 +903,7 @@ export function IrsaliyePage() {
       queryClient.invalidateQueries({ queryKey: ['deliveries'] });
       refetch();
     } catch (error) {
-      toast.error('Cuval etiketi olusturulamadi', getErrorMessage(error));
+      toast.error('Çuval etiketi oluşturulamadı', getErrorMessage(error));
     }
   };
 
@@ -922,11 +1052,11 @@ export function IrsaliyePage() {
       {/* Printer Settings Modal */}
       {showPrinterSettings && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md mx-4">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-lg mx-4">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
                 <Printer className="w-6 h-6 text-teal-600" />
-                Irsaliye Yazicisi
+                Yazici Ayarlari
               </h2>
               <button
                 onClick={() => setShowPrinterSettings(false)}
@@ -936,36 +1066,91 @@ export function IrsaliyePage() {
               </button>
             </div>
 
-            <p className="text-gray-600 text-sm mb-4">
-              Irsaliyeler bu yazicidan yazdirilacak (A4 kagit)
-            </p>
+            {/* Tabs */}
+            <div className="flex border-b mb-4">
+              <button
+                onClick={() => setPrinterTab('irsaliye')}
+                className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+                  printerTab === 'irsaliye'
+                    ? 'text-teal-600 border-b-2 border-teal-600'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Irsaliye Yazicisi
+              </button>
+              <button
+                onClick={() => setPrinterTab('bag')}
+                className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+                  printerTab === 'bag'
+                    ? 'text-orange-600 border-b-2 border-orange-600'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Cuval Etiketi Yazicisi
+              </button>
+            </div>
+
+            {printerTab === 'irsaliye' ? (
+              <>
+                <p className="text-gray-600 text-sm mb-4">
+                  Irsaliyeler bu yazicidan yazdirilacak (205mm x 217.5mm kagit)
+                </p>
+                <div className="text-sm text-teal-600 mb-2">
+                  Secili: <strong>{selectedPrinter || 'Secilmedi'}</strong>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-gray-600 text-sm mb-4">
+                  Cuval etiketleri bu yazicidan yazdirilacak (60mm x 80mm etiket)
+                </p>
+                <div className="text-sm text-orange-600 mb-2">
+                  Secili: <strong>{selectedBagPrinter || 'Secilmedi'}</strong>
+                </div>
+              </>
+            )}
 
             <div className="space-y-2 max-h-64 overflow-y-auto">
               {printers.length === 0 ? (
                 <p className="text-gray-500 text-center py-4">Yazici bulunamadi</p>
               ) : (
-                printers.map(printer => (
-                  <button
-                    key={printer.name}
-                    onClick={() => {
-                      handlePrinterChange(printer.name);
-                      setShowPrinterSettings(false);
-                    }}
-                    className={`w-full text-left px-4 py-3 rounded-lg border-2 transition-all ${
-                      selectedPrinter === printer.name
-                        ? 'border-teal-500 bg-teal-50 text-teal-700'
-                        : 'border-gray-200 hover:border-gray-300'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">{printer.displayName}</span>
-                      {printer.isDefault && (
-                        <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">Varsayilan</span>
-                      )}
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">{printer.name}</p>
-                  </button>
-                ))
+                printers.map(printer => {
+                  const isSelected = printerTab === 'irsaliye'
+                    ? selectedPrinter === printer.name
+                    : selectedBagPrinter === printer.name;
+                  const accentColor = printerTab === 'irsaliye' ? 'teal' : 'orange';
+
+                  return (
+                    <button
+                      key={printer.name}
+                      onClick={() => {
+                        if (printerTab === 'irsaliye') {
+                          handlePrinterChange(printer.name);
+                        } else {
+                          handleBagPrinterChange(printer.name);
+                        }
+                      }}
+                      className={`w-full text-left px-4 py-3 rounded-lg border-2 transition-all ${
+                        isSelected
+                          ? `border-${accentColor}-500 bg-${accentColor}-50 text-${accentColor}-700`
+                          : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                      style={isSelected ? {
+                        borderColor: printerTab === 'irsaliye' ? '#14b8a6' : '#f97316',
+                        backgroundColor: printerTab === 'irsaliye' ? '#f0fdfa' : '#fff7ed',
+                        color: printerTab === 'irsaliye' ? '#0f766e' : '#c2410c'
+                      } : {}}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{printer.displayName}</span>
+                        {printer.isDefault && (
+                          <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">Varsayilan</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">{printer.name}</p>
+                    </button>
+                  );
+                })
               )}
             </div>
 

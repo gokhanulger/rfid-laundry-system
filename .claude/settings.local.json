@@ -114,7 +114,16 @@
       "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImI2OTViNjFlLTg0YjItNDIzZi1hMDZhLTZiYmYwZGNkN2U5OCIsImVtYWlsIjoiYWRtaW5AbGF1bmRyeS5jb20iLCJmaXJzdE5hbWUiOiJTeXN0ZW0iLCJsYXN0TmFtZSI6IkFkbWluIiwicm9sZSI6InN5c3RlbV9hZG1pbiIsInRlbmFudElkIjpudWxsLCJpYXQiOjE3NjU1NTExNzAsImV4cCI6MTc2NjE1NTk3MH0.S-oWBcpE-ZEjtLsHsX8LMWc6bFHQF90yvBeNQcb2pn8\")",
       "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImI2OTViNjFlLTg0YjItNDIzZi1hMDZhLTZiYmYwZGNkN2U5OCIsImVtYWlsIjoiYWRtaW5AbGF1bmRyeS5jb20iLCJmaXJzdE5hbWUiOiJTeXN0ZW0iLCJsYXN0TmFtZSI6IkFkbWluIiwicm9sZSI6InN5c3RlbV9hZG1pbiIsInRlbmFudElkIjpudWxsLCJpYXQiOjE3NjU1NTIzMTEsImV4cCI6MTc2NjE1NzExMX0.KPsYzYFH_tM6VgZH5szfp1KlBLOKx0WUen6aThVotKU\")",
       "Bash(__NEW_LINE__ echo \"Testing packager login...\")",
-      "Bash(__NEW_LINE__ echo \"Testing admin login...\")"
+      "Bash(__NEW_LINE__ echo \"Testing admin login...\")",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImI2OTViNjFlLTg0YjItNDIzZi1hMDZhLTZiYmYwZGNkN2U5OCIsImVtYWlsIjoiYWRtaW5AbGF1bmRyeS5jb20iLCJmaXJzdE5hbWUiOiJTeXN0ZW0iLCJsYXN0TmFtZSI6IkFkbWluIiwicm9sZSI6InN5c3RlbV9hZG1pbiIsInRlbmFudElkIjpudWxsLCJpYXQiOjE3NjU1NTQwNzIsImV4cCI6MTc2NjE1ODg3Mn0.ySTYA7U2q1OyKPHdvpIjsWp7H3NkBvNaGe8bscSGnRk\")",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImI2OTViNjFlLTg0YjItNDIzZi1hMDZhLTZiYmYwZGNkN2U5OCIsImVtYWlsIjoiYWRtaW5AbGF1bmRyeS5jb20iLCJmaXJzdE5hbWUiOiJTeXN0ZW0iLCJsYXN0TmFtZSI6IkFkbWluIiwicm9sZSI6InN5c3RlbV9hZG1pbiIsInRlbmFudElkIjpudWxsLCJpYXQiOjE3NjU1NTQxNzUsImV4cCI6MTc2NjE1ODk3NX0.BIPZCcyWFM_rdNPBmjJD7bU1Qw3EprOwTV0KZdkKEcQ\")",
+      "Bash(git stash:*)",
+      "Bash(git checkout:*)",
+      "Bash(npx pkg:*)",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImI2OTViNjFlLTg0YjItNDIzZi1hMDZhLTZiYmYwZGNkN2U5OCIsImVtYWlsIjoiYWRtaW5AbGF1bmRyeS5jb20iLCJmaXJzdE5hbWUiOiJTeXN0ZW0iLCJsYXN0TmFtZSI6IkFkbWluIiwicm9sZSI6InN5c3RlbV9hZG1pbiIsInRlbmFudElkIjpudWxsLCJpYXQiOjE3NjU2MzAzOTksImV4cCI6MTc2NjIzNTE5OX0.Qx1Hy6cvA0HEazgXwyaLT5ZK1Gj_P9sWEfBRqKnK3iM\")",
+      "Bash(node -e:*)",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImI2OTViNjFlLTg0YjItNDIzZi1hMDZhLTZiYmYwZGNkN2U5OCIsImVtYWlsIjoiYWRtaW5AbGF1bmRyeS5jb20iLCJmaXJzdE5hbWUiOiJTeXN0ZW0iLCJsYXN0TmFtZSI6IkFkbWluIiwicm9sZSI6InN5c3RlbV9hZG1pbiIsInRlbmFudElkIjpudWxsLCJpYXQiOjE3NjU2MzA3MzUsImV4cCI6MTc2NjIzNTUzNX0.XXTlzwkO0VyCecMGBCX2bT9L0ykI6kjKLa3_0ylIHX0\")",
+      "Bash(__NEW_LINE__ curl -s \"https://rfid-laundry-backend-production.up.railway.app/api/settings/tenants\" -H \"Authorization: Bearer $TOKEN\")"
     ],
     "deny": [],
     "ask": []
