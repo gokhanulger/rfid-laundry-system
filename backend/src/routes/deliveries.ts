@@ -510,7 +510,7 @@ deliveriesRouter.post('/packages/:barcode/scan', requireRole('driver', 'laundry_
 });
 
 // Pick up delivery (driver) - Legacy endpoint, kept for backward compatibility
-deliveriesRouter.post('/:id/pickup', requireRole('driver', 'laundry_manager', 'system_admin'), async (req: AuthRequest, res) => {
+deliveriesRouter.post('/:id/pickup', requireRole('driver', 'laundry_manager', 'system_admin', 'packager', 'ironer', 'operator'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
 
