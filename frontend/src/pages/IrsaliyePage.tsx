@@ -579,8 +579,15 @@ export function IrsaliyePage() {
       }
     }
 
-    // NOT: Irsaliye yazdirildiginda status DEGISTIRME
-    // Sofor teslimati kendi ekranindan yapacak
+    // Irsaliye yazdirildiginda paketlerin durumunu label_printed olarak guncelle
+    // Boylece otel karti listeden kaybolur
+    const uniqueDeliveryIds = [...new Set(allPackages.map(({ delivery }) => delivery.id))];
+    try {
+      await Promise.all(uniqueDeliveryIds.map(id => deliveriesApi.printLabel(id)));
+    } catch (error) {
+      console.error('Paket durumu guncellenirken hata:', error);
+    }
+
     toast.success(`${totalPackageCount} paket icin irsaliye yazdirildi.`);
 
     // Clear everything and exit hotel view
@@ -925,9 +932,17 @@ export function IrsaliyePage() {
   const totals = calculateTotals();
   const packagedList = packagedDeliveries?.data || [];
 
-  // Group packaged deliveries by hotel with item summary
+  // Get all processed delivery IDs (scanned + in bags)
+  const processedDeliveryIds = new Set([
+    ...scannedPackages.map(sp => sp.delivery.id),
+    ...packagesInBags.map(sp => sp.delivery.id),
+  ]);
+
+  // Group packaged deliveries by hotel with item summary (exclude processed ones)
   const hotelPackageStatuses: HotelPackageStatus[] = (tenants || []).map(tenant => {
-    const hotelDeliveries = packagedList.filter((d: Delivery) => d.tenantId === tenant.id);
+    const hotelDeliveries = packagedList.filter((d: Delivery) =>
+      d.tenantId === tenant.id && !processedDeliveryIds.has(d.id)
+    );
 
     // Calculate item summary for this hotel
     const itemTotals: Record<string, { name: string; count: number }> = {};
@@ -1006,8 +1021,13 @@ export function IrsaliyePage() {
     }
   };
 
-  // Get selected hotel's deliveries
+  // Get selected hotel's deliveries (all for display in grid)
   const selectedHotelDeliveries = packagedList.filter((d: Delivery) => d.tenantId === selectedHotelId);
+
+  // Get remaining (unprocessed) deliveries for this hotel
+  const remainingHotelDeliveries = selectedHotelDeliveries.filter(
+    (d: Delivery) => !processedDeliveryIds.has(d.id)
+  );
 
   return (
     <div className="p-8 space-y-6 animate-fade-in">
@@ -1301,7 +1321,10 @@ export function IrsaliyePage() {
                         <Building2 className="w-8 h-8 text-white" />
                         <div>
                           <h2 className="text-xl font-bold text-white">{selectedHotel?.name}</h2>
-                          <p className="text-teal-100">{selectedHotelDeliveries.length} paket hazir</p>
+                          <p className="text-teal-100">
+                            {remainingHotelDeliveries.length} paket kaldi
+                            {processedDeliveryIds.size > 0 && ` (${scannedPackages.length + packagesInBags.length} tarandi)`}
+                          </p>
                         </div>
                       </div>
                       <button
@@ -1387,14 +1410,11 @@ export function IrsaliyePage() {
 
                         {/* Buttons - always show when hotel selected */}
                         <div className="space-y-2">
-                          {/* Tümünü Seç butonu - hiç paket seçilmemişse */}
-                          {scannedPackages.length === 0 && bags.length === 0 && selectedHotelDeliveries.length > 0 && (
+                          {/* Tümünü Seç butonu - hiç paket seçilmemişse ve kalan paket varsa */}
+                          {scannedPackages.length === 0 && bags.length === 0 && remainingHotelDeliveries.length > 0 && (
                             <button
                               onClick={() => {
-                                const availableDeliveries = selectedHotelDeliveries.filter(
-                                  (d: Delivery) => !isPackageInBag(d.id)
-                                );
-                                availableDeliveries.forEach((delivery: Delivery) => {
+                                remainingHotelDeliveries.forEach((delivery: Delivery) => {
                                   const pkg = delivery.deliveryPackages?.[0] || {
                                     id: `virtual-${delivery.id}`,
                                     deliveryId: delivery.id,
@@ -1408,12 +1428,12 @@ export function IrsaliyePage() {
                                   };
                                   setScannedPackages(prev => [...prev, { delivery, pkg }]);
                                 });
-                                toast.success(`${availableDeliveries.length} paket eklendi`);
+                                toast.success(`${remainingHotelDeliveries.length} paket eklendi`);
                               }}
                               className="w-full py-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 font-bold flex items-center justify-center gap-2 shadow-lg"
                             >
                               <Package className="w-5 h-5" />
-                              TUMUNU SEC ({selectedHotelDeliveries.filter((d: Delivery) => !isPackageInBag(d.id)).length} paket)
+                              TUMUNU SEC ({remainingHotelDeliveries.length} paket)
                             </button>
                           )}
 
