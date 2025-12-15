@@ -347,9 +347,22 @@ export function IrsaliyePage() {
       return;
     }
 
+    // ONCE BACKEND'E KAYDET - Basarisiz olursa PDF yazdirma
+    const uniqueDeliveryIds = [...new Set(allPackages.map(({ delivery }) => delivery.id))];
+
+    let waybill;
+    try {
+      waybill = await waybillsApi.create(uniqueDeliveryIds, bags.length);
+      toast.success(`Irsaliye ${waybill.waybillNumber} olusturuldu. ${uniqueDeliveryIds.length} paket eklendi.`);
+    } catch (error) {
+      console.error('Irsaliye olusturulurken hata:', error);
+      toast.error('Irsaliye olusturulamadi: ' + getErrorMessage(error));
+      return; // API basarisiz - PDF yazdirma
+    }
+
     const hotel = tenants?.find(t => t.id === selectedHotelId);
     const totals = calculateAllTotals();
-    const documentNo = `A-${Date.now().toString().slice(-9)}`;
+    const documentNo = waybill.waybillNumber;
     const today = new Date().toLocaleDateString('tr-TR');
     const totalPackageCount = allPackages.length;
 
@@ -577,18 +590,6 @@ export function IrsaliyePage() {
           printWindow.print();
         }, 500);
       }
-    }
-
-    // Irsaliye olustur ve paketlerin durumunu guncelle
-    const uniqueDeliveryIds = [...new Set(allPackages.map(({ delivery }) => delivery.id))];
-
-    try {
-      // Waybill API ile tek bir irsaliye olustur
-      const waybill = await waybillsApi.create(uniqueDeliveryIds, bags.length);
-      toast.success(`Irsaliye ${waybill.waybillNumber} olusturuldu. ${uniqueDeliveryIds.length} paket eklendi.`);
-    } catch (error) {
-      console.error('Irsaliye olusturulurken hata:', error);
-      toast.error('Irsaliye olusturulamadi: ' + getErrorMessage(error));
     }
 
     // Clear everything and exit hotel view
