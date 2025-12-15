@@ -56,6 +56,9 @@ export function ItemManagementPage() {
   // Check if user is hotel owner (should only see their own data)
   const isHotelOwner = user?.role === 'hotel_owner';
 
+  // Check if user is admin (can delete items)
+  const isAdmin = user?.role === 'system_admin' || user?.role === 'admin';
+
   // Load selected hotels from localStorage on mount
   useEffect(() => {
     const savedHotels = localStorage.getItem(SELECTED_HOTELS_KEY);
@@ -550,13 +553,15 @@ export function ItemManagementPage() {
                                       >
                                         <Edit2 className="w-5 h-5" />
                                       </button>
-                                      <button
-                                        onClick={() => handleDelete(item)}
-                                        className="p-3 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                        title="Sil"
-                                      >
-                                        <Trash2 className="w-5 h-5" />
-                                      </button>
+                                      {isAdmin && (
+                                        <button
+                                          onClick={() => handleDelete(item)}
+                                          className="p-3 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                          title="Sil"
+                                        >
+                                          <Trash2 className="w-5 h-5" />
+                                        </button>
+                                      )}
                                     </div>
                                   </div>
                                 ))}

@@ -384,7 +384,7 @@ export function ReconciliationPage() {
 
       {/* Summary Stats */}
       {data && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className={`grid grid-cols-2 ${isHotelOwner ? 'md:grid-cols-3' : 'md:grid-cols-4'} gap-4`}>
           <div className="bg-white rounded-xl shadow p-4">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-orange-100 rounded-lg">
@@ -411,19 +411,21 @@ export function ReconciliationPage() {
               </div>
             </div>
           </div>
-          <div className="bg-white rounded-xl shadow p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-yellow-100 rounded-lg">
-                <Clock className="w-6 h-6 text-yellow-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-yellow-600">
-                  {data.summary.pendingReturn}
-                </p>
-                <p className="text-sm text-gray-500">Bekleyen</p>
+          {!isHotelOwner && (
+            <div className="bg-white rounded-xl shadow p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-yellow-100 rounded-lg">
+                  <Clock className="w-6 h-6 text-yellow-600" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-yellow-600">
+                    {data.summary.pendingReturn}
+                  </p>
+                  <p className="text-sm text-gray-500">Bekleyen</p>
+                </div>
               </div>
             </div>
-          </div>
+          )}
           <div className="bg-white rounded-xl shadow p-4">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-red-100 rounded-lg">
@@ -456,24 +458,28 @@ export function ReconciliationPage() {
               <p className="text-2xl font-bold text-yellow-600">{data.summary.atLaundry}</p>
               <p className="text-xs text-gray-500">Camasirhanede</p>
             </div>
-            <div className="text-2xl text-gray-300">→</div>
-            <div className="text-center p-4 bg-white rounded-lg shadow">
-              <Clock className="w-8 h-8 text-blue-500 mx-auto mb-2" />
-              <p className="text-2xl font-bold text-blue-600">{data.summary.inProcessing}</p>
-              <p className="text-xs text-gray-500">Isleniyor</p>
-            </div>
-            <div className="text-2xl text-gray-300">→</div>
-            <div className="text-center p-4 bg-white rounded-lg shadow">
-              <Package className="w-8 h-8 text-green-500 mx-auto mb-2" />
-              <p className="text-2xl font-bold text-green-600">{data.summary.readyForDelivery}</p>
-              <p className="text-xs text-gray-500">Hazir</p>
-            </div>
-            <div className="text-2xl text-gray-300">→</div>
-            <div className="text-center p-4 bg-white rounded-lg shadow">
-              <Truck className="w-8 h-8 text-purple-500 mx-auto mb-2" />
-              <p className="text-2xl font-bold text-purple-600">{data.summary.inTransit}</p>
-              <p className="text-xs text-gray-500">Yolda</p>
-            </div>
+            {!isHotelOwner && (
+              <>
+                <div className="text-2xl text-gray-300">→</div>
+                <div className="text-center p-4 bg-white rounded-lg shadow">
+                  <Clock className="w-8 h-8 text-blue-500 mx-auto mb-2" />
+                  <p className="text-2xl font-bold text-blue-600">{data.summary.inProcessing}</p>
+                  <p className="text-xs text-gray-500">Isleniyor</p>
+                </div>
+                <div className="text-2xl text-gray-300">→</div>
+                <div className="text-center p-4 bg-white rounded-lg shadow">
+                  <Package className="w-8 h-8 text-green-500 mx-auto mb-2" />
+                  <p className="text-2xl font-bold text-green-600">{data.summary.readyForDelivery}</p>
+                  <p className="text-xs text-gray-500">Hazir</p>
+                </div>
+                <div className="text-2xl text-gray-300">→</div>
+                <div className="text-center p-4 bg-white rounded-lg shadow">
+                  <Truck className="w-8 h-8 text-purple-500 mx-auto mb-2" />
+                  <p className="text-2xl font-bold text-purple-600">{data.summary.inTransit}</p>
+                  <p className="text-xs text-gray-500">Yolda</p>
+                </div>
+              </>
+            )}
             <div className="text-2xl text-gray-300">→</div>
             <div className="text-center p-4 bg-white rounded-lg shadow">
               <CheckCircle className="w-8 h-8 text-green-500 mx-auto mb-2" />
@@ -537,8 +543,8 @@ export function ReconciliationPage() {
             'atLaundry'
           )}
 
-          {/* In Processing */}
-          {renderCategorySection(
+          {/* In Processing - Hide for hotel owners */}
+          {!isHotelOwner && renderCategorySection(
             'Isleniyor',
             <Clock className="w-6 h-6 text-blue-500" />,
             data.inProcessing,
@@ -546,8 +552,8 @@ export function ReconciliationPage() {
             'inProcessing'
           )}
 
-          {/* Ready for Delivery */}
-          {renderCategorySection(
+          {/* Ready for Delivery - Hide for hotel owners */}
+          {!isHotelOwner && renderCategorySection(
             'Teslimata Hazir',
             <CheckCircle className="w-6 h-6 text-green-500" />,
             data.readyForDelivery,
@@ -555,8 +561,8 @@ export function ReconciliationPage() {
             'readyForDelivery'
           )}
 
-          {/* In Transit */}
-          {renderCategorySection(
+          {/* In Transit - Hide for hotel owners */}
+          {!isHotelOwner && renderCategorySection(
             'Yolda',
             <Truck className="w-6 h-6 text-purple-500" />,
             data.inTransit,

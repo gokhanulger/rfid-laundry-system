@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Bell, Check, CheckCheck, Trash2, RefreshCw, Filter } from 'lucide-react';
 import { alertsApi, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/Toast';
+import { useAuth } from '../contexts/AuthContext';
 import type { Alert, AlertSeverity, AlertType } from '../types';
 
 const severityColors: Record<AlertSeverity, string> = {
@@ -15,20 +16,28 @@ const severityColors: Record<AlertSeverity, string> = {
 const typeLabels: Record<AlertType, string> = {
   missing_item: 'Kayip Urun',
   dwell_time: 'Bekleme Suresi',
-  damaged_item: 'Hasarli Urun',
+  damaged_item: 'Discard Urun',
   stained_item: 'Lekeli Urun',
   high_wash_count: 'Yuksek Yikama Sayisi',
   system: 'Sistem',
 };
 
 export function AlertsPage() {
+  const { user } = useAuth();
+  const isHotelOwner = user?.role === 'hotel_owner';
+
   const [filter, setFilter] = useState<{ severity?: string; unreadOnly?: boolean }>({ unreadOnly: false });
   const queryClient = useQueryClient();
   const toast = useToast();
 
+  // For hotel owners, only show damaged_item (discard) alerts
+  const alertFilter = isHotelOwner
+    ? { ...filter, type: 'damaged_item' as AlertType }
+    : filter;
+
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['alerts', filter],
-    queryFn: () => alertsApi.getAll(filter),
+    queryKey: ['alerts', alertFilter],
+    queryFn: () => alertsApi.getAll(alertFilter),
   });
 
   const markReadMutation = useMutation({
@@ -67,7 +76,9 @@ export function AlertsPage() {
     <div className="p-8 space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold text-gray-900">Uyarilar</h1>
+          <h1 className="text-2xl font-bold text-gray-900">
+            {isHotelOwner ? 'Discard Urunler' : 'Uyarilar'}
+          </h1>
           {unreadCount > 0 && (
             <span className="px-2 py-1 text-xs font-medium bg-red-100 text-red-800 rounded-full">
               {unreadCount} okunmamis

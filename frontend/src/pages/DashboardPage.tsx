@@ -279,7 +279,7 @@ function HotelOwnerDashboard({ stats, refetch }: { stats: HotelStats; refetch: (
       </div>
 
       {/* Main Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-white rounded-xl shadow-lg p-6 border-l-4 border-blue-500">
           <div className="flex items-center justify-between">
             <div>
@@ -307,26 +307,6 @@ function HotelOwnerDashboard({ stats, refetch }: { stats: HotelStats; refetch: (
               <p className="text-3xl font-bold mt-1 text-yellow-600">{stats.pickupDeliveryStats.itemsAtLaundry}</p>
             </div>
             <Droplets className="w-10 h-10 text-yellow-200" />
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl shadow-lg p-6 border-l-4 border-purple-500">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Yolda</p>
-              <p className="text-3xl font-bold mt-1 text-purple-600">{stats.pickupDeliveryStats.itemsInTransit}</p>
-            </div>
-            <Truck className="w-10 h-10 text-purple-200" />
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl shadow-lg p-6 border-l-4 border-teal-500">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500">Ort. Yikama Sayisi</p>
-              <p className="text-3xl font-bold mt-1 text-teal-600">{stats.avgWashCount}</p>
-            </div>
-            <TrendingUp className="w-10 h-10 text-teal-200" />
           </div>
         </div>
       </div>
@@ -365,23 +345,13 @@ function HotelOwnerDashboard({ stats, refetch }: { stats: HotelStats; refetch: (
               <p className={`text-3xl font-bold ${stats.discrepancies.damaged > 0 ? 'text-red-600' : 'text-gray-400'}`}>
                 {stats.discrepancies.damaged}
               </p>
-              <p className="text-sm text-gray-600 mt-1">Hasarli Urunler</p>
+              <p className="text-sm text-gray-600 mt-1">Discard Urunler</p>
             </div>
             <div className={`p-4 rounded-lg ${stats.discrepancies.stained > 0 ? 'bg-orange-50' : 'bg-gray-50'}`}>
               <p className={`text-3xl font-bold ${stats.discrepancies.stained > 0 ? 'text-orange-600' : 'text-gray-400'}`}>
                 {stats.discrepancies.stained}
               </p>
               <p className="text-sm text-gray-600 mt-1">Lekeli Urunler</p>
-            </div>
-            <div className={`p-4 rounded-lg ${stats.discrepancies.highWashCount > 0 ? 'bg-yellow-50' : 'bg-gray-50'}`}>
-              <p className={`text-3xl font-bold ${stats.discrepancies.highWashCount > 0 ? 'text-yellow-600' : 'text-gray-400'}`}>
-                {stats.discrepancies.highWashCount}
-              </p>
-              <p className="text-sm text-gray-600 mt-1">Yuksek Yikama (50+)</p>
-            </div>
-            <div className="p-4 rounded-lg bg-purple-50">
-              <p className="text-3xl font-bold text-purple-600">{stats.pickupDeliveryStats.itemsAtLaundry}</p>
-              <p className="text-sm text-gray-600 mt-1">Suanda Disarida</p>
             </div>
           </div>
         </div>
@@ -393,7 +363,7 @@ function HotelOwnerDashboard({ stats, refetch }: { stats: HotelStats; refetch: (
         <div className="bg-white rounded-xl shadow-lg p-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <Clock className="w-5 h-5 text-gray-500" />
-            Urun Yas Dagilimi
+            Urunun Kullanim Tarihleri
           </h2>
           <div className="space-y-3">
             <div className="flex items-center">
@@ -512,7 +482,6 @@ function HotelOwnerDashboard({ stats, refetch }: { stats: HotelStats; refetch: (
                 <th className="text-center py-3 px-4 text-sm font-semibold text-gray-600">Toplam</th>
                 <th className="text-center py-3 px-4 text-sm font-semibold text-gray-600">Otelde</th>
                 <th className="text-center py-3 px-4 text-sm font-semibold text-gray-600">Camasirhanede</th>
-                <th className="text-center py-3 px-4 text-sm font-semibold text-gray-600">Yolda</th>
               </tr>
             </thead>
             <tbody>
@@ -527,9 +496,6 @@ function HotelOwnerDashboard({ stats, refetch }: { stats: HotelStats; refetch: (
                   </td>
                   <td className="py-3 px-4 text-center">
                     <span className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full">{data.atLaundry}</span>
-                  </td>
-                  <td className="py-3 px-4 text-center">
-                    <span className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full">{data.inTransit}</span>
                   </td>
                 </tr>
               ))}

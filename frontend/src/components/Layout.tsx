@@ -81,8 +81,7 @@ export function Layout() {
     { name: 'Urunlerim', href: '/items', icon: Tag },
     { name: 'Irsaliyelerim', href: '/hotel-irsaliye', icon: FileText },
     { name: 'Mutabakat', href: '/reconciliation', icon: FileText },
-    { name: 'Uyarilar', href: '/alerts', icon: Bell },
-    { name: 'Raporlar', href: '/reports', icon: BarChart3 },
+    { name: 'Discard Urunler', href: '/alerts', icon: Bell },
   ];
 
   // Navigation for admin/laundry manager (full access)
