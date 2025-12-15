@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Settings, Tags, Plus, Edit, Trash2, RefreshCw, X, Check, Upload, Download, FileSpreadsheet } from 'lucide-react';
+import { Settings, Tags, Plus, Edit, Trash2, RefreshCw, X, Check, Upload, Download, FileSpreadsheet, GripVertical } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import api, { getErrorMessage } from '../lib/api';
 import { useToast } from '../components/Toast';
@@ -10,6 +10,7 @@ interface ItemType {
   name: string;
   description: string | null;
   tenantId: string | null;
+  sortOrder: number;
   createdAt: string;
 }
 
@@ -27,6 +28,8 @@ export function SettingsPage() {
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState<{ total: number; current: number; results: { name: string; success: boolean; error?: string }[] }>({ total: 0, current: 0, results: [] });
   const [showImportModal, setShowImportModal] = useState(false);
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -68,6 +71,59 @@ export function SettingsPage() {
     },
     onError: (err) => toast.error('Urun turu silinemedi', getErrorMessage(err)),
   });
+
+  const reorderMutation = useMutation({
+    mutationFn: (orderedIds: string[]) => api.post('/item-types/reorder', { orderedIds }),
+    onSuccess: () => {
+      toast.success('Siralama kaydedildi!');
+      queryClient.invalidateQueries({ queryKey: ['item-types'] });
+    },
+    onError: (err) => toast.error('Siralama kaydedilemedi', getErrorMessage(err)),
+  });
+
+  // Drag and drop handlers
+  const handleDragStart = (e: React.DragEvent, id: string) => {
+    setDraggedId(id);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent, id: string) => {
+    e.preventDefault();
+    if (id !== draggedId) {
+      setDragOverId(id);
+    }
+  };
+
+  const handleDragLeave = () => {
+    setDragOverId(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    if (!draggedId || draggedId === targetId || !itemTypes) return;
+
+    const draggedIndex = itemTypes.findIndex(it => it.id === draggedId);
+    const targetIndex = itemTypes.findIndex(it => it.id === targetId);
+
+    if (draggedIndex === -1 || targetIndex === -1) return;
+
+    // Create new order
+    const newOrder = [...itemTypes];
+    const [removed] = newOrder.splice(draggedIndex, 1);
+    newOrder.splice(targetIndex, 0, removed);
+
+    // Get ordered IDs and save
+    const orderedIds = newOrder.map(it => it.id);
+    reorderMutation.mutate(orderedIds);
+
+    setDraggedId(null);
+    setDragOverId(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedId(null);
+    setDragOverId(null);
+  };
 
   const openCreateModal = () => {
     setEditingItemType(null);
@@ -266,45 +322,71 @@ export function SettingsPage() {
             <RefreshCw className="w-8 h-8 animate-spin text-teal-500" />
           </div>
         ) : itemTypes && itemTypes.length > 0 ? (
-          <table className="w-full">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ad</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Aciklama</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Islemler</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {itemTypes.map((itemType) => (
-                <tr key={itemType.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 font-medium">{itemType.name}</td>
-                  <td className="px-4 py-3 text-gray-600">{itemType.description || '-'}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => openEditModal(itemType)}
-                        className="p-1 text-blue-600 hover:bg-blue-50 rounded"
-                        title="Duzenle"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (confirm('Bu urun turunu silmek istediginizden emin misiniz?')) {
-                            deleteMutation.mutate(itemType.id);
-                          }
-                        }}
-                        className="p-1 text-red-600 hover:bg-red-50 rounded"
-                        title="Sil"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
+          <div>
+            <div className="px-4 py-2 bg-blue-50 border-b text-sm text-blue-700 flex items-center gap-2">
+              <GripVertical className="w-4 h-4" />
+              <span>Satirlari surukleyerek utucu ekranindaki sirayi degistirebilirsiniz</span>
+            </div>
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase w-10">Sira</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ad</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Aciklama</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Islemler</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y">
+                {itemTypes.map((itemType, index) => (
+                  <tr
+                    key={itemType.id}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, itemType.id)}
+                    onDragOver={(e) => handleDragOver(e, itemType.id)}
+                    onDragLeave={handleDragLeave}
+                    onDrop={(e) => handleDrop(e, itemType.id)}
+                    onDragEnd={handleDragEnd}
+                    className={`hover:bg-gray-50 cursor-move transition-colors ${
+                      draggedId === itemType.id ? 'opacity-50 bg-gray-100' : ''
+                    } ${
+                      dragOverId === itemType.id ? 'bg-blue-100 border-t-2 border-blue-500' : ''
+                    }`}
+                  >
+                    <td className="px-2 py-3">
+                      <div className="flex items-center gap-1">
+                        <GripVertical className="w-4 h-4 text-gray-400" />
+                        <span className="text-sm text-gray-500">{index + 1}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 font-medium">{itemType.name}</td>
+                    <td className="px-4 py-3 text-gray-600">{itemType.description || '-'}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => openEditModal(itemType)}
+                          className="p-1 text-blue-600 hover:bg-blue-50 rounded"
+                          title="Duzenle"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (confirm('Bu urun turunu silmek istediginizden emin misiniz?')) {
+                              deleteMutation.mutate(itemType.id);
+                            }
+                          }}
+                          className="p-1 text-red-600 hover:bg-red-50 rounded"
+                          title="Sil"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : (
           <div className="p-12 text-center">
             <Tags className="w-16 h-16 mx-auto text-gray-300 mb-4" />

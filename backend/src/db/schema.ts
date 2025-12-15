@@ -117,6 +117,7 @@ export const itemTypes = pgTable('item_types', {
   name: text('name').notNull(), // e.g., "Towel", "Sheet", "Pillowcase"
   description: text('description'),
   tenantId: uuid('tenant_id'), // null for global types
+  sortOrder: integer('sort_order').default(0).notNull(), // Order for ironer screen display
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { db } from '../db';
 import { itemTypes } from '../db/schema';
-import { eq } from 'drizzle-orm';
+import { eq, inArray, sql, max } from 'drizzle-orm';
 import { requireAuth, AuthRequest, requireRole } from '../middleware/auth';
 import { z } from 'zod';
 
@@ -23,7 +23,7 @@ const updateItemTypeSchema = z.object({
 itemTypesRouter.get('/', async (req, res) => {
   try {
     const allItemTypes = await db.query.itemTypes.findMany({
-      orderBy: (itemTypes, { asc }) => [asc(itemTypes.name)],
+      orderBy: (itemTypes, { asc }) => [asc(itemTypes.sortOrder), asc(itemTypes.name)],
     });
     res.json(allItemTypes);
   } catch (error) {
@@ -73,10 +73,15 @@ itemTypesRouter.post('/', requireAuth, requireRole('operator', 'laundry_manager'
       return res.status(400).json({ error: 'Bu isimde urun turu zaten mevcut' });
     }
 
+    // Get max sortOrder and add 1
+    const maxSortResult = await db.select({ maxSort: max(itemTypes.sortOrder) }).from(itemTypes);
+    const nextSortOrder = (maxSortResult[0]?.maxSort ?? -1) + 1;
+
     const [newItemType] = await db.insert(itemTypes).values({
       name: name.trim(),
       description,
       tenantId: tenantId || null,
+      sortOrder: nextSortOrder,
     }).returning();
 
     res.status(201).json(newItemType);
@@ -137,6 +142,42 @@ itemTypesRouter.delete('/:id', requireAuth, requireRole('laundry_manager', 'syst
     res.json({ message: 'Item type deleted' });
   } catch (error) {
     console.error('Delete item type error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Reorder item types - requires admin
+const reorderSchema = z.object({
+  orderedIds: z.array(z.string().uuid()),
+});
+
+itemTypesRouter.post('/reorder', requireAuth, requireRole('laundry_manager', 'system_admin'), async (req: AuthRequest, res) => {
+  try {
+    const validation = reorderSchema.safeParse(req.body);
+    if (!validation.success) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: validation.error.errors,
+      });
+    }
+
+    const { orderedIds } = validation.data;
+
+    // Update sortOrder for each item type based on position in array
+    for (let i = 0; i < orderedIds.length; i++) {
+      await db.update(itemTypes)
+        .set({ sortOrder: i })
+        .where(eq(itemTypes.id, orderedIds[i]));
+    }
+
+    // Return updated list
+    const updatedItemTypes = await db.query.itemTypes.findMany({
+      orderBy: (itemTypes, { asc }) => [asc(itemTypes.sortOrder), asc(itemTypes.name)],
+    });
+
+    res.json(updatedItemTypes);
+  } catch (error) {
+    console.error('Reorder item types error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
