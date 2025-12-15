@@ -317,15 +317,18 @@ function HotelOwnerDashboard({ stats, refetch }: { stats: HotelStats; refetch: (
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <Truck className="w-5 h-5 text-blue-500" />
             Toplama ve Teslimat Ozeti
+            <span className="text-xs bg-blue-100 text-blue-600 px-2 py-1 rounded-full">
+              {new Date().toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' })}
+            </span>
           </h2>
           <div className="grid grid-cols-3 gap-4">
             <div className="text-center p-4 bg-blue-50 rounded-lg">
               <p className="text-3xl font-bold text-blue-600">{stats.pickupDeliveryStats.totalPickups}</p>
-              <p className="text-sm text-gray-600 mt-1">Toplam Toplama</p>
+              <p className="text-sm text-gray-600 mt-1">Toplama</p>
             </div>
             <div className="text-center p-4 bg-green-50 rounded-lg">
               <p className="text-3xl font-bold text-green-600">{stats.pickupDeliveryStats.totalDeliveries}</p>
-              <p className="text-sm text-gray-600 mt-1">Toplam Teslimat</p>
+              <p className="text-sm text-gray-600 mt-1">Teslimat</p>
             </div>
             <div className="text-center p-4 bg-emerald-50 rounded-lg">
               <p className="text-3xl font-bold text-emerald-600">{stats.pickupDeliveryStats.completedDeliveries}</p>

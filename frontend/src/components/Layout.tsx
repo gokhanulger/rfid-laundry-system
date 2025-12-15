@@ -79,6 +79,7 @@ export function Layout() {
   const hotelNavigation = [
     { name: 'Kontrol Paneli', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Urunlerim', href: '/items', icon: Tag },
+    { name: 'Urun Gecmisi', href: '/hotel-item-history', icon: RotateCcw },
     { name: 'Irsaliyelerim', href: '/hotel-irsaliye', icon: FileText },
     { name: 'Mutabakat', href: '/reconciliation', icon: FileText },
     { name: 'Discard Urunler', href: '/alerts', icon: Bell },

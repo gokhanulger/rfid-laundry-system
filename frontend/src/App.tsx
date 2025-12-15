@@ -32,6 +32,7 @@ import { BulkTagAssignmentPage } from './pages/BulkTagAssignmentPage';
 import { ReconciliationPage } from './pages/ReconciliationPage';
 import { IrsaliyePage } from './pages/IrsaliyePage';
 import { HotelIrsaliyePage } from './pages/HotelIrsaliyePage';
+import { HotelItemHistoryPage } from './pages/HotelItemHistoryPage';
 import HotelQRCodesPage from './pages/HotelQRCodesPage';
 import { HotelStatusBoardPage } from './pages/HotelStatusBoardPage';
 import { EtaIntegrationPage } from './pages/EtaIntegrationPage';
@@ -105,6 +106,7 @@ function App() {
                 <Route path="packaging" element={<PackagingPage />} />
                 <Route path="irsaliye" element={<IrsaliyePage />} />
                 <Route path="hotel-irsaliye" element={<HotelIrsaliyePage />} />
+                <Route path="hotel-item-history" element={<HotelItemHistoryPage />} />
 
                 {/* Admin Pages */}
                 <Route path="hotels" element={<HotelManagementPage />} />
