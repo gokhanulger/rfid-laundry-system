@@ -343,6 +343,7 @@ export function IrsaliyePage() {
   const generateIrsaliyePDF = async () => {
     // Prevent double-click
     if (isCreatingWaybill) {
+      console.log('generateIrsaliyePDF: Already creating waybill, returning');
       return;
     }
 
@@ -353,21 +354,24 @@ export function IrsaliyePage() {
       return;
     }
 
+    console.log('generateIrsaliyePDF: Starting with', allPackages.length, 'packages');
     setIsCreatingWaybill(true);
 
-    // ONCE BACKEND'E KAYDET - Basarisiz olursa PDF yazdirma
-    const uniqueDeliveryIds = [...new Set(allPackages.map(({ delivery }) => delivery.id))];
-
-    let waybill;
     try {
-      waybill = await waybillsApi.create(uniqueDeliveryIds, bags.length);
-      toast.success(`Irsaliye ${waybill.waybillNumber} olusturuldu. ${uniqueDeliveryIds.length} paket eklendi.`);
-    } catch (error) {
-      console.error('Irsaliye olusturulurken hata:', error);
-      toast.error('Irsaliye olusturulamadi: ' + getErrorMessage(error));
-      setIsCreatingWaybill(false);
-      return; // API basarisiz - PDF yazdirma
-    }
+      // ONCE BACKEND'E KAYDET - Basarisiz olursa PDF yazdirma
+      const uniqueDeliveryIds = [...new Set(allPackages.map(({ delivery }) => delivery.id))];
+      console.log('generateIrsaliyePDF: Creating waybill for delivery IDs:', uniqueDeliveryIds);
+
+      let waybill;
+      try {
+        waybill = await waybillsApi.create(uniqueDeliveryIds, bags.length);
+        console.log('generateIrsaliyePDF: Waybill created:', waybill);
+        toast.success(`Irsaliye ${waybill.waybillNumber} olusturuldu. ${uniqueDeliveryIds.length} paket eklendi.`);
+      } catch (error) {
+        console.error('generateIrsaliyePDF: API error:', error);
+        toast.error('Irsaliye olusturulamadi: ' + getErrorMessage(error));
+        return; // API basarisiz - PDF yazdirma
+      }
 
     const hotel = tenants?.find(t => t.id === selectedHotelId);
     const totals = calculateAllTotals();
@@ -602,6 +606,7 @@ export function IrsaliyePage() {
     }
 
     // Clear everything and exit hotel view
+    console.log('generateIrsaliyePDF: Clearing data and refreshing');
     handleClearAll();
     setSelectedHotelId(null);
 
@@ -609,8 +614,14 @@ export function IrsaliyePage() {
     await queryClient.invalidateQueries({ queryKey: ['deliveries'] });
     await refetch();
     await refetchPrinted();
+    console.log('generateIrsaliyePDF: Complete');
 
-    setIsCreatingWaybill(false);
+    } catch (error) {
+      console.error('generateIrsaliyePDF: Unexpected error:', error);
+      toast.error('Beklenmeyen bir hata olustu: ' + getErrorMessage(error));
+    } finally {
+      setIsCreatingWaybill(false);
+    }
   };
 
   // Reprint irsaliye for a past delivery
