@@ -61,6 +61,7 @@ export function IrsaliyePage() {
   const [selectedBagPrinter, setSelectedBagPrinter] = useState<string>(getBagPrinter() || '');
   const [showPrinterSettings, setShowPrinterSettings] = useState(false);
   const [printerTab, setPrinterTab] = useState<'irsaliye' | 'bag'>('irsaliye');
+  const [isCreatingWaybill, setIsCreatingWaybill] = useState(false);
 
   // Load printers on mount
   useEffect(() => {
@@ -340,12 +341,19 @@ export function IrsaliyePage() {
   };
 
   const generateIrsaliyePDF = async () => {
+    // Prevent double-click
+    if (isCreatingWaybill) {
+      return;
+    }
+
     // Need at least some packages (in bags or scanned)
     const allPackages = [...packagesInBags, ...scannedPackages];
     if (allPackages.length === 0) {
       toast.error('Lutfen once paketleri secin');
       return;
     }
+
+    setIsCreatingWaybill(true);
 
     // ONCE BACKEND'E KAYDET - Basarisiz olursa PDF yazdirma
     const uniqueDeliveryIds = [...new Set(allPackages.map(({ delivery }) => delivery.id))];
@@ -357,6 +365,7 @@ export function IrsaliyePage() {
     } catch (error) {
       console.error('Irsaliye olusturulurken hata:', error);
       toast.error('Irsaliye olusturulamadi: ' + getErrorMessage(error));
+      setIsCreatingWaybill(false);
       return; // API basarisiz - PDF yazdirma
     }
 
@@ -600,6 +609,8 @@ export function IrsaliyePage() {
     await queryClient.invalidateQueries({ queryKey: ['deliveries'] });
     await refetch();
     await refetchPrinted();
+
+    setIsCreatingWaybill(false);
   };
 
   // Reprint irsaliye for a past delivery
@@ -1431,10 +1442,24 @@ export function IrsaliyePage() {
                               {/* Ana buton: İrsaliye Yazdır */}
                               <button
                                 onClick={generateIrsaliyePDF}
-                                className="w-full py-3 bg-teal-600 text-white rounded-xl hover:bg-teal-700 font-bold flex items-center justify-center gap-2 shadow-lg"
+                                disabled={isCreatingWaybill}
+                                className={`w-full py-3 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-all ${
+                                  isCreatingWaybill
+                                    ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                                    : 'bg-teal-600 text-white hover:bg-teal-700'
+                                }`}
                               >
-                                <Printer className="w-5 h-5" />
-                                IRSALIYE YAZDIR ({scannedPackages.length + packagesInBags.length} paket)
+                                {isCreatingWaybill ? (
+                                  <>
+                                    <RefreshCw className="w-5 h-5 animate-spin" />
+                                    IRSALIYE OLUSTURULUYOR...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Printer className="w-5 h-5" />
+                                    IRSALIYE YAZDIR ({scannedPackages.length + packagesInBags.length} paket)
+                                  </>
+                                )}
                               </button>
 
                               {/* Opsiyonel: Çuval Etiketi Bas */}
