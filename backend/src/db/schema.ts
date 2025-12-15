@@ -75,6 +75,13 @@ export const offlineSyncStatusEnum = pgEnum('offline_sync_status', [
   'failed'
 ]);
 
+export const waybillStatusEnum = pgEnum('waybill_status', [
+  'created',
+  'printed',
+  'picked_up',
+  'delivered'
+]);
+
 // Users table
 export const users = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -182,6 +189,33 @@ export const deliveryItems = pgTable('delivery_items', {
   id: uuid('id').defaultRandom().primaryKey(),
   deliveryId: uuid('delivery_id').notNull().references(() => deliveries.id),
   itemId: uuid('item_id').notNull().references(() => items.id),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// Waybills (Irsaliye - groups multiple deliveries/packages)
+export const waybills = pgTable('waybills', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  waybillNumber: text('waybill_number').notNull().unique(), // A-123456789
+  status: waybillStatusEnum('status').default('created').notNull(),
+  packageCount: integer('package_count').default(0).notNull(),
+  bagCount: integer('bag_count').default(0).notNull(),
+  totalItems: integer('total_items').default(0).notNull(),
+  itemSummary: text('item_summary'), // JSON: [{typeName: "Havlu", count: 10}, ...]
+  printedAt: timestamp('printed_at'),
+  printedBy: uuid('printed_by').references(() => users.id),
+  pickedUpAt: timestamp('picked_up_at'),
+  deliveredAt: timestamp('delivered_at'),
+  notes: text('notes'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// Waybill Deliveries (Many-to-many: which deliveries are in this waybill)
+export const waybillDeliveries = pgTable('waybill_deliveries', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  waybillId: uuid('waybill_id').notNull().references(() => waybills.id),
+  deliveryId: uuid('delivery_id').notNull().references(() => deliveries.id),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -425,6 +459,30 @@ export const auditLogsRelations = relations(auditLogs, ({ one }) => ({
   tenant: one(tenants, {
     fields: [auditLogs.tenantId],
     references: [tenants.id],
+  }),
+}));
+
+// Waybill relations
+export const waybillsRelations = relations(waybills, ({ one, many }) => ({
+  tenant: one(tenants, {
+    fields: [waybills.tenantId],
+    references: [tenants.id],
+  }),
+  printedByUser: one(users, {
+    fields: [waybills.printedBy],
+    references: [users.id],
+  }),
+  waybillDeliveries: many(waybillDeliveries),
+}));
+
+export const waybillDeliveriesRelations = relations(waybillDeliveries, ({ one }) => ({
+  waybill: one(waybills, {
+    fields: [waybillDeliveries.waybillId],
+    references: [waybills.id],
+  }),
+  delivery: one(deliveries, {
+    fields: [waybillDeliveries.deliveryId],
+    references: [deliveries.id],
   }),
 }));
 

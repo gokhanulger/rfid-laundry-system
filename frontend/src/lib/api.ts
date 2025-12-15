@@ -320,6 +320,60 @@ export const deliveriesApi = {
   },
 };
 
+// Waybills API (Irsaliye)
+export interface Waybill {
+  id: string;
+  tenantId: string;
+  waybillNumber: string;
+  status: 'created' | 'printed' | 'picked_up' | 'delivered';
+  packageCount: number;
+  bagCount: number;
+  totalItems: number;
+  itemSummary: string; // JSON array
+  printedAt: string | null;
+  printedBy: string | null;
+  pickedUpAt: string | null;
+  deliveredAt: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  tenant?: Tenant;
+  printedByUser?: User;
+  waybillDeliveries?: {
+    id: string;
+    waybillId: string;
+    deliveryId: string;
+    delivery?: Delivery;
+  }[];
+}
+
+export const waybillsApi = {
+  getAll: async (params?: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    tenantId?: string;
+  }): Promise<PaginatedResponse<Waybill>> => {
+    const { data } = await api.get<PaginatedResponse<Waybill>>('/waybills', { params });
+    return data;
+  },
+
+  getById: async (id: string): Promise<Waybill> => {
+    const { data } = await api.get<Waybill>(`/waybills/${id}`);
+    return data;
+  },
+
+  create: async (deliveryIds: string[], bagCount?: number, notes?: string): Promise<Waybill> => {
+    const { data } = await api.post<Waybill>('/waybills', { deliveryIds, bagCount, notes });
+    return data;
+  },
+
+  deliver: async (id: string): Promise<{ success: boolean; message: string }> => {
+    const { data } = await api.post(`/waybills/${id}/deliver`);
+    return data;
+  },
+};
+
 // Alerts API
 export const alertsApi = {
   getAll: async (params?: {

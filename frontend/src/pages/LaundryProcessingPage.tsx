@@ -10,6 +10,7 @@ export function LaundryProcessingPage() {
   const [expandedPickup, setExpandedPickup] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterHotel, setFilterHotel] = useState('');
+  const [filterDate, setFilterDate] = useState('');
   const queryClient = useQueryClient();
   const toast = useToast();
 
@@ -70,7 +71,11 @@ export function LaundryProcessingPage() {
 
     const matchesHotel = filterHotel === '' || pickup.tenantId === filterHotel;
 
-    return matchesSearch && matchesHotel;
+    // Date filter
+    const matchesDate = filterDate === '' ||
+      new Date(pickup.pickupDate).toISOString().split('T')[0] === filterDate;
+
+    return matchesSearch && matchesHotel && matchesDate;
   });
 
   // Sort by date descending
@@ -239,6 +244,25 @@ export function LaundryProcessingPage() {
               <option key={tenant.id} value={tenant.id}>{tenant.name}</option>
             ))}
           </select>
+
+          {/* Date Filter */}
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={filterDate}
+              onChange={(e) => setFilterDate(e.target.value)}
+              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+            />
+            {filterDate && (
+              <button
+                onClick={() => setFilterDate('')}
+                className="px-3 py-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
+                title="Tarihi temizle"
+              >
+                &times;
+              </button>
+            )}
+          </div>
         </div>
       </div>
 

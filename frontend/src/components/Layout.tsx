@@ -10,7 +10,6 @@ import {
   BarChart3,
   Settings,
   Truck,
-  Shield,
   Printer,
   Box,
   LogOut,
@@ -23,7 +22,6 @@ import {
   FileText,
   ChevronLeft,
   ChevronRight,
-  MapPin,
   Grid3X3,
   Database,
 } from 'lucide-react';
@@ -93,11 +91,8 @@ export function Layout() {
     { name: 'Utu Etiketi', href: '/ironer-interface', icon: Printer },
     { name: 'Paketleme', href: '/packaging', icon: Box },
     { name: 'Irsaliye', href: '/irsaliye', icon: FileText },
-    { name: 'Surucu Aktiviteleri', href: '/driver-activities', icon: Shield },
     { name: 'Teslimat Yonetimi', href: '/delivery-management', icon: Truck },
-    { name: 'Teslimat Loglari', href: '/delivery-logs', icon: MapPin },
-    { name: 'Yeniden Yikama', href: '/rewash-queue', icon: RotateCcw },
-    { name: 'Uyarilar', href: '/alerts', icon: Bell },
+    { name: 'Discard ve Lekeli Takip', href: '/alerts', icon: Bell },
     { name: 'Raporlar', href: '/reports', icon: BarChart3 },
     { name: 'Mutabakat', href: '/reconciliation', icon: FileText },
   ];

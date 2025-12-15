@@ -144,7 +144,7 @@ export function HotelStatusBoardPage() {
               : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
           }`}
         >
-          Toplandi ({statusCounts.collected})
+          Kirli Toplandi ({statusCounts.collected})
         </button>
         <button
           onClick={() => setFilterStatus('packaged')}

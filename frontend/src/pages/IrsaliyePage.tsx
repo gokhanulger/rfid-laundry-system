@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { FileText, QrCode, Printer, RefreshCw, CheckCircle, Package, X, Trash2, History, Search, Building2, ShoppingBag, Settings } from 'lucide-react';
-import { deliveriesApi, settingsApi, getErrorMessage } from '../lib/api';
+import { deliveriesApi, settingsApi, waybillsApi, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/Toast';
 import type { Delivery, DeliveryPackage } from '../types';
 import { jsPDF } from 'jspdf';
@@ -579,31 +579,16 @@ export function IrsaliyePage() {
       }
     }
 
-    // Irsaliye yazdirildiginda paketlerin durumunu picked_up olarak guncelle
-    // Boylece otel karti listeden kaybolur (packaged -> picked_up)
+    // Irsaliye olustur ve paketlerin durumunu guncelle
     const uniqueDeliveryIds = [...new Set(allPackages.map(({ delivery }) => delivery.id))];
 
     try {
-      // Her paket icin pickup API cagir (packaged -> picked_up)
-      const results = await Promise.all(
-        uniqueDeliveryIds.map(id => deliveriesApi.pickup(id).catch(err => {
-          console.error(`Paket ${id} guncellenemedi:`, err);
-          return null;
-        }))
-      );
-
-      const successCount = results.filter(r => r !== null).length;
-
-      if (successCount > 0) {
-        toast.success(`${successCount} paket irsaliyesi basıldı ve güncellendi.`);
-      }
-
-      if (successCount < uniqueDeliveryIds.length) {
-        toast.warning(`${uniqueDeliveryIds.length - successCount} paket güncellenemedi.`);
-      }
+      // Waybill API ile tek bir irsaliye olustur
+      const waybill = await waybillsApi.create(uniqueDeliveryIds, bags.length);
+      toast.success(`Irsaliye ${waybill.waybillNumber} olusturuldu. ${uniqueDeliveryIds.length} paket eklendi.`);
     } catch (error) {
-      console.error('Paket durumu guncellenirken hata:', error);
-      toast.error('Paket durumu guncellenirken hata olustu');
+      console.error('Irsaliye olusturulurken hata:', error);
+      toast.error('Irsaliye olusturulamadi: ' + getErrorMessage(error));
     }
 
     // Clear everything and exit hotel view
