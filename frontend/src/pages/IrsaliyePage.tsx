@@ -97,17 +97,10 @@ export function IrsaliyePage() {
     refetchInterval: 5000,
   });
 
-  // Get printed deliveries (label_printed status) - auto-refresh
-  const { data: printedDeliveries, refetch: refetchPrinted } = useQuery({
-    queryKey: ['deliveries', { status: 'label_printed' }],
-    queryFn: () => deliveriesApi.getAll({ status: 'label_printed', limit: 100 }),
-    refetchInterval: 5000,
-  });
-
-  // Get picked_up deliveries (delivered) - auto-refresh
-  const { data: pickedUpDeliveries } = useQuery({
-    queryKey: ['deliveries', { status: 'picked_up' }],
-    queryFn: () => deliveriesApi.getAll({ status: 'picked_up', limit: 100 }),
+  // Get waybills for history tab - auto-refresh
+  const { data: waybillsData, refetch: refetchWaybills } = useQuery({
+    queryKey: ['waybills'],
+    queryFn: () => waybillsApi.getAll({ limit: 100 }),
     refetchInterval: 5000,
   });
 
@@ -261,42 +254,6 @@ export function IrsaliyePage() {
         }
         totals[typeId].count++;
       });
-    });
-
-    return Object.values(totals);
-  };
-
-  // Get item totals for a specific delivery
-  const getItemTotals = (delivery: Delivery) => {
-    const totals: Record<string, { name: string; count: number }> = {};
-
-    // First try to get from notes (labelExtraData from ironer)
-    if (delivery.notes) {
-      try {
-        const labelData = JSON.parse(delivery.notes);
-        if (Array.isArray(labelData)) {
-          labelData.forEach((item: any) => {
-            const typeName = item.typeName || 'Bilinmeyen';
-            const count = item.count || 0;
-            if (!totals[typeName]) {
-              totals[typeName] = { name: typeName, count: 0 };
-            }
-            totals[typeName].count += count;
-          });
-          return Object.values(totals);
-        }
-      } catch {}
-    }
-
-    // Fallback to deliveryItems
-    delivery.deliveryItems?.forEach((di: any) => {
-      const typeName = di.item?.itemType?.name || 'Bilinmeyen';
-      const typeId = di.item?.itemTypeId || 'unknown';
-
-      if (!totals[typeId]) {
-        totals[typeId] = { name: typeName, count: 0 };
-      }
-      totals[typeId].count++;
     });
 
     return Object.values(totals);
@@ -501,12 +458,13 @@ export function IrsaliyePage() {
             font-size: 12pt;
             padding: 10mm;
           }
-          .header { text-align: right; font-size: 16pt; font-weight: bold; margin-bottom: 10mm; }
-          .customer { margin-bottom: 5mm; }
+          .header-row { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5mm; }
+          .header-title { font-size: 18pt; font-weight: bold; }
+          .doc-info { text-align: right; font-size: 10pt; }
+          .customer { margin-bottom: 8mm; }
           .customer-label { font-size: 10pt; font-weight: bold; }
           .customer-name { font-size: 14pt; font-weight: bold; }
           .customer-address { font-size: 9pt; color: #333; }
-          .doc-info { position: absolute; top: 10mm; right: 10mm; text-align: right; font-size: 10pt; }
           .divider { border-top: 1px solid #000; margin: 5mm 0; }
           .table-header { display: flex; justify-content: space-between; font-weight: bold; font-size: 10pt; padding: 2mm 0; border-bottom: 1px solid #333; }
           .table-row { display: flex; justify-content: space-between; font-size: 11pt; padding: 2mm 0; }
@@ -520,17 +478,19 @@ export function IrsaliyePage() {
         </style>
       </head>
       <body>
-        <div class="header">TEMIZ IRSALIYESI</div>
-
-        <div class="customer">
-          <div class="customer-label">Sayin:</div>
-          <div class="customer-name">${hotel?.name || 'Bilinmeyen Otel'}</div>
-          ${hotel?.address ? `<div class="customer-address">${hotel.address.replace(/\n/g, '<br>')}</div>` : ''}
-        </div>
-
-        <div class="doc-info">
-          <div><strong>Belge No:</strong> ${documentNo}</div>
-          <div><strong>Tarih:</strong> ${today}</div>
+        <div class="header-row">
+          <div class="customer">
+            <div class="customer-label">Sayin:</div>
+            <div class="customer-name">${hotel?.name || 'Bilinmeyen Otel'}</div>
+            ${hotel?.address ? `<div class="customer-address">${hotel.address.replace(/\n/g, '<br>')}</div>` : ''}
+          </div>
+          <div>
+            <div class="header-title">TEMIZ IRSALIYESI</div>
+            <div class="doc-info">
+              <div><strong>Belge No:</strong> ${documentNo}</div>
+              <div><strong>Tarih:</strong> ${today}</div>
+            </div>
+          </div>
         </div>
 
         <div class="divider"></div>
@@ -612,8 +572,9 @@ export function IrsaliyePage() {
 
     // Cache'i temizle ve yeniden yukle
     await queryClient.invalidateQueries({ queryKey: ['deliveries'] });
+    await queryClient.invalidateQueries({ queryKey: ['waybills'] });
     await refetch();
-    await refetchPrinted();
+    await refetchWaybills();
     console.log('generateIrsaliyePDF: Complete');
 
     } catch (error) {
@@ -622,133 +583,6 @@ export function IrsaliyePage() {
     } finally {
       setIsCreatingWaybill(false);
     }
-  };
-
-  // Reprint irsaliye for a past delivery
-  const handleReprintIrsaliye = (delivery: Delivery) => {
-    const hotel = tenants?.find(t => t.id === delivery.tenantId);
-    const totals = getItemTotals(delivery);
-    const documentNo = `A-${delivery.barcode.slice(-9)}`;
-    const date = new Date(delivery.labelPrintedAt || delivery.createdAt).toLocaleDateString('tr-TR');
-
-    const doc = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4',
-    });
-
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const margin = 20;
-    let yPos = 20;
-
-    doc.setFontSize(16);
-    doc.setFont('helvetica', 'bold');
-    doc.text('TEMIZ IRSALIYESI', pageWidth - margin, yPos, { align: 'right' });
-
-    yPos += 10;
-
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Sayin:', margin, yPos);
-    yPos += 5;
-    doc.setFontSize(12);
-    doc.text(hotel?.name || delivery.tenant?.name || 'Bilinmeyen Otel', margin, yPos);
-    yPos += 5;
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    if (hotel?.address) {
-      const addressLines = hotel.address.split('\n');
-      addressLines.forEach(line => {
-        doc.text(line, margin, yPos);
-        yPos += 4;
-      });
-    }
-
-    const rightX = pageWidth - margin - 60;
-    let rightY = 30;
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Belge No:', rightX, rightY);
-    doc.setFont('helvetica', 'normal');
-    doc.text(documentNo, rightX + 30, rightY);
-    rightY += 5;
-    doc.setFont('helvetica', 'bold');
-    doc.text('Tarih:', rightX, rightY);
-    doc.setFont('helvetica', 'normal');
-    doc.text(date, rightX + 30, rightY);
-
-    yPos = Math.max(yPos, rightY) + 15;
-
-    doc.setLineWidth(0.5);
-    doc.line(margin, yPos, pageWidth - margin, yPos);
-    yPos += 8;
-
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'bold');
-    doc.text('CINSI', margin, yPos);
-    doc.text('MIKTARI', pageWidth - margin - 20, yPos, { align: 'right' });
-
-    yPos += 3;
-    doc.setLineWidth(0.3);
-    doc.line(margin, yPos, pageWidth - margin, yPos);
-    yPos += 7;
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(11);
-
-    totals.forEach(item => {
-      doc.text(item.name.toUpperCase(), margin, yPos);
-      doc.text(item.count.toString(), pageWidth - margin - 20, yPos, { align: 'right' });
-      yPos += 8;
-    });
-
-    yPos += 10;
-
-    doc.setFontSize(14);
-    doc.setFont('helvetica', 'bold');
-    doc.text('PAKET SAYISI :', margin, yPos);
-    doc.text((delivery.packageCount || 1).toString(), pageWidth - margin - 20, yPos, { align: 'right' });
-
-    yPos += 5;
-
-    const totalItems = delivery.deliveryItems?.length || 0;
-    doc.setFontSize(12);
-    doc.text('TOPLAM URUN :', margin, yPos);
-    doc.text(totalItems.toString(), pageWidth - margin - 20, yPos, { align: 'right' });
-
-    yPos += 20;
-
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Barkod: ${delivery.barcode}`, margin, yPos);
-
-    yPos += 15;
-
-    doc.setLineWidth(0.5);
-    doc.line(margin, yPos, pageWidth - margin, yPos);
-    yPos += 15;
-
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    const sigWidth = (pageWidth - margin * 2) / 2;
-
-    doc.text('Teslim Eden', margin + sigWidth / 2, yPos, { align: 'center' });
-    doc.text('Teslim Alan', margin + sigWidth + sigWidth / 2, yPos, { align: 'center' });
-
-    yPos += 20;
-
-    doc.setLineWidth(0.3);
-    doc.line(margin + 10, yPos, margin + sigWidth - 10, yPos);
-    doc.line(margin + sigWidth + 10, yPos, pageWidth - margin - 10, yPos);
-
-    yPos = doc.internal.pageSize.getHeight() - 15;
-    doc.setFontSize(8);
-    doc.text('RFID Camasirhane Sistemi', pageWidth / 2, yPos, { align: 'center' });
-
-    const filename = `irsaliye-${hotel?.name?.replace(/\s+/g, '-') || 'otel'}-${documentNo}.pdf`;
-    doc.save(filename);
-
-    toast.success('Irsaliye yeniden yazdirildi!');
   };
 
   // Generate bag label for driver scanning
@@ -1007,24 +841,21 @@ export function IrsaliyePage() {
     };
   }).filter(h => h.packagedCount > 0);
 
-  // Combine printed and picked up deliveries for history
-  const allDeliveries = [
-    ...(printedDeliveries?.data || []),
-    ...(pickedUpDeliveries?.data || []),
-  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  // Get waybills list for history
+  const allWaybills = waybillsData?.data || [];
 
-  // Filter deliveries for history
-  const filteredDeliveries = allDeliveries.filter(delivery => {
+  // Filter waybills for history
+  const filteredWaybills = allWaybills.filter(waybill => {
     const matchesSearch = searchTerm === '' ||
-      delivery.barcode.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      delivery.tenant?.name.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesHotel = selectedHotelFilter === '' || delivery.tenantId === selectedHotelFilter;
+      waybill.waybillNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      waybill.tenant?.name.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesHotel = selectedHotelFilter === '' || waybill.tenantId === selectedHotelFilter;
     return matchesSearch && matchesHotel;
   });
 
   const handleRefresh = () => {
     refetch();
-    refetchPrinted();
+    refetchWaybills();
   };
 
   // Handle hotel card click - toggle selection
@@ -1216,9 +1047,9 @@ export function IrsaliyePage() {
           >
             <History className="w-5 h-5" />
             Basilan Irsaliyeler
-            {allDeliveries.length > 0 && (
+            {allWaybills.length > 0 && (
               <span className="px-2 py-0.5 bg-teal-100 text-teal-700 rounded-full text-xs font-bold">
-                {allDeliveries.length}
+                {allWaybills.length}
               </span>
             )}
           </button>
@@ -1319,7 +1150,7 @@ export function IrsaliyePage() {
                   <p className="text-sm text-gray-500">Toplam Paket</p>
                 </div>
                 <div className="bg-white rounded-lg shadow p-4">
-                  <p className="text-3xl font-bold text-green-600">{allDeliveries.length}</p>
+                  <p className="text-3xl font-bold text-green-600">{allWaybills.length}</p>
                   <p className="text-sm text-gray-500">Basilan Irsaliye</p>
                 </div>
               </div>
@@ -1659,40 +1490,40 @@ export function IrsaliyePage() {
               {/* Stats */}
               <div className="grid grid-cols-3 gap-4">
                 <div className="bg-gray-50 rounded-lg p-4">
-                  <p className="text-3xl font-bold text-teal-600">{allDeliveries.length}</p>
+                  <p className="text-3xl font-bold text-teal-600">{allWaybills.length}</p>
                   <p className="text-sm text-gray-500">Toplam Irsaliye</p>
                 </div>
                 <div className="bg-gray-50 rounded-lg p-4">
-                  <p className="text-3xl font-bold text-blue-600">{printedDeliveries?.data?.length || 0}</p>
+                  <p className="text-3xl font-bold text-blue-600">{allWaybills.filter(w => w.status === 'printed').length}</p>
                   <p className="text-sm text-gray-500">Bekleyen</p>
                 </div>
                 <div className="bg-gray-50 rounded-lg p-4">
-                  <p className="text-3xl font-bold text-green-600">{pickedUpDeliveries?.data?.length || 0}</p>
+                  <p className="text-3xl font-bold text-green-600">{allWaybills.filter(w => w.status === 'delivered').length}</p>
                   <p className="text-sm text-gray-500">Teslim Edildi</p>
                 </div>
               </div>
 
               {/* Main Content - List on left, Preview on right */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Deliveries List */}
+                {/* Waybills List */}
                 <div className="space-y-2 max-h-[600px] overflow-y-auto">
-                  {filteredDeliveries.length === 0 ? (
+                  {filteredWaybills.length === 0 ? (
                     <div className="p-12 text-center bg-gray-50 rounded-xl">
                       <FileText className="w-16 h-16 mx-auto text-gray-300 mb-4" />
                       <p className="text-xl text-gray-500">Irsaliye bulunamadi</p>
                       <p className="text-gray-400 mt-2">Filtreleri degistirmeyi deneyin</p>
                     </div>
                   ) : (
-                    filteredDeliveries.map(delivery => {
-                      const isSelected = expandedDeliveryId === delivery.id;
+                    filteredWaybills.map(waybill => {
+                      const isSelected = expandedDeliveryId === waybill.id;
 
                       return (
                         <div
-                          key={delivery.id}
+                          key={waybill.id}
                           className={`bg-white border rounded-xl overflow-hidden cursor-pointer transition-all ${
                             isSelected ? 'border-teal-500 ring-2 ring-teal-200' : 'hover:border-gray-300'
                           }`}
-                          onClick={() => setExpandedDeliveryId(isSelected ? null : delivery.id)}
+                          onClick={() => setExpandedDeliveryId(isSelected ? null : waybill.id)}
                         >
                           <div className="p-4">
                             <div className="flex items-center justify-between">
@@ -1701,16 +1532,17 @@ export function IrsaliyePage() {
                                   <FileText className="w-5 h-5" />
                                 </div>
                                 <div>
-                                  <p className="font-mono font-bold">{delivery.barcode}</p>
+                                  <p className="font-mono font-bold">{waybill.waybillNumber}</p>
                                   <div className="flex items-center gap-2 text-sm text-gray-500">
                                     <Building2 className="w-3 h-3" />
-                                    <span>{delivery.tenant?.name}</span>
+                                    <span>{waybill.tenant?.name}</span>
+                                    <span className="text-xs bg-gray-100 px-2 py-0.5 rounded">{waybill.packageCount} paket</span>
                                   </div>
                                 </div>
                               </div>
                               <div className="text-right">
-                                <p className="text-xs text-gray-500">{formatDate(delivery.labelPrintedAt || delivery.createdAt)}</p>
-                                <div className="mt-1">{getStatusBadge(delivery.status)}</div>
+                                <p className="text-xs text-gray-500">{formatDate(waybill.printedAt || waybill.createdAt)}</p>
+                                <div className="mt-1">{getStatusBadge(waybill.status)}</div>
                               </div>
                             </div>
                           </div>
@@ -1729,9 +1561,18 @@ export function IrsaliyePage() {
                     </div>
                   ) : (
                     (() => {
-                      const selectedDelivery = filteredDeliveries.find(d => d.id === expandedDeliveryId);
-                      if (!selectedDelivery) return null;
-                      const itemTotals = getItemTotals(selectedDelivery);
+                      const selectedWaybill = filteredWaybills.find(w => w.id === expandedDeliveryId);
+                      if (!selectedWaybill) return null;
+
+                      // Parse item summary from waybill
+                      let itemTotals: { name: string; count: number }[] = [];
+                      try {
+                        const parsed = JSON.parse(selectedWaybill.itemSummary || '[]');
+                        itemTotals = parsed.map((item: any) => ({
+                          name: item.typeName || 'Bilinmeyen',
+                          count: item.count || 0,
+                        }));
+                      } catch {}
 
                       return (
                         <div className="space-y-4">
@@ -1741,7 +1582,7 @@ export function IrsaliyePage() {
                             <div className="flex justify-between items-start mb-4 pb-2 border-b-2 border-gray-800">
                               <div>
                                 <p className="text-xs text-gray-500">Sayin:</p>
-                                <p className="text-lg font-bold">{selectedDelivery.tenant?.name}</p>
+                                <p className="text-lg font-bold">{selectedWaybill.tenant?.name}</p>
                               </div>
                               <div className="text-right">
                                 <p className="text-lg font-bold">TEMIZ IRSALIYESI</p>
@@ -1752,11 +1593,11 @@ export function IrsaliyePage() {
                             <div className="flex justify-between text-sm mb-4">
                               <div>
                                 <p className="text-gray-500">Belge No:</p>
-                                <p className="font-mono font-bold">A-{selectedDelivery.barcode.slice(-9)}</p>
+                                <p className="font-mono font-bold">{selectedWaybill.waybillNumber}</p>
                               </div>
                               <div className="text-right">
                                 <p className="text-gray-500">Tarih:</p>
-                                <p className="font-medium">{new Date(selectedDelivery.labelPrintedAt || selectedDelivery.createdAt).toLocaleDateString('tr-TR')}</p>
+                                <p className="font-medium">{new Date(selectedWaybill.printedAt || selectedWaybill.createdAt).toLocaleDateString('tr-TR')}</p>
                               </div>
                             </div>
 
@@ -1777,18 +1618,17 @@ export function IrsaliyePage() {
                             {/* Totals */}
                             <div className="space-y-2 mb-4">
                               <div className="flex justify-between font-bold text-lg">
+                                <span>CUVAL SAYISI:</span>
+                                <span>{selectedWaybill.bagCount || 0}</span>
+                              </div>
+                              <div className="flex justify-between font-bold text-lg">
                                 <span>PAKET SAYISI:</span>
-                                <span>{selectedDelivery.packageCount || 1}</span>
+                                <span>{selectedWaybill.packageCount || 0}</span>
                               </div>
                               <div className="flex justify-between text-sm">
                                 <span>TOPLAM URUN:</span>
-                                <span className="font-bold">{selectedDelivery.deliveryItems?.length || 0}</span>
+                                <span className="font-bold">{selectedWaybill.totalItems || 0}</span>
                               </div>
-                            </div>
-
-                            {/* Barcode */}
-                            <div className="text-center py-2 bg-gray-50 rounded text-xs text-gray-500 mb-4">
-                              Barkod: {selectedDelivery.barcode}
                             </div>
 
                             {/* Signature Section */}
@@ -1814,15 +1654,16 @@ export function IrsaliyePage() {
                           {/* Actions */}
                           <div className="flex gap-3">
                             <div className="flex-1 bg-white rounded-lg p-3 shadow flex items-center gap-3">
-                              {getStatusBadge(selectedDelivery.status)}
+                              {getStatusBadge(selectedWaybill.status)}
                               <span className="text-sm text-gray-500">
-                                {selectedDelivery.status === 'picked_up' ? 'Teslim edildi' : 'Bekliyor'}
+                                {selectedWaybill.status === 'delivered' ? 'Teslim edildi' : 'Bekliyor'}
                               </span>
                             </div>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleReprintIrsaliye(selectedDelivery);
+                                // TODO: Implement waybill reprint
+                                toast.info('Yeniden yazdirma ozelligi yakinda eklenecek');
                               }}
                               className="px-6 py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-medium flex items-center gap-2 shadow"
                             >
