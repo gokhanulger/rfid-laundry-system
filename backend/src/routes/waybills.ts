@@ -1,13 +1,13 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { db } from '../db';
 import { waybills, waybillDeliveries, deliveries, items } from '../db/schema';
 import { eq, desc, and, inArray } from 'drizzle-orm';
-import { authMiddleware } from '../middleware/auth';
+import { requireAuth, AuthRequest } from '../middleware/auth';
 
 export const waybillsRouter = Router();
 
 // Apply auth middleware to all routes
-waybillsRouter.use(authMiddleware);
+waybillsRouter.use(requireAuth);
 
 // Generate waybill number
 function generateWaybillNumber(): string {
@@ -16,9 +16,9 @@ function generateWaybillNumber(): string {
 }
 
 // Get all waybills (with pagination)
-waybillsRouter.get('/', async (req: Request, res: Response) => {
+waybillsRouter.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    const user = (req as any).user;
+    const user = req.user!;
     const { page = '1', limit = '50', status, tenantId } = req.query;
 
     const pageNum = parseInt(page as string);
@@ -87,7 +87,7 @@ waybillsRouter.get('/', async (req: Request, res: Response) => {
 });
 
 // Get single waybill
-waybillsRouter.get('/:id', async (req: Request, res: Response) => {
+waybillsRouter.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -129,9 +129,9 @@ waybillsRouter.get('/:id', async (req: Request, res: Response) => {
 });
 
 // Create new waybill (from selected delivery IDs)
-waybillsRouter.post('/', async (req: Request, res: Response) => {
+waybillsRouter.post('/', async (req: AuthRequest, res: Response) => {
   try {
-    const user = (req as any).user;
+    const user = req.user!;
     const { deliveryIds, bagCount = 0, notes } = req.body;
 
     if (!deliveryIds || !Array.isArray(deliveryIds) || deliveryIds.length === 0) {
@@ -270,7 +270,7 @@ waybillsRouter.post('/', async (req: Request, res: Response) => {
 });
 
 // Mark waybill as delivered
-waybillsRouter.post('/:id/deliver', async (req: Request, res: Response) => {
+waybillsRouter.post('/:id/deliver', async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
 
