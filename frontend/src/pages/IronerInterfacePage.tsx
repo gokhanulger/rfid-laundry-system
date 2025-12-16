@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Printer, Sparkles, Building2, X, Plus, Search, Delete, Trash2, Sun, Moon, Settings, Wifi, WifiOff, Radio, AlertTriangle, CheckCircle, HelpCircle, XCircle, RefreshCw, Loader2 } from 'lucide-react';
 import { itemsApi, deliveriesApi, settingsApi, getErrorMessage } from '../lib/api';
@@ -102,8 +102,17 @@ export function IronerInterfacePage() {
   const [manualIp, setManualIp] = useState('');
   const [manualPort, setManualPort] = useState('20058');
 
-  // Ref to track which EPCs are currently being validated (prevents duplicate API calls)
-  const validatingEpcsRef = useRef<Set<string>>(new Set());
+  // Local cache of all items by RFID tag for fast offline lookup
+  const [itemsCache, setItemsCache] = useState<Map<string, {
+    id: string;
+    rfidTag: string;
+    tenantId: string;
+    itemTypeId: string;
+    status: string;
+  }>>(new Map());
+  const [itemsCacheLoading, setItemsCacheLoading] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_itemsCacheLastUpdate, setItemsCacheLastUpdate] = useState<Date | null>(null);
 
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -265,55 +274,104 @@ export function IronerInterfacePage() {
     queryFn: settingsApi.getItemTypes,
   });
 
-  // Validate scanned tag against database
-  const validateTag = useCallback(async (epc: string): Promise<ScannedTagInfo> => {
+  // Load all items into local cache for fast RFID lookup
+  const loadItemsCache = useCallback(async () => {
+    if (itemsCacheLoading) return;
+
+    setItemsCacheLoading(true);
     try {
-      const item = await itemsApi.getByRfid(epc);
+      // Fetch all items (paginated, get all pages)
+      const newCache = new Map<string, {
+        id: string;
+        rfidTag: string;
+        tenantId: string;
+        itemTypeId: string;
+        status: string;
+      }>();
 
-      // If item is null or undefined, it's unregistered
-      if (!item) {
-        return {
-          epc,
-          status: 'unregistered',
-          lastSeen: Date.now(),
-        };
+      let page = 1;
+      let hasMore = true;
+      const limit = 100;
+
+      while (hasMore) {
+        const response = await itemsApi.getAll({ page, limit });
+        const items = response.data || [];
+
+        items.forEach(item => {
+          if (item.rfidTag) {
+            // Store with uppercase RFID tag for consistent matching
+            newCache.set(item.rfidTag.toUpperCase(), {
+              id: item.id,
+              rfidTag: item.rfidTag,
+              tenantId: item.tenantId,
+              itemTypeId: item.itemTypeId,
+              status: item.status,
+            });
+          }
+        });
+
+        hasMore = items.length === limit;
+        page++;
+
+        // Safety limit - don't fetch more than 50 pages (5000 items)
+        if (page > 50) break;
       }
 
-      const hotel = tenantsArray.find((t: Tenant) => t.id === item.tenantId);
-      const itemTypeInfo = itemTypes?.find((t: { id: string; name: string }) => t.id === item.itemTypeId);
+      setItemsCache(newCache);
+      setItemsCacheLastUpdate(new Date());
+    } catch (error) {
+      // Silently fail - will retry on next interval
+    } finally {
+      setItemsCacheLoading(false);
+    }
+  }, [itemsCacheLoading]);
 
-      // Check if tag belongs to selected hotel
-      const isValidHotel = activeHotelId ? item.tenantId === activeHotelId : selectedHotelIds.includes(item.tenantId);
+  // Load items cache when hotels are selected and periodically refresh
+  useEffect(() => {
+    if (isWorking && selectedHotelIds.length > 0) {
+      // Load cache immediately
+      loadItemsCache();
 
+      // Refresh cache every 5 minutes
+      const interval = setInterval(loadItemsCache, 5 * 60 * 1000);
+      return () => clearInterval(interval);
+    }
+  }, [isWorking, selectedHotelIds.length, loadItemsCache]);
+
+  // Validate scanned tag against LOCAL CACHE (no API calls)
+  const validateTag = useCallback((epc: string): ScannedTagInfo => {
+    // Normalize EPC to uppercase for matching
+    const normalizedEpc = epc.toUpperCase();
+
+    // Look up in local cache
+    const item = itemsCache.get(normalizedEpc);
+
+    if (!item) {
+      // Not found in cache - unregistered
       return {
         epc,
-        status: isValidHotel ? 'valid' : 'wrong_hotel',
-        hotelId: item.tenantId,
-        hotelName: hotel?.name || 'Bilinmeyen Otel',
-        itemType: itemTypeInfo?.name || 'Bilinmeyen Tür',
-        itemTypeId: item.itemTypeId,
-        itemId: item.id,
-        lastSeen: Date.now(),
-      };
-    } catch (error: unknown) {
-      // Check if it's a 404 error (not found) - only then mark as unregistered
-      const axiosError = error as { response?: { status?: number } };
-      if (axiosError?.response?.status === 404) {
-        return {
-          epc,
-          status: 'unregistered',
-          lastSeen: Date.now(),
-        };
-      }
-
-      // For other errors (network, timeout, etc.), keep as checking to retry
-      return {
-        epc,
-        status: 'checking',
+        status: 'unregistered',
         lastSeen: Date.now(),
       };
     }
-  }, [activeHotelId, selectedHotelIds, tenantsArray, itemTypes]);
+
+    const hotel = tenantsArray.find((t: Tenant) => t.id === item.tenantId);
+    const itemTypeInfo = itemTypes?.find((t: { id: string; name: string }) => t.id === item.itemTypeId);
+
+    // Check if tag belongs to selected hotel
+    const isValidHotel = activeHotelId ? item.tenantId === activeHotelId : selectedHotelIds.includes(item.tenantId);
+
+    return {
+      epc,
+      status: isValidHotel ? 'valid' : 'wrong_hotel',
+      hotelId: item.tenantId,
+      hotelName: hotel?.name || 'Bilinmeyen Otel',
+      itemType: itemTypeInfo?.name || 'Bilinmeyen Tür',
+      itemTypeId: item.itemTypeId,
+      itemId: item.id,
+      lastSeen: Date.now(),
+    };
+  }, [activeHotelId, selectedHotelIds, tenantsArray, itemTypes, itemsCache]);
 
   // UHF Reader setup - connect and listen for status/tags
   useEffect(() => {
@@ -346,86 +404,36 @@ export function IronerInterfacePage() {
       }
     });
 
-    // Listen for tag reads
-    const unsubTag = window.electronAPI.onUhfTag(async (tag: UhfTag) => {
-      // Check if already validating this EPC (prevent duplicate API calls)
-      if (validatingEpcsRef.current.has(tag.epc)) {
-        // Just update last seen time
-        setScannedTags(prev => {
-          const newMap = new Map(prev);
-          const existing = newMap.get(tag.epc);
-          if (existing) {
-            newMap.set(tag.epc, { ...existing, lastSeen: Date.now(), rssi: tag.rssi });
-          }
-          return newMap;
-        });
-        return;
-      }
-
-      // Check if already validated (exists with non-checking status)
-      let needsValidation = true;
+    // Listen for tag reads - validation is now instant (local cache lookup)
+    const unsubTag = window.electronAPI.onUhfTag((tag: UhfTag) => {
       setScannedTags(prev => {
         const newMap = new Map(prev);
         const existing = newMap.get(tag.epc);
+
         if (existing) {
-          // Update last seen time
+          // Tag already seen - just update last seen time and rssi
           newMap.set(tag.epc, { ...existing, lastSeen: Date.now(), rssi: tag.rssi });
-          // Only skip validation if already validated successfully
-          if (existing.status !== 'checking') {
-            needsValidation = false;
-          }
-        } else {
-          // New tag - mark as checking
-          newMap.set(tag.epc, {
-            epc: tag.epc,
-            status: 'checking',
-            lastSeen: Date.now(),
-            rssi: tag.rssi
+          return newMap;
+        }
+
+        // New tag - validate against local cache (instant, no API call)
+        const validated = validateTag(tag.epc);
+        newMap.set(tag.epc, { ...validated, rssi: tag.rssi });
+
+        // Add valid and wrong_hotel tags to confirmed items
+        if ((validated.status === 'valid' || validated.status === 'wrong_hotel') && validated.itemTypeId && validated.hotelId) {
+          setConfirmedScannedItems(prevConfirmed => {
+            if (prevConfirmed.has(tag.epc)) {
+              return prevConfirmed;
+            }
+            const newConfirmedMap = new Map(prevConfirmed);
+            newConfirmedMap.set(tag.epc, { ...validated, rssi: tag.rssi });
+            return newConfirmedMap;
           });
         }
+
         return newMap;
       });
-
-      // Skip validation if already validated
-      if (!needsValidation) {
-        return;
-      }
-
-      // Mark as validating
-      validatingEpcsRef.current.add(tag.epc);
-
-      try {
-        const validated = await validateTag(tag.epc);
-        setScannedTags(prev => {
-          const newMap = new Map(prev);
-          newMap.set(tag.epc, validated);
-          return newMap;
-        });
-
-        // Add valid and wrong_hotel tags to confirmed items (only if new tag)
-        // All types are tracked in confirmedScannedItems for display
-        if ((validated.status === 'valid' || validated.status === 'wrong_hotel') && validated.itemTypeId && validated.hotelId) {
-          // Check if already added using a ref-like approach
-          setConfirmedScannedItems(prev => {
-            if (prev.has(tag.epc)) {
-              // Already added, skip
-              return prev;
-            }
-
-            // Add to confirmed items (all types - valid, wrong_hotel, already_processed)
-            const newMap = new Map(prev);
-            newMap.set(tag.epc, validated);
-            return newMap;
-          });
-        }
-
-        // Remove from validating set after successful validation (not checking)
-        if (validated.status !== 'checking') {
-          validatingEpcsRef.current.delete(tag.epc);
-        }
-      } catch (err) {
-        validatingEpcsRef.current.delete(tag.epc);
-      }
     });
 
     return () => {
@@ -481,7 +489,6 @@ export function IronerInterfacePage() {
   useEffect(() => {
     // Clear both temporary and confirmed scanned items when hotel changes
     setScannedTags(new Map());
-    validatingEpcsRef.current.clear();
     setConfirmedScannedItems(new Map());
   }, [activeHotelId]);
 
