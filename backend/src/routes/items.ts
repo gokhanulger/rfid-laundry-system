@@ -104,19 +104,42 @@ itemsRouter.get('/', async (req: AuthRequest, res) => {
   }
 });
 
-// Get item by RFID tag
+// Get item by RFID tag (case-insensitive search)
 itemsRouter.get('/rfid/:rfidTag', async (req: AuthRequest, res) => {
   try {
     const { rfidTag } = req.params;
     const user = req.user!;
 
-    const item = await db.query.items.findFirst({
+    // Try exact match first, then case-insensitive
+    let item = await db.query.items.findFirst({
       where: eq(items.rfidTag, rfidTag),
       with: {
         itemType: true,
         tenant: true,
       },
     });
+
+    // If not found, try uppercase
+    if (!item) {
+      item = await db.query.items.findFirst({
+        where: eq(items.rfidTag, rfidTag.toUpperCase()),
+        with: {
+          itemType: true,
+          tenant: true,
+        },
+      });
+    }
+
+    // If still not found, try lowercase
+    if (!item) {
+      item = await db.query.items.findFirst({
+        where: eq(items.rfidTag, rfidTag.toLowerCase()),
+        with: {
+          itemType: true,
+          tenant: true,
+        },
+      });
+    }
 
     if (!item) {
       return res.status(404).json({ error: 'Item not found' });
