@@ -440,11 +440,13 @@ export function IronerInterfacePage() {
   useEffect(() => {
     const interval = setInterval(() => {
       const now = Date.now();
-      const timedOutEpcs: string[] = [];
 
+      // First, find timed out EPCs from scannedTags
       setScannedTags(prev => {
+        const timedOutEpcs: string[] = [];
         const newMap = new Map(prev);
         let changed = false;
+
         prev.forEach((tag, epc) => {
           if (now - tag.lastSeen > TAG_TIMEOUT_MS) {
             newMap.delete(epc);
@@ -452,24 +454,24 @@ export function IronerInterfacePage() {
             changed = true;
           }
         });
+
+        // Remove timed out tags from confirmedScannedItems immediately
+        if (timedOutEpcs.length > 0) {
+          setConfirmedScannedItems(prevConfirmed => {
+            const newConfirmedMap = new Map(prevConfirmed);
+            let confirmedChanged = false;
+            timedOutEpcs.forEach(epc => {
+              if (newConfirmedMap.has(epc)) {
+                newConfirmedMap.delete(epc);
+                confirmedChanged = true;
+              }
+            });
+            return confirmedChanged ? newConfirmedMap : prevConfirmed;
+          });
+        }
+
         return changed ? newMap : prev;
       });
-
-      // Also remove timed out tags from confirmedScannedItems
-      // This enables printing when wrong hotel items are removed from range
-      if (timedOutEpcs.length > 0) {
-        setConfirmedScannedItems(prev => {
-          const newMap = new Map(prev);
-          let changed = false;
-          timedOutEpcs.forEach(epc => {
-            if (newMap.has(epc)) {
-              newMap.delete(epc);
-              changed = true;
-            }
-          });
-          return changed ? newMap : prev;
-        });
-      }
     }, 1000);
 
     return () => clearInterval(interval);
