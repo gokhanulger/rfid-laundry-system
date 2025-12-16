@@ -332,31 +332,69 @@ function parseUhfResponse(buffer) {
 // Extract EPC from inventory response
 function extractEpcFromInventory(data) {
   // BOHANG CM protocol inventory response format:
-  // Antenna(1) + PC(2) + EPC(12 bytes = 96 bits) + RSSI(1)
-  // Total minimum: 16 bytes
-  if (data.length < 4) return null;
+  // The format varies but typically:
+  // [Antenna(1)] + PC(2) + EPC(12 bytes) + [RSSI(1)]
+  // We need to find where the EPC starts
+
+  if (data.length < 14) return null; // Need at least PC(2) + EPC(12)
 
   try {
+    // Try to find EPC by looking for common EPC prefixes (E280, E200, etc.)
+    // Most UHF tags start with E280 or E200
+    let epcStartOffset = -1;
+
+    for (let i = 0; i < data.length - 12; i++) {
+      // Check for common EPC manufacturer prefixes
+      if ((data[i] === 0xE2 && (data[i+1] === 0x80 || data[i+1] === 0x00)) ||
+          (data[i] === 0x30 && data[i+1] === 0x00 && data[i+2] === 0xE2)) {
+        // Found potential EPC start
+        if (data[i] === 0x30 && data[i+1] === 0x00) {
+          // PC word found (0x3000), EPC starts after it
+          epcStartOffset = i + 2;
+        } else {
+          epcStartOffset = i;
+        }
+        break;
+      }
+    }
+
+    // If no common prefix found, try standard format:
+    // Offset 0: Antenna, Offset 1-2: PC, Offset 3+: EPC
+    // OR Offset 0-1: PC, Offset 2+: EPC
+    if (epcStartOffset === -1) {
+      // Check if first two bytes look like PC word (0x3000 = 96-bit EPC)
+      const possiblePc = (data[0] << 8) | data[1];
+      if ((possiblePc & 0xF800) === 0x3000) {
+        // PC word at offset 0, EPC at offset 2
+        epcStartOffset = 2;
+      } else {
+        // Try offset 1 for PC
+        const possiblePc2 = (data[1] << 8) | data[2];
+        if ((possiblePc2 & 0xF800) === 0x3000) {
+          // Antenna at 0, PC at 1-2, EPC at 3
+          epcStartOffset = 3;
+        } else {
+          // Default: assume antenna(1) + PC(2) format
+          epcStartOffset = 3;
+        }
+      }
+    }
+
+    // Extract 12 bytes (96-bit) EPC
+    const epcLen = Math.min(12, data.length - epcStartOffset);
+    if (epcLen < 12) return null;
+
+    const epc = data.slice(epcStartOffset, epcStartOffset + 12);
+
+    // Get antenna (usually first byte) and RSSI (usually last byte)
     const antenna = data[0];
-    // PC is 2 bytes (Protocol Control)
-    const pc = (data[1] << 8) | data[2];
-
-    // Calculate EPC length from PC word (bits 10-15 encode length in 16-bit words)
-    // For 96-bit EPC: length = 6 words = 12 bytes
-    const epcWordCount = (pc >> 10) & 0x1F; // Get bits 10-14
-    const epcByteLen = epcWordCount * 2; // Convert words to bytes
-
-    // Use calculated length, or default to 12 bytes (96-bit EPC)
-    const epcLen = epcByteLen > 0 && epcByteLen <= 32 ? epcByteLen : Math.min(12, data.length - 4);
-
-    const epc = data.slice(3, 3 + epcLen);
-    const rssi = data.length > 3 + epcLen ? data[3 + epcLen] : 0;
+    const rssi = data[data.length - 1];
 
     return {
       antenna,
-      pc,
+      pc: 0x3000,
       epc: Buffer.from(epc).toString('hex').toUpperCase(),
-      rssi: rssi > 127 ? rssi - 256 : rssi // Convert to signed
+      rssi: rssi > 127 ? rssi - 256 : rssi
     };
   } catch (e) {
     return null;
