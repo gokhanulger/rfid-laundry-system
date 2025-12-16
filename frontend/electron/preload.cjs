@@ -20,11 +20,74 @@ contextBridge.exposeInMainWorld('electronAPI', {
   isElectron: true,
 
   // Platform info
-  platform: process.platform
+  platform: process.platform,
+
+  // ==========================================
+  // UHF RFID Reader API
+  // ==========================================
+
+  // Get UHF reader connection status
+  uhfGetStatus: () => ipcRenderer.invoke('uhf-get-status'),
+
+  // Connect to UHF reader
+  uhfConnect: (config) => ipcRenderer.invoke('uhf-connect', config),
+
+  // Disconnect from UHF reader
+  uhfDisconnect: () => ipcRenderer.invoke('uhf-disconnect'),
+
+  // Start inventory (continuous tag reading)
+  uhfStartInventory: () => ipcRenderer.invoke('uhf-start-inventory'),
+
+  // Stop inventory
+  uhfStopInventory: () => ipcRenderer.invoke('uhf-stop-inventory'),
+
+  // Get all scanned tags
+  uhfGetTags: () => ipcRenderer.invoke('uhf-get-tags'),
+
+  // Clear scanned tags
+  uhfClearTags: () => ipcRenderer.invoke('uhf-clear-tags'),
+
+  // Set UHF reader configuration
+  uhfSetConfig: (config) => ipcRenderer.invoke('uhf-set-config', config),
+
+  // Scan network for RFID reader
+  uhfScanNetwork: () => ipcRenderer.invoke('uhf-scan-network'),
+
+  // Auto-discover and connect to RFID reader
+  uhfAutoConnect: () => ipcRenderer.invoke('uhf-auto-connect'),
+
+  // Listen for UHF reader status changes
+  onUhfStatus: (callback) => {
+    ipcRenderer.on('uhf-status', (event, status) => callback(status));
+    return () => ipcRenderer.removeAllListeners('uhf-status');
+  },
+
+  // Listen for UHF tag reads
+  onUhfTag: (callback) => {
+    ipcRenderer.on('uhf-tag', (event, tag) => callback(tag));
+    return () => ipcRenderer.removeAllListeners('uhf-tag');
+  },
+
+  // Listen for network scan progress
+  onUhfScanProgress: (callback) => {
+    ipcRenderer.on('uhf-scan-progress', (event, progress) => callback(progress));
+    return () => ipcRenderer.removeAllListeners('uhf-scan-progress');
+  },
+
+  // Listen for UHF debug logs
+  onUhfLog: (callback) => {
+    ipcRenderer.on('uhf-log', (event, log) => callback(log));
+    return () => ipcRenderer.removeAllListeners('uhf-log');
+  }
 });
 
 // Notify that Electron is ready
 window.addEventListener('DOMContentLoaded', () => {
   console.log('RFID Laundry System - Electron Ready');
   console.log('Platform:', process.platform);
+
+  // Listen for UHF debug logs and print to console
+  ipcRenderer.on('uhf-log', (event, log) => {
+    console.log('[UHF]', log.type + ':', log.message);
+  });
 });

@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Printer, Sparkles, Building2, X, Plus, Search, Delete, Trash2, Sun, Moon, Settings } from 'lucide-react';
+import { Printer, Sparkles, Building2, X, Plus, Search, Delete, Trash2, Sun, Moon, Settings, Wifi, WifiOff, Radio, AlertTriangle, CheckCircle, HelpCircle, XCircle, RefreshCw, Loader2 } from 'lucide-react';
 import { itemsApi, deliveriesApi, settingsApi, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/Toast';
 import { generateDeliveryLabel } from '../lib/pdfGenerator';
 import { isElectron, getPrinters, savePreferredPrinter, getPreferredPrinter, type Printer as PrinterType } from '../lib/printer';
 import type { Item, Tenant } from '../types';
+import type { UhfTag, UhfReaderStatus } from '../types/electron';
 
 // Storage keys
 const SELECTED_HOTELS_KEY = 'laundry_selected_hotels';
@@ -14,6 +15,25 @@ const PRODUCT_COUNTER_KEY = 'laundry_product_counter';
 
 // Shift type
 type ShiftType = 'day' | 'night';
+
+// Scanned tag status
+type TagStatus = 'valid' | 'wrong_hotel' | 'unregistered' | 'checking';
+
+// Scanned tag with validation info
+interface ScannedTagInfo {
+  epc: string;
+  status: TagStatus;
+  hotelId?: string;
+  hotelName?: string;
+  itemType?: string;
+  itemTypeId?: string;
+  itemId?: string;
+  lastSeen: number;
+  rssi?: number;
+}
+
+// Tag timeout - consider tag "left" after 3 seconds of no reads
+const TAG_TIMEOUT_MS = 3000;
 
 // Get current shift based on Turkey time (UTC+3)
 // Day: 08:00 - 18:00, Night: 18:00 - 08:00
@@ -63,6 +83,28 @@ export function IronerInterfacePage() {
   const [availablePrinters, setAvailablePrinters] = useState<PrinterType[]>([]);
   const [selectedPrinter, setSelectedPrinter] = useState<string>(getPreferredPrinter() || '');
   const [showPrinterModal, setShowPrinterModal] = useState(false);
+
+  // UHF RFID Reader state
+  const [uhfConnected, setUhfConnected] = useState(false);
+  const [uhfInventoryActive, setUhfInventoryActive] = useState(false);
+  const [scannedTags, setScannedTags] = useState<Map<string, ScannedTagInfo>>(new Map());
+  // Confirmed scanned items - persists until label is printed
+  const [confirmedScannedItems, setConfirmedScannedItems] = useState<Map<string, ScannedTagInfo>>(new Map());
+  const [showPrintConfirmModal, setShowPrintConfirmModal] = useState(false);
+  const [pendingPrintAction, setPendingPrintAction] = useState<(() => void) | null>(null);
+
+  // RFID Reader Settings
+  const [showRfidSettingsModal, setShowRfidSettingsModal] = useState(false);
+  const [rfidReaderIp, setRfidReaderIp] = useState<string>('');
+  const [rfidReaderPort, setRfidReaderPort] = useState<number>(0);
+  const [rfidScanProgress, setRfidScanProgress] = useState<{ status: string; message?: string; ip?: string; port?: number } | null>(null);
+  const [isScanning, setIsScanning] = useState(false);
+  const [manualIp, setManualIp] = useState('');
+  const [manualPort, setManualPort] = useState('20058');
+
+  // Ref to track which EPCs are currently being validated (prevents duplicate API calls)
+  const validatingEpcsRef = useRef<Set<string>>(new Set());
+
   const queryClient = useQueryClient();
   const toast = useToast();
 
@@ -124,6 +166,23 @@ export function IronerInterfacePage() {
           savePreferredPrinter(defaultPrinter);
         }
       });
+
+      // Load saved RFID reader IP from localStorage
+      const savedIp = localStorage.getItem('rfid_reader_ip');
+      const savedPort = localStorage.getItem('rfid_reader_port');
+      if (savedIp) {
+        setManualIp(savedIp);
+        setRfidReaderIp(savedIp);
+        // Update Electron config with saved IP
+        window.electronAPI?.uhfSetConfig({
+          ip: savedIp,
+          port: savedPort ? parseInt(savedPort) : 20058
+        });
+      }
+      if (savedPort) {
+        setManualPort(savedPort);
+        setRfidReaderPort(parseInt(savedPort));
+      }
     }
 
     return () => clearInterval(refreshInterval);
@@ -206,6 +265,260 @@ export function IronerInterfacePage() {
     queryFn: settingsApi.getItemTypes,
   });
 
+  // Validate scanned tag against database
+  const validateTag = useCallback(async (epc: string): Promise<ScannedTagInfo> => {
+    try {
+      const item = await itemsApi.getByRfid(epc);
+
+      // If item is null or undefined, it's unregistered
+      if (!item) {
+        return {
+          epc,
+          status: 'unregistered',
+          lastSeen: Date.now(),
+        };
+      }
+
+      const hotel = tenantsArray.find((t: Tenant) => t.id === item.tenantId);
+      const itemTypeInfo = itemTypes?.find((t: { id: string; name: string }) => t.id === item.itemTypeId);
+
+      // Check if tag belongs to selected hotel
+      const isValidHotel = activeHotelId ? item.tenantId === activeHotelId : selectedHotelIds.includes(item.tenantId);
+
+      return {
+        epc,
+        status: isValidHotel ? 'valid' : 'wrong_hotel',
+        hotelId: item.tenantId,
+        hotelName: hotel?.name || 'Bilinmeyen Otel',
+        itemType: itemTypeInfo?.name || 'Bilinmeyen Tür',
+        itemTypeId: item.itemTypeId,
+        itemId: item.id,
+        lastSeen: Date.now(),
+      };
+    } catch (error: unknown) {
+      // Check if it's a 404 error (not found) - only then mark as unregistered
+      const axiosError = error as { response?: { status?: number } };
+      if (axiosError?.response?.status === 404) {
+        return {
+          epc,
+          status: 'unregistered',
+          lastSeen: Date.now(),
+        };
+      }
+
+      // For other errors (network, timeout, etc.), keep as checking to retry
+      console.error('Error validating tag:', epc, error);
+      return {
+        epc,
+        status: 'checking',
+        lastSeen: Date.now(),
+      };
+    }
+  }, [activeHotelId, selectedHotelIds, tenantsArray, itemTypes]);
+
+  // UHF Reader setup - connect and listen for status/tags
+  useEffect(() => {
+    if (!window.electronAPI) return;
+
+    // Get initial status
+    window.electronAPI.uhfGetStatus().then((status: UhfReaderStatus) => {
+      setUhfConnected(status.connected);
+      setUhfInventoryActive(status.inventoryActive || false);
+      if (status.ip) setRfidReaderIp(status.ip);
+      if (status.port) setRfidReaderPort(status.port);
+    });
+
+    // Listen for status changes
+    const unsubStatus = window.electronAPI.onUhfStatus((status: UhfReaderStatus) => {
+      setUhfConnected(status.connected);
+      setUhfInventoryActive(status.inventoryActive || false);
+      if (status.ip) setRfidReaderIp(status.ip);
+    });
+
+    // Listen for scan progress
+    const unsubScanProgress = window.electronAPI.onUhfScanProgress((progress: { status: string; message?: string; ip?: string; port?: number }) => {
+      setRfidScanProgress(progress);
+      if (progress.status === 'found' || progress.status === 'not_found') {
+        setIsScanning(false);
+        if (progress.ip && progress.port) {
+          setRfidReaderIp(progress.ip);
+          setRfidReaderPort(progress.port);
+        }
+      }
+    });
+
+    // Listen for tag reads
+    const unsubTag = window.electronAPI.onUhfTag(async (tag: UhfTag) => {
+      // Check if already validating this EPC (prevent duplicate API calls)
+      if (validatingEpcsRef.current.has(tag.epc)) {
+        // Just update last seen time
+        setScannedTags(prev => {
+          const newMap = new Map(prev);
+          const existing = newMap.get(tag.epc);
+          if (existing) {
+            newMap.set(tag.epc, { ...existing, lastSeen: Date.now(), rssi: tag.rssi });
+          }
+          return newMap;
+        });
+        return;
+      }
+
+      // Check if already validated (exists with non-checking status)
+      let needsValidation = true;
+      setScannedTags(prev => {
+        const newMap = new Map(prev);
+        const existing = newMap.get(tag.epc);
+        if (existing) {
+          // Update last seen time
+          newMap.set(tag.epc, { ...existing, lastSeen: Date.now(), rssi: tag.rssi });
+          // Only skip validation if already validated successfully
+          if (existing.status !== 'checking') {
+            needsValidation = false;
+          }
+        } else {
+          // New tag - mark as checking
+          newMap.set(tag.epc, {
+            epc: tag.epc,
+            status: 'checking',
+            lastSeen: Date.now(),
+            rssi: tag.rssi
+          });
+        }
+        return newMap;
+      });
+
+      // Skip validation if already validated
+      if (!needsValidation) {
+        return;
+      }
+
+      // Mark as validating
+      validatingEpcsRef.current.add(tag.epc);
+
+      try {
+        const validated = await validateTag(tag.epc);
+        setScannedTags(prev => {
+          const newMap = new Map(prev);
+          newMap.set(tag.epc, validated);
+          return newMap;
+        });
+
+        // Add valid and wrong_hotel tags to confirmed items (only if new tag)
+        // All types are tracked in confirmedScannedItems for display
+        if ((validated.status === 'valid' || validated.status === 'wrong_hotel') && validated.itemTypeId && validated.hotelId) {
+          // Check if already added using a ref-like approach
+          setConfirmedScannedItems(prev => {
+            if (prev.has(tag.epc)) {
+              // Already added, skip
+              return prev;
+            }
+
+            // Add to confirmed items (all types - valid, wrong_hotel, already_processed)
+            const newMap = new Map(prev);
+            newMap.set(tag.epc, validated);
+            return newMap;
+          });
+        }
+
+        // Remove from validating set after successful validation (not checking)
+        if (validated.status !== 'checking') {
+          validatingEpcsRef.current.delete(tag.epc);
+        }
+      } catch (err) {
+        console.error('Error in tag validation:', err);
+        validatingEpcsRef.current.delete(tag.epc);
+      }
+    });
+
+    return () => {
+      unsubStatus();
+      unsubTag();
+      unsubScanProgress();
+    };
+  }, [validateTag]);
+
+  // Cleanup old tags that haven't been seen recently
+  // Also sync confirmedScannedItems - remove items that are no longer in range
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now();
+      const timedOutEpcs: string[] = [];
+
+      setScannedTags(prev => {
+        const newMap = new Map(prev);
+        let changed = false;
+        prev.forEach((tag, epc) => {
+          if (now - tag.lastSeen > TAG_TIMEOUT_MS) {
+            newMap.delete(epc);
+            timedOutEpcs.push(epc);
+            changed = true;
+          }
+        });
+        return changed ? newMap : prev;
+      });
+
+      // Also remove timed out tags from confirmedScannedItems
+      // This enables printing when wrong hotel items are removed from range
+      if (timedOutEpcs.length > 0) {
+        setConfirmedScannedItems(prev => {
+          const newMap = new Map(prev);
+          let changed = false;
+          timedOutEpcs.forEach(epc => {
+            if (newMap.has(epc)) {
+              newMap.delete(epc);
+              changed = true;
+            }
+          });
+          return changed ? newMap : prev;
+        });
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Clear scanned items when hotel changes
+  useEffect(() => {
+    // Clear both temporary and confirmed scanned items when hotel changes
+    setScannedTags(new Map());
+    validatingEpcsRef.current.clear();
+    setConfirmedScannedItems(new Map());
+  }, [activeHotelId]);
+
+  // Calculate tag counts by status
+  const tagCounts = useMemo(() => {
+    const counts = { valid: 0, wrong_hotel: 0, unregistered: 0, checking: 0, total: 0 };
+    scannedTags.forEach(tag => {
+      counts[tag.status]++;
+      counts.total++;
+    });
+    return counts;
+  }, [scannedTags]);
+
+  // Total scanned items count for display
+  const scannedItemsCount = confirmedScannedItems.size;
+
+  // Check if there are any tags currently in range
+  const hasTagsInRange = tagCounts.total > 0;
+
+  // Check if there are problematic tags (wrong hotel or unregistered)
+  const hasProblematicTags = tagCounts.wrong_hotel > 0 || tagCounts.unregistered > 0;
+
+  // Count wrong hotel items in confirmed scanned items
+  const confirmedWrongHotelCount = useMemo(() => {
+    let count = 0;
+    confirmedScannedItems.forEach(item => {
+      if (item.status === 'wrong_hotel') count++;
+    });
+    return count;
+  }, [confirmedScannedItems]);
+
+  // Check if there are wrong hotel tags - BLOCKS printing (check both current and confirmed)
+  const hasWrongHotelTags = tagCounts.wrong_hotel > 0 || confirmedWrongHotelCount > 0;
+
+  // Check if items were scanned via RFID (skip confirmation for RFID scanned items)
+  const hasRfidScannedItems = confirmedScannedItems.size > 0;
+
   // Get recently printed deliveries (used for refetch after printing)
   const { refetch: refetchPrinted } = useQuery({
     queryKey: ['deliveries', { status: 'label_printed' }],
@@ -262,7 +575,7 @@ export function IronerInterfacePage() {
       const totalProducts = (labelExtraData || []).reduce((sum, item) => sum + (item.count || 0), 0);
       return { delivery: fullDelivery, labelCount, totalProducts };
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       toast.success('Urunler temizlendi ve etiket basildi!');
       // Counter now increments when packager scans the label
       queryClient.invalidateQueries({ queryKey: ['dirty-items'] });
@@ -270,6 +583,13 @@ export function IronerInterfacePage() {
       queryClient.invalidateQueries({ queryKey: ['items'] });
       refetchDirty();
       refetchPrinted();
+      // Clear print list for the hotel
+      if (variables.hotelId) {
+        clearPrintList(variables.hotelId);
+      }
+      // Clear scanned items after printing
+      setConfirmedScannedItems(new Map());
+      setScannedTags(new Map());
     },
     onError: (err) => toast.error('Failed to process items', getErrorMessage(err)),
   });
@@ -635,8 +955,93 @@ export function IronerInterfacePage() {
             </button>
           </div>
 
-          {/* Right: Printer + Counter */}
+          {/* Right: RFID + Printer + Counter */}
           <div className="flex items-center gap-3 flex-shrink-0">
+            {/* RFID Reader Status */}
+            {isElectron() && (
+              <div className="flex items-center gap-2">
+                {/* Connection Status with Settings Button */}
+                <button
+                  onClick={() => setShowRfidSettingsModal(true)}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 transition-all hover:opacity-80 ${
+                    uhfConnected
+                      ? 'bg-green-50 border-green-300 text-green-700'
+                      : 'bg-red-50 border-red-300 text-red-700'
+                  }`}
+                  title={uhfConnected ? `RFID Bağlı: ${rfidReaderIp}:${rfidReaderPort}` : 'RFID Okuyucu Bağlı Değil - Ayarlar için tıklayın'}
+                >
+                  {uhfConnected ? <Wifi className="w-4 h-4" /> : <WifiOff className="w-4 h-4" />}
+                  <span className="text-xs font-medium">RFID</span>
+                  <Settings className="w-3 h-3 opacity-60" />
+                </button>
+
+                {/* Connect and Scan Button */}
+                <button
+                  onClick={() => {
+                    if (uhfConnected) {
+                      // Disconnect
+                      window.electronAPI?.uhfDisconnect();
+                    } else {
+                      // Connect (will auto-start scanning)
+                      window.electronAPI?.uhfConnect();
+                    }
+                  }}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-all ${
+                    uhfConnected
+                      ? hasProblematicTags
+                        ? 'bg-red-500 border-red-600 text-white hover:bg-red-600 animate-pulse'
+                        : 'bg-green-500 border-green-600 text-white hover:bg-green-600 animate-pulse'
+                      : 'bg-blue-500 border-blue-600 text-white hover:bg-blue-600'
+                  }`}
+                  title={uhfConnected ? 'Bağlantıyı Kes' : 'Bağlan ve Tara'}
+                >
+                  {uhfConnected ? (
+                    <>
+                      <Radio className="w-4 h-4 animate-spin" />
+                      <span className="text-sm font-medium">
+                        Taranıyor {scannedItemsCount > 0 && `(${scannedItemsCount} ürün)`}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <Wifi className="w-4 h-4" />
+                      <span className="text-sm font-medium">Bağlan</span>
+                    </>
+                  )}
+                </button>
+
+                {/* Tag Counts - Show when scanning */}
+                {uhfInventoryActive && tagCounts.total > 0 && (
+                  <div className="flex items-center gap-1 px-2 py-1 bg-gray-100 rounded-lg border">
+                    {tagCounts.valid > 0 && (
+                      <span className="flex items-center gap-1 text-xs text-green-700 bg-green-100 px-2 py-0.5 rounded" title="Geçerli">
+                        <CheckCircle className="w-3 h-3" />
+                        {tagCounts.valid}
+                      </span>
+                    )}
+                    {tagCounts.wrong_hotel > 0 && (
+                      <span className="flex items-center gap-1 text-xs text-orange-700 bg-orange-100 px-2 py-0.5 rounded" title="Yanlış Otel">
+                        <AlertTriangle className="w-3 h-3" />
+                        {tagCounts.wrong_hotel}
+                      </span>
+                    )}
+                    {tagCounts.unregistered > 0 && (
+                      <span className="flex items-center gap-1 text-xs text-red-700 bg-red-100 px-2 py-0.5 rounded" title="Tanımsız">
+                        <XCircle className="w-3 h-3" />
+                        {tagCounts.unregistered}
+                      </span>
+                    )}
+                    {tagCounts.checking > 0 && (
+                      <span className="flex items-center gap-1 text-xs text-gray-700 bg-gray-200 px-2 py-0.5 rounded" title="Kontrol Ediliyor">
+                        <HelpCircle className="w-3 h-3 animate-pulse" />
+                        {tagCounts.checking}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Printer Selection Button */}
             {isElectron() && (
               <button
@@ -742,6 +1147,283 @@ export function IronerInterfacePage() {
         </div>
       )}
 
+      {/* RFID Reader Settings Modal */}
+      {showRfidSettingsModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                <Radio className="w-6 h-6 text-blue-600" />
+                RFID Okuyucu Ayarları
+              </h2>
+              <button
+                onClick={() => {
+                  setShowRfidSettingsModal(false);
+                  setRfidScanProgress(null);
+                }}
+                className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Current Status */}
+            <div className={`mb-4 p-4 rounded-lg border-2 ${uhfConnected ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300'}`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {uhfConnected ? <Wifi className="w-5 h-5 text-green-600" /> : <WifiOff className="w-5 h-5 text-red-600" />}
+                  <span className={`font-medium ${uhfConnected ? 'text-green-700' : 'text-red-700'}`}>
+                    {uhfConnected ? 'Bağlı' : 'Bağlı Değil'}
+                  </span>
+                </div>
+                {uhfConnected && (
+                  <span className="text-sm text-green-600 font-mono">{rfidReaderIp}:{rfidReaderPort}</span>
+                )}
+              </div>
+            </div>
+
+            {/* Auto Scan Button */}
+            <div className="mb-4">
+              <button
+                onClick={async () => {
+                  setIsScanning(true);
+                  setRfidScanProgress({ status: 'started', message: 'Ağ taraması başlatıldı...' });
+                  try {
+                    const result = await window.electronAPI?.uhfScanNetwork();
+                    if (result?.success && result.ip && result.port) {
+                      toast.success(`RFID Okuyucu bulundu: ${result.ip}:${result.port}`);
+                      // Save to localStorage
+                      localStorage.setItem('rfid_reader_ip', result.ip);
+                      localStorage.setItem('rfid_reader_port', String(result.port));
+                    } else {
+                      toast.error('RFID Okuyucu bulunamadı');
+                    }
+                  } catch (err) {
+                    toast.error('Tarama hatası');
+                  }
+                  setIsScanning(false);
+                }}
+                disabled={isScanning}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-blue-400 font-medium transition-all"
+              >
+                {isScanning ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Taranıyor...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="w-5 h-5" />
+                    Okuyucu Ara (Otomatik)
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Scan Progress */}
+            {rfidScanProgress && (
+              <div className={`mb-4 p-3 rounded-lg text-sm ${
+                rfidScanProgress.status === 'found' ? 'bg-green-100 text-green-800' :
+                rfidScanProgress.status === 'not_found' ? 'bg-red-100 text-red-800' :
+                'bg-blue-100 text-blue-800'
+              }`}>
+                <div className="flex items-center gap-2">
+                  {rfidScanProgress.status === 'found' ? (
+                    <CheckCircle className="w-4 h-4" />
+                  ) : rfidScanProgress.status === 'not_found' ? (
+                    <XCircle className="w-4 h-4" />
+                  ) : (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  )}
+                  <span>{rfidScanProgress.message}</span>
+                </div>
+                {rfidScanProgress.ip && rfidScanProgress.port && (
+                  <p className="mt-1 font-mono text-xs">{rfidScanProgress.ip}:{rfidScanProgress.port}</p>
+                )}
+              </div>
+            )}
+
+            {/* Manual IP Entry */}
+            <div className="border-t pt-4 mt-4">
+              <p className="text-sm font-medium text-gray-700 mb-2">Manuel Bağlantı</p>
+              <div className="flex gap-2 mb-3">
+                <input
+                  type="text"
+                  value={manualIp}
+                  onChange={(e) => setManualIp(e.target.value)}
+                  placeholder="IP Adresi (örn: 192.168.1.100)"
+                  className="flex-1 px-3 py-2 border-2 border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+                <input
+                  type="text"
+                  value={manualPort}
+                  onChange={(e) => setManualPort(e.target.value)}
+                  placeholder="Port"
+                  className="w-20 px-3 py-2 border-2 border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+              <button
+                onClick={async () => {
+                  if (!manualIp) {
+                    toast.warning('IP adresi girin');
+                    return;
+                  }
+                  try {
+                    // Save to localStorage
+                    localStorage.setItem('rfid_reader_ip', manualIp);
+                    localStorage.setItem('rfid_reader_port', manualPort);
+                    // Connect
+                    await window.electronAPI?.uhfSetConfig({ ip: manualIp, port: parseInt(manualPort) });
+                    await window.electronAPI?.uhfConnect({ ip: manualIp, port: parseInt(manualPort) });
+                    toast.success(`Bağlanılıyor: ${manualIp}:${manualPort}`);
+                    setShowRfidSettingsModal(false);
+                  } catch (err) {
+                    toast.error('Bağlantı hatası');
+                  }
+                }}
+                className="w-full px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 font-medium"
+              >
+                Manuel Bağlan
+              </button>
+            </div>
+
+            {/* Auto Connect on Found */}
+            <div className="border-t pt-4 mt-4">
+              <button
+                onClick={async () => {
+                  setIsScanning(true);
+                  setRfidScanProgress({ status: 'started', message: 'Okuyucu aranıyor ve bağlanılıyor...' });
+                  try {
+                    const result = await window.electronAPI?.uhfAutoConnect();
+                    if (result?.success && result.ip && result.port) {
+                      toast.success(`Bağlandı: ${result.ip}:${result.port}`);
+                      // Save to localStorage
+                      localStorage.setItem('rfid_reader_ip', result.ip);
+                      localStorage.setItem('rfid_reader_port', String(result.port));
+                      setShowRfidSettingsModal(false);
+                    } else {
+                      toast.error('Okuyucu bulunamadı veya bağlanılamadı');
+                    }
+                  } catch (err) {
+                    toast.error('Otomatik bağlantı hatası');
+                  }
+                  setIsScanning(false);
+                }}
+                disabled={isScanning}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-green-400 font-bold transition-all"
+              >
+                {isScanning ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Aranıyor...
+                  </>
+                ) : (
+                  <>
+                    <Wifi className="w-5 h-5" />
+                    Otomatik Bul ve Bağlan
+                  </>
+                )}
+              </button>
+            </div>
+
+            <div className="mt-4 pt-4 border-t">
+              <p className="text-xs text-gray-500 text-center">
+                Otomatik tarama, ağdaki BOHANG RFID okuyucuları protokol doğrulaması ile bulur
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Print Confirmation Modal - When tags are in range */}
+      {showPrintConfirmModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-lg mx-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-3 bg-yellow-100 rounded-full">
+                <AlertTriangle className="w-8 h-8 text-yellow-600" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Dikkat!</h2>
+                <p className="text-gray-600">RFID tag'ler hala kapsama alanında</p>
+              </div>
+            </div>
+
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+              <p className="text-sm text-yellow-800 mb-2">
+                <strong>{tagCounts.total}</strong> adet tag hala anten alanında:
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {tagCounts.valid > 0 && (
+                  <span className="flex items-center gap-1 text-sm text-green-700 bg-green-100 px-2 py-1 rounded">
+                    <CheckCircle className="w-4 h-4" />
+                    {tagCounts.valid} Doğru
+                  </span>
+                )}
+                {tagCounts.wrong_hotel > 0 && (
+                  <span className="flex items-center gap-1 text-sm text-orange-700 bg-orange-100 px-2 py-1 rounded">
+                    <AlertTriangle className="w-4 h-4" />
+                    {tagCounts.wrong_hotel} Yanlış Otel
+                  </span>
+                )}
+                {tagCounts.unregistered > 0 && (
+                  <span className="flex items-center gap-1 text-sm text-red-700 bg-red-100 px-2 py-1 rounded">
+                    <XCircle className="w-4 h-4" />
+                    {tagCounts.unregistered} Tanımsız
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {hasProblematicTags && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+                <p className="text-sm text-red-800 font-medium">
+                  Uyarı: Yanlış otel veya tanımsız tag'ler var! Bu ürünler yanlış etikete girebilir.
+                </p>
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowPrintConfirmModal(false);
+                  setPendingPrintAction(null);
+                }}
+                className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium"
+              >
+                İptal
+              </button>
+              <button
+                onClick={() => {
+                  setShowPrintConfirmModal(false);
+                  if (pendingPrintAction) {
+                    pendingPrintAction();
+                    setPendingPrintAction(null);
+                  }
+                }}
+                className={`flex-1 px-4 py-3 rounded-lg font-medium ${
+                  hasProblematicTags
+                    ? 'bg-red-600 text-white hover:bg-red-700'
+                    : 'bg-orange-600 text-white hover:bg-orange-700'
+                }`}
+              >
+                {hasProblematicTags ? 'Yine de Yazdır' : 'Onayla ve Yazdır'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Unregistered Tags Warning - Show only for unregistered tags */}
+      {activeHotelId && tagCounts.unregistered > 0 && (
+        <div className="bg-gray-100 border-2 border-gray-300 rounded-xl p-3 mb-4">
+          <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-1">
+            <XCircle className="w-4 h-4" />
+            Tanımsız Ürünler ({tagCounts.unregistered} adet) - Sisteme kayıtlı değil
+          </h4>
+        </div>
+      )}
+
       {/* Main Content: Form Panel */}
       {!activeHotelId ? (
         <div className="bg-white rounded-xl shadow-lg p-12 text-center border-2 border-dashed border-orange-300 max-w-2xl mx-auto">
@@ -756,25 +1438,99 @@ export function IronerInterfacePage() {
         const itemsByType = groupByType(hotelItems);
         const currentPrintList = printList[hotelId] || [];
 
+        // Group all scanned items by status and type
+        const scannedItemsArray = Array.from(confirmedScannedItems.values());
+
+        // Group valid items (correct hotel, needs label)
+        const validItems = scannedItemsArray.filter(item => item.status === 'valid');
+        const validGrouped = validItems.reduce((acc, item) => {
+          const key = item.itemTypeId!;
+          if (!acc[key]) {
+            acc[key] = {
+              itemType: item.itemType!,
+              itemTypeId: item.itemTypeId!,
+              count: 0
+            };
+          }
+          acc[key].count++;
+          return acc;
+        }, {} as Record<string, { itemType: string; itemTypeId: string; count: number }>);
+        const validList = Object.values(validGrouped);
+
+        // Group wrong hotel items
+        const wrongHotelItems = scannedItemsArray.filter(item => item.status === 'wrong_hotel');
+        const wrongHotelGrouped = wrongHotelItems.reduce((acc, item) => {
+          const key = `${item.hotelId}-${item.itemTypeId}`;
+          if (!acc[key]) {
+            acc[key] = {
+              hotelId: item.hotelId!,
+              hotelName: item.hotelName!,
+              itemType: item.itemType!,
+              itemTypeId: item.itemTypeId!,
+              count: 0
+            };
+          }
+          acc[key].count++;
+          return acc;
+        }, {} as Record<string, { hotelId: string; hotelName: string; itemType: string; itemTypeId: string; count: number }>);
+        const wrongHotelList = Object.values(wrongHotelGrouped);
+
+        const hasAnyScannedItems = validList.length > 0 || wrongHotelList.length > 0;
+        const hasAnyItems = currentPrintList.length > 0 || hasAnyScannedItems;
+
         return (
           <div className="flex gap-6">
-            {/* Left Panel: Print List (only shown when items are added) */}
-            {currentPrintList.length > 0 && (
+            {/* Left Panel: Print List (shown when items are added or wrong hotel items exist) */}
+            {hasAnyItems && (
               <div className="w-72 flex-shrink-0">
-                <div className="bg-white rounded-xl shadow-lg border-2 border-green-200 overflow-hidden">
-                  <div className="bg-gradient-to-r from-green-600 to-green-500 px-4 py-3 flex items-center justify-between">
-                    <h3 className="text-lg font-bold text-white">Ekleneler</h3>
+                <div className={`bg-white rounded-xl shadow-lg border-2 overflow-hidden ${wrongHotelList.length > 0 ? 'border-red-300' : 'border-green-200'}`}>
+                  <div className={`px-4 py-3 flex items-center justify-between ${wrongHotelList.length > 0 ? 'bg-gradient-to-r from-red-600 to-red-500' : 'bg-gradient-to-r from-green-600 to-green-500'}`}>
+                    <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                      {wrongHotelList.length > 0 && <AlertTriangle className="w-5 h-5" />}
+                      Eklenenler
+                    </h3>
                     <button
-                      onClick={() => clearPrintList(hotelId)}
-                      className="p-1 text-green-100 hover:text-white hover:bg-green-700 rounded"
+                      onClick={() => {
+                        clearPrintList(hotelId);
+                        setConfirmedScannedItems(new Map());
+                      }}
+                      className={`p-1 hover:bg-opacity-20 hover:bg-white rounded ${wrongHotelList.length > 0 ? 'text-red-100 hover:text-white' : 'text-green-100 hover:text-white'}`}
                       title="Listeyi temizle"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                   <div className="p-3 space-y-2 max-h-96 overflow-y-auto">
+                    {/* Wrong hotel items - shown with warning */}
+                    {wrongHotelList.map((item, idx) => (
+                      <div key={`wrong-${idx}`} className="flex items-center justify-between bg-red-50 rounded-lg p-3 border-2 border-red-300">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="w-4 h-4 text-red-600 mt-0.5 flex-shrink-0" />
+                          <div>
+                            <p className="font-bold text-red-800">{item.itemType}</p>
+                            <p className="text-sm text-red-600">{item.count} adet</p>
+                            <p className="text-xs text-red-500 font-medium">{item.hotelName}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Valid scanned items - green (needs label) */}
+                    {validList.map((item, idx) => (
+                      <div key={`valid-${idx}`} className="flex items-center justify-between bg-green-50 rounded-lg p-3 border border-green-200">
+                        <div className="flex items-start gap-2">
+                          <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                          <div>
+                            <p className="font-bold text-gray-900">{item.itemType}</p>
+                            <p className="text-sm text-green-700">{item.count} adet</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Manual items from print list (added via EKLE button) */}
                     {currentPrintList.map((item, idx) => (
-                      <div key={idx} className="flex items-center justify-between bg-green-50 rounded-lg p-3 border border-green-200">
+                      <div key={`manual-${idx}`} className="flex items-center justify-between bg-green-50 rounded-lg p-3 border border-green-200">
                         <div>
                           <p className="font-bold text-gray-900">{item.typeName}</p>
                           <p className="text-sm text-green-700">{item.count} adet</p>
@@ -790,10 +1546,20 @@ export function IronerInterfacePage() {
                       </div>
                     ))}
                   </div>
-                  <div className="p-3 border-t bg-gray-50">
-                    <p className="text-sm text-gray-600 text-center">
-                      Toplam: <span className="font-bold text-green-700">{currentPrintList.reduce((sum, i) => sum + i.count, 0)}</span> adet
-                    </p>
+                  <div className={`p-3 border-t ${wrongHotelList.length > 0 ? 'bg-red-50' : 'bg-gray-50'}`}>
+                    {wrongHotelList.length > 0 ? (
+                      <p className="text-sm text-red-700 text-center font-medium">
+                        Yanlış otel ürünlerini çıkarın!
+                      </p>
+                    ) : validList.length > 0 ? (
+                      <p className="text-sm text-gray-600 text-center">
+                        Yazdırılacak: <span className="font-bold text-green-700">{validList.reduce((sum, i) => sum + i.count, 0)}</span> adet
+                      </p>
+                    ) : (
+                      <p className="text-sm text-gray-600 text-center">
+                        Toplam: <span className="font-bold text-green-700">{currentPrintList.reduce((sum, i) => sum + i.count, 0)}</span> adet
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -942,7 +1708,27 @@ export function IronerInterfacePage() {
                         {/* If form has data, auto-add it before printing */}
                         <button
                           onClick={() => {
+                            // Start with manual items from print list
                             let itemsToPrint = [...(printList[hotelId] || [])];
+
+                            // Add RFID scanned valid items
+                            validList.forEach(item => {
+                              const existingIdx = itemsToPrint.findIndex(i => i.typeId === item.itemTypeId);
+                              if (existingIdx >= 0) {
+                                itemsToPrint[existingIdx] = {
+                                  ...itemsToPrint[existingIdx],
+                                  count: itemsToPrint[existingIdx].count + item.count,
+                                };
+                              } else {
+                                itemsToPrint.push({
+                                  typeId: item.itemTypeId,
+                                  typeName: item.itemType,
+                                  count: item.count,
+                                  discardCount: 0,
+                                  hasarliCount: 0
+                                });
+                              }
+                            });
 
                             // Validate form - check for incomplete entries
                             const currentTypeId = addingTypeId[hotelId];
@@ -999,34 +1785,65 @@ export function IronerInterfacePage() {
                               return;
                             }
 
-                            // Collect all item IDs from dirty items
-                            const allItemIds: string[] = [];
-                            itemsToPrint.forEach(item => {
-                              const availableItems = itemsByType[item.typeId] || [];
-                              allItemIds.push(...availableItems.slice(0, item.count).map(i => i.id));
-                            });
+                            // Create the print action function
+                            const executePrint = () => {
+                              // Collect all item IDs from dirty items
+                              const allItemIds: string[] = [];
+                              itemsToPrint.forEach(item => {
+                                const availableItems = itemsByType[item.typeId] || [];
+                                allItemIds.push(...availableItems.slice(0, item.count).map(i => i.id));
+                              });
 
-                            processAndPrintMutation.mutate({
-                              hotelId,
-                              itemIds: allItemIds,
-                              labelCount: 1,
-                              labelExtraData: itemsToPrint.map(item => ({
-                                typeId: item.typeId,
-                                typeName: item.typeName,
-                                count: item.count,
-                                discardCount: item.discardCount,
-                                hasarliCount: item.hasarliCount
-                              }))
-                            });
+                              processAndPrintMutation.mutate({
+                                hotelId,
+                                itemIds: allItemIds,
+                                labelCount: 1,
+                                labelExtraData: itemsToPrint.map(item => ({
+                                  typeId: item.typeId,
+                                  typeName: item.typeName,
+                                  count: item.count,
+                                  discardCount: item.discardCount,
+                                  hasarliCount: item.hasarliCount
+                                }))
+                              });
 
-                            // Clear print list after printing
-                            clearPrintList(hotelId);
+                              // Clear print list after printing
+                              clearPrintList(hotelId);
+                            };
+
+                            // If wrong hotel tags in range, block printing entirely
+                            if (hasWrongHotelTags) {
+                              toast.error('Yanlış otele ait ürünler kapsama alanında! Önce bu ürünleri çıkarın.');
+                              return;
+                            }
+
+                            // If items were scanned via RFID, print directly without confirmation
+                            // Otherwise, if there are tags in range, require confirmation
+                            if (hasRfidScannedItems) {
+                              // RFID scanned items - print directly
+                              executePrint();
+                            } else if (hasTagsInRange) {
+                              // Manual entry but tags in range - ask confirmation
+                              setPendingPrintAction(() => executePrint);
+                              setShowPrintConfirmModal(true);
+                            } else {
+                              // No tags in range - print directly
+                              executePrint();
+                            }
                           }}
-                          disabled={processAndPrintMutation.isPending}
-                          className="h-14 px-6 flex items-center justify-center gap-2 bg-gradient-to-b from-orange-500 to-orange-600 text-white rounded-xl hover:from-orange-600 hover:to-orange-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed font-bold text-lg transition-all shadow-lg"
+                          disabled={processAndPrintMutation.isPending || hasWrongHotelTags}
+                          className={`h-14 px-6 flex items-center justify-center gap-2 rounded-xl font-bold text-lg transition-all shadow-lg ${
+                            hasWrongHotelTags
+                              ? 'bg-gradient-to-b from-gray-400 to-gray-500 text-white cursor-not-allowed'
+                              : hasProblematicTags
+                                ? 'bg-gradient-to-b from-red-500 to-red-600 text-white hover:from-red-600 hover:to-red-700'
+                                : 'bg-gradient-to-b from-orange-500 to-orange-600 text-white hover:from-orange-600 hover:to-orange-700'
+                          } disabled:cursor-not-allowed`}
                         >
+                          {hasWrongHotelTags && <XCircle className="w-5 h-5" />}
+                          {!hasWrongHotelTags && hasProblematicTags && <AlertTriangle className="w-5 h-5" />}
                           <Printer className="w-5 h-5" />
-                          {processAndPrintMutation.isPending ? 'Yazdiriliyor...' : 'YAZDIR'}
+                          {processAndPrintMutation.isPending ? 'Yazdiriliyor...' : hasWrongHotelTags ? 'YANLIŞ OTEL VAR!' : 'YAZDIR'}
                         </button>
                       </div>
 
