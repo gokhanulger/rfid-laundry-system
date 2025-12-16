@@ -83,11 +83,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
 // Notify that Electron is ready
 window.addEventListener('DOMContentLoaded', () => {
-  console.log('RFID Laundry System - Electron Ready');
-  console.log('Platform:', process.platform);
-
-  // Listen for UHF debug logs and print to console
-  ipcRenderer.on('uhf-log', (event, log) => {
-    console.log('[UHF]', log.type + ':', log.message);
-  });
+  // Ready for use
 });

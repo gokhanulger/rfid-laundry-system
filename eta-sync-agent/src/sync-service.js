@@ -251,67 +251,90 @@ SyncService.prototype.syncIrsaliyeler = function() {
                   var cariKod = tenant.qrCode || '';
                   var cariUnvan = tenant.name || '';
 
-                  // Satirlari olustur (items) - farkli alan adlarini kontrol et
-                  var items = details.items || details.deliveryItems || details.lineItems || [];
-
-                  // Eger items bos ise, deliveryPackages icinden items topla
-                  if (items.length === 0 && details.deliveryPackages) {
-                    console.log('  DEBUG - Checking deliveryPackages...');
-                    var packages = details.deliveryPackages || [];
-                    for (var p = 0; p < packages.length; p++) {
-                      var pkg = packages[p];
-                      console.log('  DEBUG - Package ' + p + ' keys:', Object.keys(pkg));
-                      var pkgItems = pkg.items || pkg.packageItems || pkg.deliveryItems || [];
-                      for (var pi = 0; pi < pkgItems.length; pi++) {
-                        items.push(pkgItems[pi]);
-                      }
-                    }
-                  }
-
-                  // Debug: items bilgisi
-                  console.log('  DEBUG - Items count:', items.length);
-                  if (items.length > 0) {
-                    console.log('  DEBUG - First item keys:', Object.keys(items[0]));
-                  }
-
                   var satirlar = [];
 
-                  // Item'lari grupla (ayni urun tipinden kac tane var)
-                  var gruplar = {};
-                  for (var j = 0; j < items.length; j++) {
-                    var item = items[j];
-                    // itemType farkli alanlarda olabilir
-                    var itemType = item.itemType || item.item_type || item.type || {};
-                    var stokKod = itemType.description || itemType.code || '';
-                    // ETA: prefix'ini kaldir
-                    if (stokKod.indexOf('ETA:') === 0) {
-                      stokKod = stokKod.substring(4);
-                    }
-                    var stokAd = itemType.name || item.name || '';
-                    var key = stokKod || stokAd;
-
-                    if (key) {
-                      if (!gruplar[key]) {
-                        gruplar[key] = {
-                          stokKod: stokKod,
-                          stokAd: stokAd,
-                          birim: 'ADET',
-                          miktar: 0,
-                          fiyat: 0
-                        };
+                  // ONCELIK 1: notes alaninda JSON olarak saklanan item verileri (ironer'dan)
+                  if (details.notes) {
+                    try {
+                      var labelData = JSON.parse(details.notes);
+                      if (Array.isArray(labelData) && labelData.length > 0) {
+                        console.log('  DEBUG - Notes icinden ' + labelData.length + ' urun tipi bulundu');
+                        for (var n = 0; n < labelData.length; n++) {
+                          var noteItem = labelData[n];
+                          var typeName = noteItem.typeName || noteItem.name || 'Bilinmeyen';
+                          var count = noteItem.count || 0;
+                          if (typeName && count > 0) {
+                            satirlar.push({
+                              stokKod: '', // notes'da kod yok
+                              stokAd: typeName,
+                              birim: 'ADET',
+                              miktar: count,
+                              fiyat: 0
+                            });
+                          }
+                        }
                       }
-                      gruplar[key].miktar += 1;
+                    } catch (e) {
+                      // JSON parse hatasi, notes baska bir sey
                     }
                   }
 
-                  // Gruplari satirlara cevir
-                  for (var key in gruplar) {
-                    satirlar.push(gruplar[key]);
+                  // ONCELIK 2: deliveryItems veya deliveryPackages
+                  if (satirlar.length === 0) {
+                    var items = details.items || details.deliveryItems || details.lineItems || [];
+
+                    // deliveryPackages icinden items topla
+                    if (items.length === 0 && details.deliveryPackages) {
+                      var packages = details.deliveryPackages || [];
+                      for (var p = 0; p < packages.length; p++) {
+                        var pkg = packages[p];
+                        var pkgItems = pkg.items || pkg.packageItems || pkg.deliveryItems || [];
+                        for (var pi = 0; pi < pkgItems.length; pi++) {
+                          items.push(pkgItems[pi]);
+                        }
+                      }
+                    }
+
+                    // Item'lari grupla
+                    var gruplar = {};
+                    for (var j = 0; j < items.length; j++) {
+                      var item = items[j];
+                      var itemType = item.itemType || item.item_type || item.type || (item.item && item.item.itemType) || {};
+                      var stokKod = itemType.description || itemType.code || '';
+                      if (stokKod.indexOf('ETA:') === 0) {
+                        stokKod = stokKod.substring(4);
+                      }
+                      var stokAd = itemType.name || item.name || '';
+                      var key = stokKod || stokAd;
+
+                      if (key) {
+                        if (!gruplar[key]) {
+                          gruplar[key] = {
+                            stokKod: stokKod,
+                            stokAd: stokAd,
+                            birim: 'ADET',
+                            miktar: 0,
+                            fiyat: 0
+                          };
+                        }
+                        gruplar[key].miktar += 1;
+                      }
+                    }
+
+                    for (var key in gruplar) {
+                      satirlar.push(gruplar[key]);
+                    }
+                  }
+
+                  // Debug
+                  console.log('  DEBUG - Toplam ' + satirlar.length + ' satir bulundu');
+                  if (satirlar.length > 0) {
+                    console.log('  DEBUG - Ilk satir:', JSON.stringify(satirlar[0]));
                   }
 
                   if (satirlar.length === 0) {
-                    console.log('  - ' + delivery.barcode + ': Bos teslimat (items yok veya itemType eksik), atlaniyor');
-                    console.log('  DEBUG - Raw items:', JSON.stringify(items).substring(0, 500));
+                    console.log('  - ' + delivery.barcode + ': Bos teslimat (notes ve items bos), atlaniyor');
+                    console.log('  DEBUG - notes:', details.notes ? details.notes.substring(0, 200) : 'yok');
                     return;
                   }
 
@@ -425,6 +448,102 @@ SyncService.prototype.exploreTable = function(tableName) {
     .catch(function(error) {
       console.error('Kolon listesi alinamadi:', error.message);
       return [];
+    });
+};
+
+/**
+ * ETA'daki son irsaliyeleri kontrol et
+ */
+SyncService.prototype.checkEtaIrsaliyeler = function() {
+  var self = this;
+  console.log('\n--- ETA\'daki Son 50 Irsaliye ---\n');
+
+  return this.etaClient.getLastIrsaliyeler(50)
+    .then(function(irsaliyeler) {
+      if (irsaliyeler.length === 0) {
+        console.log('Hic irsaliye bulunamadi!');
+      } else {
+        console.log(irsaliyeler.length + ' irsaliye bulundu:\n');
+        for (var i = 0; i < irsaliyeler.length; i++) {
+          var irs = irsaliyeler[i];
+          var tarih = irs.IRSFISTAR ? new Date(irs.IRSFISTAR).toLocaleDateString('tr-TR') : '';
+          var firma = irs.IRSFISFIRMA !== undefined ? ' | Firma:' + irs.IRSFISFIRMA : '';
+          console.log('  RefNo: ' + irs.IRSFISREFNO + ' | ' + tarih + ' | ' + (irs.IRSFISCARUNVAN || '-') + ' | ' + (irs.IRSFISACIKLAMA1 || '') + firma);
+        }
+      }
+      return self.etaClient.disconnect().then(function() {
+        return irsaliyeler;
+      });
+    })
+    .catch(function(error) {
+      console.error('Irsaliye listesi alinamadi:', error.message);
+      return [];
+    });
+};
+
+/**
+ * ETA'da calisir bir irsaliyeyi incele - hangi kolonlar dolu?
+ */
+SyncService.prototype.examineWorkingIrsaliye = function() {
+  var self = this;
+  console.log('\n--- ETA\'da Calisir Bir Irsaliye Inceleniyor ---\n');
+
+  return this.etaClient.examineWorkingIrsaliye()
+    .then(function(fis) {
+      if (!fis) {
+        console.log('ETA tarafindan olusturulmus irsaliye bulunamadi!');
+        console.log('Not: RFID ile olusturulanlar haric arandı.');
+        return self.etaClient.disconnect().then(function() {
+          return null;
+        });
+      }
+
+      console.log('IRSFIS kaydı (RefNo: ' + fis.IRSFISREFNO + '):\n');
+      console.log('Dolu olan kolonlar:');
+
+      var doluKolonlar = [];
+      for (var key in fis) {
+        var val = fis[key];
+        if (val !== null && val !== '' && val !== 0) {
+          doluKolonlar.push(key);
+          var displayVal = val;
+          if (val instanceof Date) {
+            displayVal = val.toLocaleDateString('tr-TR');
+          } else if (typeof val === 'string' && val.length > 50) {
+            displayVal = val.substring(0, 50) + '...';
+          }
+          console.log('  ' + key + ' = ' + displayVal);
+        }
+      }
+
+      // Satirlari da incele
+      return self.etaClient.examineWorkingIrsaliyeHar(fis.IRSFISREFNO)
+        .then(function(har) {
+          if (har) {
+            console.log('\nIRSHAR kaydı (ilk satır):');
+            console.log('Dolu olan kolonlar:');
+            for (var key in har) {
+              var val = har[key];
+              if (val !== null && val !== '' && val !== 0) {
+                var displayVal = val;
+                if (val instanceof Date) {
+                  displayVal = val.toLocaleDateString('tr-TR');
+                } else if (typeof val === 'string' && val.length > 50) {
+                  displayVal = val.substring(0, 50) + '...';
+                }
+                console.log('  ' + key + ' = ' + displayVal);
+              }
+            }
+          }
+
+          return self.etaClient.disconnect().then(function() {
+            return { fis: fis, har: har };
+          });
+        });
+    })
+    .catch(function(error) {
+      console.error('Inceleme hatasi:', error.message);
+      return null;
     });
 };
 

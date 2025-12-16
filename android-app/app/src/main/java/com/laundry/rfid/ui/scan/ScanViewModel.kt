@@ -448,13 +448,14 @@ class ScanViewModel @Inject constructor(
         }
     }
 
-    // Check if completion is allowed (no items from other hotels)
+    // Check if completion is allowed
     fun canComplete(): Boolean {
         val state = _uiState.value
-        // If hotel selection is required, check for other hotel items
+        // If hotel selection is required, just check if hotel is selected
         if (currentSessionType == SessionType.PICKUP || currentSessionType == SessionType.DELIVER) {
             if (state.selectedTenantId == null) return false
-            if (state.otherHotelCount > 0) return false
+            // Allow completion even if there are items from other hotels
+            // Those items will be ignored during pickup creation
         }
         return state.tagCount > 0 && !state.isScanning && !state.isCompleting
     }

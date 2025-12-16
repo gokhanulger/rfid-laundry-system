@@ -36,9 +36,6 @@ const apiBaseUrl = isViteDevServer && !isElectronApp
   ? '/api'
   : 'https://rfid-laundry-backend-production.up.railway.app/api';
 
-// Debug log for troubleshooting
-console.log('API Config:', { isElectronApp, isViteDevServer, apiBaseUrl, userAgent: navigator.userAgent.substring(0, 50) });
-
 // Token storage key
 const TOKEN_KEY = 'rfid_auth_token';
 
@@ -73,11 +70,6 @@ api.interceptors.request.use((config) => {
   }
   return config;
 });
-
-// Log the API URL in development for debugging
-if (import.meta.env.DEV) {
-  console.log('API Base URL:', apiBaseUrl);
-}
 
 // Error handling helper
 export function getErrorMessage(error: unknown): string {

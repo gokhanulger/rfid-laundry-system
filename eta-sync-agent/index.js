@@ -100,6 +100,8 @@ function showMenu() {
   console.log('|  6. ETA Tablolarini Gor (Kesif)                      |');
   console.log('|  7. Tablo Yapisi Gor                                 |');
   console.log('|  8. Ayarlar                                          |');
+  console.log('|  9. ETA Irsaliyelerini Kontrol Et                    |');
+  console.log('|  A. Calisir Irsaliye Incele (Debug)                  |');
   console.log('|  0. Cikis                                            |');
   console.log('|                                                      |');
   console.log('+======================================================+');
@@ -175,6 +177,13 @@ function handleChoice(choice) {
       showSettings();
       return Promise.resolve();
 
+    case '9':
+      return syncService.checkEtaIrsaliyeler();
+
+    case 'A':
+    case 'a':
+      return syncService.examineWorkingIrsaliye();
+
     case '0':
     case 'q':
     case 'Q':
@@ -184,7 +193,7 @@ function handleChoice(choice) {
       return Promise.resolve();
 
     default:
-      console.log('\nGecersiz secim. Lutfen 0-8 arasinda bir sayi girin.');
+      console.log('\nGecersiz secim. Lutfen 0-9 arasinda bir sayi girin.');
       return Promise.resolve();
   }
 }
@@ -192,7 +201,7 @@ function handleChoice(choice) {
 function mainLoop() {
   showMenu();
 
-  prompt('Seciminiz (0-8): ')
+  prompt('Seciminiz (0-9): ')
     .then(function(choice) {
       return handleChoice(choice);
     })

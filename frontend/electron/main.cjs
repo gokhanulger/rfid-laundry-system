@@ -122,7 +122,6 @@ function tryConnectAndVerify(ip, port, timeout = 2000) {
     }, timeout);
 
     socket.connect(port, ip, () => {
-      console.log(`[UHF-Verify] Connected to ${ip}:${port}, sending HEARTBEAT...`);
       // Send HEARTBEAT command to verify it's a BOHANG reader
       const heartbeatCmd = Buffer.from([0x43, 0x4D, 0x10, 0x00, 0x00, 0x00, 0x00]); // CM + HEARTBEAT
       socket.write(heartbeatCmd);
@@ -136,7 +135,6 @@ function tryConnectAndVerify(ip, port, timeout = 2000) {
         // Look for CM header anywhere in response
         for (let i = 0; i < dataBuffer.length - 1; i++) {
           if (dataBuffer[i] === 0x43 && dataBuffer[i + 1] === 0x4D) {
-            console.log(`[UHF-Verify] ✓ Valid CM protocol response from ${ip}:${port}`);
             clearTimeout(timer);
             cleanup();
             resolve({ success: true, ip, port });
@@ -153,14 +151,12 @@ function tryConnectAndVerify(ip, port, timeout = 2000) {
             // Check one more time
             for (let i = 0; i < dataBuffer.length - 1; i++) {
               if (dataBuffer[i] === 0x43 && dataBuffer[i + 1] === 0x4D) {
-                console.log(`[UHF-Verify] ✓ Valid CM protocol response from ${ip}:${port}`);
                 clearTimeout(timer);
                 cleanup();
                 resolve({ success: true, ip, port });
                 return;
               }
             }
-            console.log(`[UHF-Verify] ✗ Invalid response from ${ip}:${port}: ${dataBuffer.toString('hex')}`);
             clearTimeout(timer);
             cleanup();
             resolve({ success: false, reason: 'invalid_protocol' });
@@ -188,7 +184,6 @@ function tryConnectAndVerify(ip, port, timeout = 2000) {
 // Scan network for RFID reader with protocol verification
 async function scanForReader(progressCallback) {
   const ranges = getLocalNetworkRanges();
-  console.log('[UHF] Scanning network ranges:', ranges);
 
   if (progressCallback) progressCallback({ status: 'scanning', ranges });
 
@@ -197,20 +192,17 @@ async function scanForReader(progressCallback) {
 
   // First, try known/saved IP with priority ports (with protocol verification)
   const savedIp = UHF_READER_CONFIG.ip;
-  console.log(`[UHF] Trying saved IP ${savedIp} with protocol verification...`);
   if (progressCallback) progressCallback({ status: 'trying', ip: savedIp, message: `Kayıtlı IP deneniyor: ${savedIp}` });
 
   for (const port of priorityPorts) {
     const result = await tryConnectAndVerify(savedIp, port, 1500);
     if (result.success) {
-      console.log(`[UHF] ✓ Verified BOHANG reader at ${savedIp}:${port}`);
       return { ip: savedIp, port, verified: true };
     }
   }
 
   // Scan each network range with protocol verification
   for (const prefix of ranges) {
-    console.log(`[UHF] Scanning ${prefix}.x with protocol verification...`);
     if (progressCallback) progressCallback({ status: 'scanning_range', prefix, message: `Ağ taranıyor: ${prefix}.x` });
 
     // First do a quick port scan to find candidates
@@ -242,7 +234,6 @@ async function scanForReader(progressCallback) {
       }
     }
 
-    console.log(`[UHF] Found ${candidates.length} candidate(s) in ${prefix}.x`);
     if (progressCallback) progressCallback({
       status: 'verifying',
       message: `${candidates.length} aday bulundu, doğrulanıyor...`,
@@ -251,7 +242,6 @@ async function scanForReader(progressCallback) {
 
     // Now verify each candidate with protocol check
     for (const candidate of candidates) {
-      console.log(`[UHF] Verifying candidate ${candidate.ip}:${candidate.port}...`);
       if (progressCallback) progressCallback({
         status: 'verifying_device',
         ip: candidate.ip,
@@ -261,14 +251,12 @@ async function scanForReader(progressCallback) {
 
       const result = await tryConnectAndVerify(candidate.ip, candidate.port, 1500);
       if (result.success) {
-        console.log(`[UHF] ✓ Verified BOHANG reader at ${candidate.ip}:${candidate.port}`);
         return { ip: candidate.ip, port: candidate.port, verified: true };
       }
     }
   }
 
   // Deep scan - try all common ports on all IPs (slower, still with verification)
-  console.log('[UHF] Quick scan failed, trying deep scan with all ports...');
   if (progressCallback) progressCallback({ status: 'deep_scan', message: 'Detaylı tarama yapılıyor...' });
 
   for (const prefix of ranges) {
@@ -282,7 +270,6 @@ async function scanForReader(progressCallback) {
           // Verify with protocol
           const result = await tryConnectAndVerify(ip, port, 1500);
           if (result.success) {
-            console.log(`[UHF] ✓ Verified BOHANG reader at ${ip}:${port}`);
             return { ip, port, verified: true };
           }
         }
@@ -290,7 +277,6 @@ async function scanForReader(progressCallback) {
     }
   }
 
-  console.log('[UHF] No verified BOHANG reader found');
   return null;
 }
 
@@ -335,7 +321,6 @@ function parseUhfResponse(buffer) {
     const data = buffer.slice(offset + 5, offset + 5 + dataLen);
 
     results.push({ cmd, readerId, data: [...data] });
-    console.log(`[UHF] Parsed frame: cmd=0x${cmd.toString(16)}, readerId=${readerId}, dataLen=${dataLen}`);
 
     offset += frameLen;
   }
@@ -346,16 +331,24 @@ function parseUhfResponse(buffer) {
 
 // Extract EPC from inventory response
 function extractEpcFromInventory(data) {
-  // Inventory response format varies, but typically:
-  // Antenna(1) + PC(2) + EPC(12+) + RSSI(1) or similar
+  // BOHANG CM protocol inventory response format:
+  // Antenna(1) + PC(2) + EPC(12 bytes = 96 bits) + RSSI(1)
+  // Total minimum: 16 bytes
   if (data.length < 4) return null;
 
   try {
     const antenna = data[0];
-    // PC is 2 bytes
+    // PC is 2 bytes (Protocol Control)
     const pc = (data[1] << 8) | data[2];
-    // EPC length can be determined from PC, but typically 12 bytes (96 bits)
-    const epcLen = Math.min(12, data.length - 4); // Reserve space for RSSI
+
+    // Calculate EPC length from PC word (bits 10-15 encode length in 16-bit words)
+    // For 96-bit EPC: length = 6 words = 12 bytes
+    const epcWordCount = (pc >> 10) & 0x1F; // Get bits 10-14
+    const epcByteLen = epcWordCount * 2; // Convert words to bytes
+
+    // Use calculated length, or default to 12 bytes (96-bit EPC)
+    const epcLen = epcByteLen > 0 && epcByteLen <= 32 ? epcByteLen : Math.min(12, data.length - 4);
+
     const epc = data.slice(3, 3 + epcLen);
     const rssi = data.length > 3 + epcLen ? data[3 + epcLen] : 0;
 
@@ -377,37 +370,24 @@ function connectUhfReader() {
     uhfSocket = null;
   }
 
-  console.log(`[UHF] Connecting to ${UHF_READER_CONFIG.ip}:${UHF_READER_CONFIG.port}...`);
-
   uhfSocket = new net.Socket();
-  uhfSocket.setKeepAlive(true, 5000); // Keep connection alive every 5 seconds
-  uhfSocket.setNoDelay(true); // Disable Nagle's algorithm for faster communication
-  uhfSocket.setTimeout(10000); // 10 second timeout for initial connection
+  uhfSocket.setKeepAlive(true, 5000);
+  uhfSocket.setNoDelay(true);
+  uhfSocket.setTimeout(10000);
 
   uhfSocket.on('timeout', () => {
-    console.log('[UHF] Socket timeout - connection may be stale');
-    // Clear timeout after connection established
     if (uhfConnected) {
-      uhfSocket.setTimeout(0); // Disable timeout once connected
+      uhfSocket.setTimeout(0);
     }
   });
 
   uhfSocket.connect(UHF_READER_CONFIG.port, UHF_READER_CONFIG.ip, () => {
-    console.log('[UHF] Connected to reader');
     uhfConnected = true;
     uhfDataBuffer = Buffer.alloc(0);
     lastDataReceived = Date.now();
-    userWantsConnection = true; // Mark that user wants to stay connected
+    userWantsConnection = true;
 
-    // Disable socket timeout now that we're connected
     uhfSocket.setTimeout(0);
-
-    // Send log to renderer for debugging
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('uhf-log', { type: 'connect', message: 'Connected to ' + UHF_READER_CONFIG.ip + ':' + UHF_READER_CONFIG.port });
-    }
-
-    console.log('[UHF] Connected - starting auto-read mode...');
     uhfInventoryActive = true;
 
     // Notify renderer - connected
@@ -418,14 +398,10 @@ function connectUhfReader() {
     // Wait a moment then send START_AUTO_READ to begin tag scanning
     setTimeout(() => {
       if (uhfSocket && !uhfSocket.destroyed && uhfConnected) {
-        console.log('[UHF] Sending START_AUTO_READ command...');
         try {
           uhfSocket.write(buildUhfCommand(UHF_CMD.START_AUTO_READ));
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('uhf-log', { type: 'sent', message: 'START_AUTO_READ command sent' });
-          }
         } catch (e) {
-          console.log('[UHF] Failed to send START_AUTO_READ:', e.message);
+          // Silently handle error
         }
       }
     }, 1000);
@@ -433,45 +409,26 @@ function connectUhfReader() {
 
   uhfSocket.on('data', (data) => {
     uhfDataBuffer = Buffer.concat([uhfDataBuffer, data]);
-    lastDataReceived = Date.now(); // Update timestamp
-
-    // Log to main process and renderer for debugging
-    console.log('[UHF] Data:', data.length, 'bytes, hex:', data.toString('hex'));
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('uhf-log', { type: 'data', message: data.length + ' bytes: ' + data.toString('hex') });
-    }
+    lastDataReceived = Date.now();
 
     const { results, remaining } = parseUhfResponse(uhfDataBuffer);
     uhfDataBuffer = remaining;
-    console.log('[UHF] Parsed results count:', results.length);
 
     for (const result of results) {
-      // Store reader ID from device
       if (result.readerId) {
         uhfReaderId = result.readerId;
       }
 
-      // Handle device info report (0x67)
-      if (result.cmd === UHF_CMD.DEVICE_INFO_REPORT) {
-        console.log('[UHF] Device info received - reader ready');
-        // Don't auto-start - wait for user to click "Tara"
-      }
-
       // Handle heartbeat (0x10) - respond with heartbeat to keep connection alive
       if (result.cmd === UHF_CMD.HEARTBEAT) {
-        console.log('[UHF] Heartbeat received from reader - sending response');
         try {
           uhfSocket.write(buildUhfCommand(UHF_CMD.HEARTBEAT));
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('uhf-log', { type: 'sent', message: 'HEARTBEAT response sent' });
-          }
         } catch (e) {
-          console.log('[UHF] Failed to send heartbeat response:', e.message);
+          // Silently handle error
         }
       }
 
       // Handle inventory response commands
-      // 0x2A = inventory response, 0x2E = auto-read response, 0x22 = realtime inventory, 0x81 = tag notification
       const isInventoryResponse = (result.cmd === UHF_CMD.START_INVENTORY ||
                                    result.cmd === UHF_CMD.START_AUTO_READ ||
                                    result.cmd === 0x22 ||
@@ -479,8 +436,6 @@ function connectUhfReader() {
                                    result.cmd === 0x29);
 
       if (isInventoryResponse && result.data.length > 0) {
-        console.log('[UHF] TAG DATA cmd=0x' + result.cmd.toString(16) + ' data=' + Buffer.from(result.data).toString('hex'));
-
         const tagInfo = extractEpcFromInventory(result.data);
         if (tagInfo && tagInfo.epc && tagInfo.epc.length > 0) {
           const existing = scannedTags.get(tagInfo.epc);
@@ -492,54 +447,28 @@ function connectUhfReader() {
             antenna: tagInfo.antenna
           });
 
-          console.log('[UHF] *** TAG FOUND: ' + tagInfo.epc + ' RSSI:' + tagInfo.rssi + ' ***');
-
           // Notify renderer of new tag
           if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('uhf-tag', tagInfo);
           }
         }
       }
-
-      // Handle version response
-      if (result.cmd === UHF_CMD.GET_VERSION) {
-        console.log('[UHF] Version:', Buffer.from(result.data).toString());
-      }
-
-      // Log unknown commands with data
-      if (result.data.length > 0 && !isInventoryResponse &&
-          result.cmd !== UHF_CMD.DEVICE_INFO_REPORT &&
-          result.cmd !== UHF_CMD.HEARTBEAT &&
-          result.cmd !== UHF_CMD.GET_VERSION) {
-        console.log('[UHF] Unknown cmd=0x' + result.cmd.toString(16) + ' data=' + Buffer.from(result.data).toString('hex'));
-      }
     }
   });
 
-  uhfSocket.on('error', (err) => {
-    console.log('[UHF] Socket error:', err.message);
-    // Send error to renderer for debugging
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('uhf-log', { type: 'error', message: 'Socket error: ' + err.message });
-    }
+  uhfSocket.on('error', () => {
     // Error will trigger 'close' event, which will handle reconnect
   });
 
   uhfSocket.on('close', () => {
-    console.log('[UHF] Connection closed');
-    // Send to renderer for debugging
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('uhf-log', { type: 'close', message: 'Connection closed - will reconnect' });
-    }
     uhfConnected = false;
     uhfStatusSent = false;
     stopInventoryPolling();
     stopHeartbeat();
     stopHealthCheck();
 
-    // Always auto-reconnect - don't notify UI of disconnect, just reconnect silently
+    // Always auto-reconnect silently
     if (userWantsConnection) {
-      console.log('[UHF] Connection lost - reconnecting immediately...');
       scheduleReconnect();
     } else {
       // Only notify UI if user doesn't want connection
@@ -548,8 +477,6 @@ function connectUhfReader() {
       }
     }
   });
-
-  // No timeout handler - connection stays open
 }
 
 function scheduleReconnect() {
@@ -562,7 +489,6 @@ function scheduleReconnect() {
   uhfReconnectTimer = setTimeout(() => {
     uhfReconnectTimer = null;
     if (!uhfConnected && userWantsConnection) {
-      console.log('[UHF] Reconnecting to ' + UHF_READER_CONFIG.ip + ':' + UHF_READER_CONFIG.port + '...');
       connectUhfReader();
     }
   }, 500);
@@ -570,45 +496,39 @@ function scheduleReconnect() {
 
 // Start polling inventory command
 function startInventoryPolling() {
-  if (inventoryPollTimer) return; // Already polling
+  if (inventoryPollTimer) return;
 
-  console.log('[UHF] Starting inventory polling (every 1 second)');
   inventoryPollTimer = setInterval(() => {
     if (uhfSocket && !uhfSocket.destroyed && uhfConnected && uhfInventoryActive) {
       try {
         uhfSocket.write(buildUhfCommand(UHF_CMD.START_INVENTORY));
       } catch (e) {
-        console.log('[UHF] Write error:', e.message);
-        // Write error might mean connection is bad - let health check handle it
+        // Write error - let close event handle reconnect
       }
     }
-  }, 1000); // Poll every 1 second - give reader time to respond
+  }, 1000);
 }
 
 function stopInventoryPolling() {
   if (inventoryPollTimer) {
     clearInterval(inventoryPollTimer);
     inventoryPollTimer = null;
-    console.log('[UHF] Stopped inventory polling');
   }
 }
 
 // Heartbeat functions - keeps connection alive
 function startHeartbeat() {
-  if (heartbeatTimer) return; // Already running
+  if (heartbeatTimer) return;
 
-  console.log('[UHF] Starting heartbeat (every 3 seconds)');
   heartbeatTimer = setInterval(() => {
     if (uhfSocket && !uhfSocket.destroyed && uhfConnected) {
       try {
-        // Send heartbeat command to keep connection alive
         uhfSocket.write(buildUhfCommand(UHF_CMD.HEARTBEAT));
-        console.log('[UHF] Heartbeat sent');
       } catch (e) {
-        console.log('[UHF] Heartbeat write error:', e.message);
+        // Silently handle error
       }
     }
-  }, 3000); // Every 3 seconds to keep connection alive
+  }, 3000);
 }
 
 function stopHeartbeat() {
@@ -622,16 +542,12 @@ function stopHeartbeat() {
 function startHealthCheck() {
   if (healthCheckTimer) return;
 
-  console.log('[UHF] Starting health check (every 5 seconds)');
   healthCheckTimer = setInterval(() => {
     if (uhfConnected && lastDataReceived > 0) {
       const timeSinceData = Date.now() - lastDataReceived;
       if (timeSinceData > CONNECTION_TIMEOUT) {
-        console.log(`[UHF] ⚠️ No data received for ${timeSinceData}ms - connection may be stale`);
-
         // Force reconnect
         if (uhfSocket && !uhfSocket.destroyed) {
-          console.log('[UHF] Forcing reconnect due to stale connection...');
           uhfSocket.destroy();
           // This will trigger 'close' event which will auto-reconnect
         }
@@ -648,8 +564,6 @@ function stopHealthCheck() {
 }
 
 function disconnectUhfReader() {
-  console.log('[UHF] Disconnecting (user requested)...');
-
   // User wants to disconnect - don't auto-reconnect
   userWantsConnection = false;
 
@@ -879,10 +793,9 @@ ipcMain.handle('uhf-start-inventory', async () => {
     return { success: false, error: 'Not connected' };
   }
 
-  scannedTags.clear(); // Clear previous tags
+  scannedTags.clear();
   uhfInventoryActive = true;
   uhfSocket.write(buildUhfCommand(UHF_CMD.START_INVENTORY));
-  console.log('[UHF] Started inventory');
   return { success: true };
 });
 
@@ -894,7 +807,6 @@ ipcMain.handle('uhf-stop-inventory', async () => {
 
   uhfInventoryActive = false;
   uhfSocket.write(buildUhfCommand(UHF_CMD.STOP_INVENTORY));
-  console.log('[UHF] Stopped inventory');
   return { success: true };
 });
 
@@ -918,9 +830,6 @@ ipcMain.handle('uhf-set-config', async (event, config) => {
 
 // Auto-discover RFID reader on network
 ipcMain.handle('uhf-scan-network', async () => {
-  console.log('[UHF] Starting network scan...');
-
-  // Send progress updates to renderer
   const sendProgress = (progress) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('uhf-scan-progress', progress);
@@ -932,7 +841,6 @@ ipcMain.handle('uhf-scan-network', async () => {
   const result = await scanForReader(sendProgress);
 
   if (result) {
-    // Update config with found IP/port
     UHF_READER_CONFIG.ip = result.ip;
     UHF_READER_CONFIG.port = result.port;
 
@@ -947,9 +855,6 @@ ipcMain.handle('uhf-scan-network', async () => {
 
 // Auto-discover and connect
 ipcMain.handle('uhf-auto-connect', async () => {
-  console.log('[UHF] Auto-connect: scanning and connecting...');
-
-  // Send progress updates to renderer
   const sendProgress = (progress) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('uhf-scan-progress', progress);
@@ -961,13 +866,11 @@ ipcMain.handle('uhf-auto-connect', async () => {
   const result = await scanForReader(sendProgress);
 
   if (result) {
-    // Update config with found IP/port
     UHF_READER_CONFIG.ip = result.ip;
     UHF_READER_CONFIG.port = result.port;
 
     sendProgress({ status: 'connecting', ip: result.ip, port: result.port, message: `Bağlanılıyor: ${result.ip}:${result.port}` });
 
-    // Connect to the reader
     connectUhfReader();
 
     return { success: true, ip: result.ip, port: result.port };
@@ -983,9 +886,6 @@ ipcMain.handle('uhf-auto-connect', async () => {
 
 app.whenReady().then(() => {
   createWindow();
-
-  // Don't auto-connect - user will start scanning manually
-  console.log('[UHF] Ready - waiting for user to start scanning');
 });
 
 app.on('window-all-closed', () => {

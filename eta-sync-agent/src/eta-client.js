@@ -212,21 +212,18 @@ EtaClient.prototype.createIrsaliye = function(irsaliye) {
     return self.getNextIrsaliyeRefNo();
   })
   .then(function(refNo) {
-    // Toplam hesapla
-    var toplam = 0;
-    for (var i = 0; i < irsaliye.satirlar.length; i++) {
-      var satir = irsaliye.satirlar[i];
-      toplam += (satir.miktar || 0) * (satir.fiyat || 0);
-    }
-
     // IRSFIS (header) kaydi olustur
     var tarih = irsaliye.tarih || new Date();
     var saat = ('0' + tarih.getHours()).slice(-2) + ':' + ('0' + tarih.getMinutes()).slice(-2);
 
+    // ETA V.8 icin gerekli tum kolonlar
+    // IRSFISFIRMA: Firma kodu (genellikle 1)
+    // IRSFISTIPI: 1=Satis Irsaliyesi
+    // IRSFISKAYONC: 1=Cikis
     var headerQuery =
       "INSERT INTO IRSFIS (IRSFISREFNO, IRSFISTAR, IRSFISTIPI, IRSFISCARKOD, IRSFISCARUNVAN, " +
-      "IRSFISACIKLAMA1, IRSFISSAAT, IRSFISBRUTTOPLAM, IRSFISGENELTOPLAM, IRSFISKAYONC) " +
-      "VALUES (@refNo, @tarih, 1, @cariKod, @cariUnvan, @aciklama, @saat, @toplam, @toplam, 1)";
+      "IRSFISACIKLAMA1, IRSFISSAAT, IRSFISKAYONC, IRSFISFIRMA) " +
+      "VALUES (@refNo, @tarih, 1, @cariKod, @cariUnvan, @aciklama, @saat, 1, 1)";
 
     return self.pool.request()
       .input('refNo', sql.Int, refNo)
@@ -235,36 +232,35 @@ EtaClient.prototype.createIrsaliye = function(irsaliye) {
       .input('cariUnvan', sql.VarChar, irsaliye.cariUnvan || '')
       .input('aciklama', sql.VarChar, irsaliye.aciklama || 'RFID Sistem')
       .input('saat', sql.VarChar, saat)
-      .input('toplam', sql.Numeric, toplam)
       .query(headerQuery)
       .then(function() {
         // IRSHAR (satirlar) kayitlari olustur
         var promise = Promise.resolve();
+        var siraNo = 0;
 
         for (var i = 0; i < irsaliye.satirlar.length; i++) {
-          (function(satir) {
+          (function(satir, lineIndex) {
             promise = promise.then(function() {
-              var tutar = (satir.miktar || 0) * (satir.fiyat || 0);
+              siraNo = lineIndex + 1;
+              // ETA V.8 icin gerekli kolonlar
+              // IRSHARSIRANO: Satir numarasi (1'den baslar)
+              // IRSHARFIRMA: Firma kodu (genellikle 1)
               var satirQuery =
                 "INSERT INTO IRSHAR (IRSHARREFNO, IRSHARTAR, IRSHARTIPI, IRSHARCARKOD, " +
-                "IRSHARSTKKOD, IRSHARSTKCINSI, IRSHARSTKBRM, IRSHARMIKTAR, IRSHARFIYAT, " +
-                "IRSHARTUTAR, IRSHARNETTUTAR, IRSHARKAYONC, IRSHARIADE) " +
-                "VALUES (@refNo, @tarih, 1, @cariKod, @stokKod, @stokAd, @birim, " +
-                "@miktar, @fiyat, @tutar, @tutar, 1, 0)";
+                "IRSHARSTKKOD, IRSHARSTKBRM, IRSHARMIKTAR, IRSHARKAYONC, IRSHARSIRANO, IRSHARFIRMA) " +
+                "VALUES (@refNo, @tarih, 1, @cariKod, @stokKod, @birim, @miktar, 1, @siraNo, 1)";
 
               return self.pool.request()
                 .input('refNo', sql.Int, refNo)
                 .input('tarih', sql.DateTime, tarih)
                 .input('cariKod', sql.VarChar, irsaliye.cariKod || '')
-                .input('stokKod', sql.VarChar, satir.stokKod || '')
-                .input('stokAd', sql.VarChar, satir.stokAd || '')
+                .input('stokKod', sql.VarChar, satir.stokAd || '') // stokAd'i stokKod olarak kullan
                 .input('birim', sql.VarChar, satir.birim || 'ADET')
                 .input('miktar', sql.Numeric, satir.miktar || 0)
-                .input('fiyat', sql.Numeric, satir.fiyat || 0)
-                .input('tutar', sql.Numeric, tutar)
+                .input('siraNo', sql.Int, lineIndex + 1)
                 .query(satirQuery);
             });
-          })(irsaliye.satirlar[i]);
+          })(irsaliye.satirlar[i], i);
         }
 
         return promise.then(function() {
@@ -276,6 +272,88 @@ EtaClient.prototype.createIrsaliye = function(irsaliye) {
   .catch(function(error) {
     console.error('  x Irsaliye olusturma hatasi:', error.message);
     return { success: false, error: error.message };
+  });
+};
+
+/**
+ * Son eklenen irsaliyeleri listele (kontrol icin)
+ */
+EtaClient.prototype.getLastIrsaliyeler = function(limit) {
+  var self = this;
+  limit = limit || 10;
+
+  var connectPromise = this.pool ? Promise.resolve() : this.connect();
+
+  return connectPromise.then(function() {
+    var query =
+      "SELECT TOP " + limit + " IRSFISREFNO, IRSFISTAR, IRSFISCARKOD, IRSFISCARUNVAN, IRSFISACIKLAMA1, IRSFISFIRMA " +
+      "FROM IRSFIS ORDER BY IRSFISREFNO DESC";
+
+    return self.pool.request().query(query);
+  })
+  .then(function(result) {
+    return result.recordset;
+  });
+};
+
+/**
+ * Mevcut calisir bir irsaliyeyi incele (ETA UI'da gorunenleri bulmak icin)
+ */
+EtaClient.prototype.examineWorkingIrsaliye = function() {
+  var self = this;
+
+  var connectPromise = this.pool ? Promise.resolve() : this.connect();
+
+  return connectPromise.then(function() {
+    // Herhangi bir irsaliyeyi getir
+    var query = "SELECT TOP 1 * FROM IRSFIS ORDER BY IRSFISREFNO DESC";
+
+    return self.pool.request().query(query);
+  })
+  .then(function(result) {
+    return result.recordset[0] || null;
+  });
+};
+
+/**
+ * Mevcut calisir bir irsaliyenin satirlarini incele
+ */
+EtaClient.prototype.examineWorkingIrsaliyeHar = function(refNo) {
+  var self = this;
+
+  var connectPromise = this.pool ? Promise.resolve() : this.connect();
+
+  return connectPromise.then(function() {
+    var query = "SELECT TOP 1 * FROM IRSHAR WHERE IRSHARREFNO = @refNo";
+
+    return self.pool.request()
+      .input('refNo', sql.Int, refNo)
+      .query(query);
+  })
+  .then(function(result) {
+    return result.recordset[0] || null;
+  });
+};
+
+/**
+ * Belirli bir irsaliyenin satirlarini getir
+ */
+EtaClient.prototype.getIrsaliyeSatirlari = function(refNo) {
+  var self = this;
+
+  var connectPromise = this.pool ? Promise.resolve() : this.connect();
+
+  return connectPromise.then(function() {
+    var query =
+      "SELECT IRSHARSTKKOD, IRSHARSTKBRM, IRSHARMIKTAR " +
+      "FROM IRSHAR WHERE IRSHARREFNO = @refNo";
+
+    return self.pool.request()
+      .input('refNo', sql.Int, refNo)
+      .query(query);
+  })
+  .then(function(result) {
+    return result.recordset;
   });
 };
 

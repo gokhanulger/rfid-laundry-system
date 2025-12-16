@@ -312,14 +312,14 @@ fun ScanScreen(
                 }
             }
 
-            // Warning for other hotel items
+            // Info for other hotel items (no longer blocking)
             if (needsHotelSelection && uiState.otherHotelCount > 0) {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = Error.copy(alpha = 0.1f)
+                        containerColor = WarningColor.copy(alpha = 0.1f)
                     )
                 ) {
                     Row(
@@ -329,20 +329,20 @@ fun ScanScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            Icons.Default.Error,
+                            Icons.Default.Info,
                             contentDescription = null,
-                            tint = Error,
+                            tint = WarningColor,
                             modifier = Modifier.size(24.dp)
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                text = "${uiState.otherHotelCount} ürün farklı otele ait!",
+                                text = "${uiState.otherHotelCount} ürün farklı otele ait",
                                 fontWeight = FontWeight.Bold,
-                                color = Error
+                                color = WarningColor
                             )
                             Text(
-                                text = "İşlemi tamamlamak için bu ürünleri çıkarın",
+                                text = "Bu ürünler işleme dahil edilmeyecek",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -377,10 +377,7 @@ fun ScanScreen(
                         Icon(Icons.Default.Check, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (needsHotelSelection && uiState.otherHotelCount > 0)
-                                "Farklı otel ürünleri var!"
-                            else
-                                "Tamamla (${uiState.matchedCount} ürün)",
+                            text = "Tamamla (${uiState.matchedCount} ürün)",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Medium
                         )

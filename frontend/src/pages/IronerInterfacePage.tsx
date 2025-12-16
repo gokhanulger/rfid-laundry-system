@@ -307,7 +307,6 @@ export function IronerInterfacePage() {
       }
 
       // For other errors (network, timeout, etc.), keep as checking to retry
-      console.error('Error validating tag:', epc, error);
       return {
         epc,
         status: 'checking',
@@ -425,7 +424,6 @@ export function IronerInterfacePage() {
           validatingEpcsRef.current.delete(tag.epc);
         }
       } catch (err) {
-        console.error('Error in tag validation:', err);
         validatingEpcsRef.current.delete(tag.epc);
       }
     });
@@ -537,37 +535,29 @@ export function IronerInterfacePage() {
   // Mark items clean and create delivery mutation
   const processAndPrintMutation = useMutation({
     mutationFn: async ({ hotelId, itemIds, labelCount, labelExtraData }: { hotelId: string; itemIds: string[]; labelCount: number; labelExtraData?: LabelExtraItem[] }) => {
-      console.log('mutation - labelExtraData received:', JSON.stringify(labelExtraData));
-      console.log('mutation - itemIds:', JSON.stringify(itemIds));
-
       // First mark items as ready for delivery (skip if no items)
       if (itemIds.length > 0) {
         await itemsApi.markClean(itemIds);
       }
 
       // Then create a delivery with the specified package count
-      // Store labelExtraData in notes as JSON for later retrieval
       const delivery = await deliveriesApi.create({
         tenantId: hotelId,
         itemIds,
         packageCount: labelCount,
         notes: labelExtraData ? JSON.stringify(labelExtraData) : undefined,
       });
-      console.log('mutation - delivery created, id:', delivery.id, 'status:', delivery.status, 'notes:', delivery.notes);
 
       // Get full delivery details for label generation
       const fullDelivery = await deliveriesApi.getById(delivery.id);
-      console.log('mutation - fullDelivery status:', fullDelivery.status);
 
       // Generate and print labels with extra data
       generateDeliveryLabel(fullDelivery, labelExtraData);
 
       // Update status to label_printed
       try {
-        const printedDelivery = await deliveriesApi.printLabel(delivery.id);
-        console.log('mutation - printLabel success, new status:', printedDelivery.status);
+        await deliveriesApi.printLabel(delivery.id);
       } catch (printError) {
-        console.error('mutation - printLabel failed:', printError);
         // Continue anyway - label was generated
       }
 
