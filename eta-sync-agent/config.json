@@ -2,9 +2,9 @@
   "eta": {
     "server": "localhost",
     "port": 1433,
-    "database": "ETA_DEMET_2025",
-    "user": "rfid_user",
-    "password": "RfidEta2024!",
+    "database": "ETAV8",
+    "user": "sa",
+    "password": "SIFRENIZI_GIRIN",
     "options": {
       "encrypt": false,
       "trustServerCertificate": true

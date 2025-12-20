@@ -6,10 +6,13 @@
   "bin": {
     "eta-sync": "./index.js"
   },
+  "engines": {
+    "node": ">=12.0.0"
+  },
   "scripts": {
     "start": "node index.js",
-    "build:win": "pkg . --targets node18-win-x64 --output dist/EtaSyncAgent.exe",
-    "build": "pkg . --targets node18-win-x64 --output dist/EtaSyncAgent.exe"
+    "build:win": "pkg . --targets node12-win-x64 --output dist/EtaSyncAgent.exe",
+    "build": "pkg . --targets node12-win-x64 --output dist/EtaSyncAgent.exe"
   },
   "pkg": {
     "assets": [
@@ -22,12 +25,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "axios": "^1.13.2",
-    "chalk": "^5.6.2",
-    "dotenv": "^17.2.3",
-    "inquirer": "^13.0.2",
-    "mssql": "^12.2.0",
-    "ora": "^9.0.0"
+    "axios": "^0.27.2",
+    "mssql": "^8.1.4"
   },
   "devDependencies": {
     "pkg": "^5.8.1"
