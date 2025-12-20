@@ -19,42 +19,36 @@ import { eq } from 'drizzle-orm';
 
 // ETA tablo isimleri (environment'tan özelleştirilebilir)
 const ETA_TABLES = {
-  CARI_KART: process.env.ETA_TABLE_CARI || 'CAR_KART',
-  STOK_KART: process.env.ETA_TABLE_STOK || 'STK_KART',
-  IRSALIYE_FIS: process.env.ETA_TABLE_IRS_FIS || 'IRS_FIS',
-  IRSALIYE_HAREKET: process.env.ETA_TABLE_IRS_HAREKET || 'IRS_STOK_HAREKET',
+  // Kart tabloları
+  CARI_KART: process.env.ETA_TABLE_CARI || 'CarKart',
+  STOK_KART: process.env.ETA_TABLE_STOK || 'StkKart',
+  // İrsaliye tabloları
+  IRS_FIS: process.env.ETA_TABLE_IRS_FIS || 'IrsFis',
+  IRS_HAR: process.env.ETA_TABLE_IRS_HAR || 'IrsHar',
+  // Cari hareket tabloları
+  CAR_FIS: process.env.ETA_TABLE_CAR_FIS || 'CarFis',
+  CAR_HAR: process.env.ETA_TABLE_CAR_HAR || 'CarHar',
+  // Stok hareket tabloları
+  STK_FIS: process.env.ETA_TABLE_STK_FIS || 'StkFis',
+  STK_HAR: process.env.ETA_TABLE_STK_HAR || 'StkHar',
 };
 
-// ETA alan isimleri (environment'tan özelleştirilebilir)
+// ETA alan isimleri - ETA V.8 standart yapısı
 const ETA_FIELDS = {
   // Cari kart alanları
-  CARI_KOD: process.env.ETA_FIELD_CARI_KOD || 'CAR_KOD',
-  CARI_UNVAN: process.env.ETA_FIELD_CARI_UNVAN || 'CAR_UNVAN',
-  CARI_ADRES: process.env.ETA_FIELD_CARI_ADRES || 'CAR_ADRES',
-  CARI_TEL: process.env.ETA_FIELD_CARI_TEL || 'CAR_TEL',
-  CARI_EMAIL: process.env.ETA_FIELD_CARI_EMAIL || 'CAR_EMAIL',
-  CARI_AKTIF: process.env.ETA_FIELD_CARI_AKTIF || 'CAR_AKTIF',
+  CARI_KOD: 'Kod',
+  CARI_UNVAN: 'Unvan',
+  CARI_ADRES: 'Adres',
+  CARI_TEL: 'Telefon',
+  CARI_EMAIL: 'Email',
+  CARI_AKTIF: 'Aktif',
 
   // Stok kart alanları
-  STOK_KOD: process.env.ETA_FIELD_STOK_KOD || 'STK_KOD',
-  STOK_AD: process.env.ETA_FIELD_STOK_AD || 'STK_AD',
-  STOK_ACIKLAMA: process.env.ETA_FIELD_STOK_ACIKLAMA || 'STK_ACIKLAMA',
-  STOK_BIRIM: process.env.ETA_FIELD_STOK_BIRIM || 'STK_BIRIM',
-  STOK_AKTIF: process.env.ETA_FIELD_STOK_AKTIF || 'STK_AKTIF',
-
-  // İrsaliye fis alanları
-  IRS_FISNO: process.env.ETA_FIELD_IRS_FISNO || 'IRS_FISNO',
-  IRS_TARIH: process.env.ETA_FIELD_IRS_TARIH || 'IRS_TARIH',
-  IRS_CARI_KOD: process.env.ETA_FIELD_IRS_CARI_KOD || 'IRS_CARI_KOD',
-  IRS_TIP: process.env.ETA_FIELD_IRS_TIP || 'IRS_TIP', // 1: Satış, 2: Alış
-  IRS_ACIKLAMA: process.env.ETA_FIELD_IRS_ACIKLAMA || 'IRS_ACIKLAMA',
-
-  // İrsaliye hareket alanları
-  IRSHR_FISNO: process.env.ETA_FIELD_IRSHR_FISNO || 'IRSHR_FISNO',
-  IRSHR_STOK_KOD: process.env.ETA_FIELD_IRSHR_STOK_KOD || 'IRSHR_STOK_KOD',
-  IRSHR_MIKTAR: process.env.ETA_FIELD_IRSHR_MIKTAR || 'IRSHR_MIKTAR',
-  IRSHR_BIRIM: process.env.ETA_FIELD_IRSHR_BIRIM || 'IRSHR_BIRIM',
-  IRSHR_BIRIM_FIYAT: process.env.ETA_FIELD_IRSHR_BIRIM_FIYAT || 'IRSHR_BIRIM_FIYAT',
+  STOK_KOD: 'Kod',
+  STOK_AD: 'Tanim',
+  STOK_ACIKLAMA: 'Aciklama',
+  STOK_BIRIM: 'Birim',
+  STOK_AKTIF: 'Aktif',
 };
 
 // ============================================
@@ -350,83 +344,156 @@ export async function getItemTypeEtaKodu(itemTypeId: string): Promise<string | n
 }
 
 /**
- * ETA'da yeni irsaliye numarası üretir
+ * ETA'da bağımsız RefNo üretir
+ * Tüm tablolarda aynı RefNo kullanılır (IrsFis, IrsHar, CarFis, CarHar, StkFis, StkHar)
  */
-async function getNextIrsaliyeNo(): Promise<string> {
-  const pool = await getEtaPool();
-
-  // Yıl-ay bazlı numara: YYYYMM-XXXX
-  const prefix = new Date().toISOString().slice(0, 7).replace('-', '');
-
-  const result = await pool.request()
-    .input('prefix', sql.VarChar, `${prefix}-%`)
-    .query(`
-      SELECT TOP 1 ${ETA_FIELDS.IRS_FISNO} as fisNo
-      FROM ${ETA_TABLES.IRSALIYE_FIS}
-      WHERE ${ETA_FIELDS.IRS_FISNO} LIKE @prefix
-      ORDER BY ${ETA_FIELDS.IRS_FISNO} DESC
-    `);
-
-  if (result.recordset.length === 0) {
-    return `${prefix}-0001`;
-  }
-
-  const lastNo = result.recordset[0].fisNo;
-  const lastNum = parseInt(lastNo.split('-')[1] || '0', 10);
-  return `${prefix}-${String(lastNum + 1).padStart(4, '0')}`;
+async function getNextRefNo(pool: sql.ConnectionPool): Promise<number> {
+  // IrsFis tablosundan en yüksek RefNo'yu bul
+  const result = await pool.request().query(`
+    SELECT ISNULL(MAX(RefNo), 0) + 1 as nextRefNo FROM ${ETA_TABLES.IRS_FIS}
+  `);
+  return result.recordset[0].nextRefNo;
 }
 
 /**
  * ETA'ya satış irsaliyesi oluşturur
+ * Tüm ilgili tablolara kayıt atar: IrsFis, IrsHar, CarFis, CarHar, StkFis, StkHar
  */
-export async function createEtaSatisIrsaliyesi(irsaliye: Omit<EtaIrsaliye, 'fisNo'>): Promise<{ success: boolean; fisNo?: string; message: string }> {
+export async function createEtaSatisIrsaliyesi(irsaliye: Omit<EtaIrsaliye, 'fisNo'>): Promise<{ success: boolean; fisNo?: string; refNo?: number; message: string }> {
   const pool = await getEtaPool();
   const transaction = new sql.Transaction(pool);
 
   try {
     await transaction.begin();
 
-    // Yeni irsaliye numarası al
-    const fisNo = await getNextIrsaliyeNo();
+    // Bağımsız RefNo al
+    const refNo = await getNextRefNo(pool);
+    const fisNo = `RFID-${refNo}`;
+    const tarih = irsaliye.tarih;
+    const cariKod = irsaliye.cariKod;
+    const aciklama = irsaliye.aciklama || `RFID Yıkama Teslimatı - ${new Date().toLocaleDateString('tr-TR')}`;
 
-    // İrsaliye fişi oluştur
-    const request = new sql.Request(transaction);
-    await request
-      .input('fisNo', sql.VarChar, fisNo)
-      .input('tarih', sql.DateTime, irsaliye.tarih)
-      .input('cariKod', sql.VarChar, irsaliye.cariKod)
-      .input('tip', sql.Int, 1) // 1 = Satış irsaliyesi
-      .input('aciklama', sql.VarChar, irsaliye.aciklama || `RFID Yıkama Teslimatı - ${new Date().toLocaleDateString('tr-TR')}`)
+    // Toplam tutarı hesapla
+    let toplamTutar = 0;
+    for (const satir of irsaliye.satirlar) {
+      toplamTutar += (satir.miktar * (satir.birimFiyat || 0));
+    }
+
+    // 1. IrsFis - İrsaliye Ana Fiş
+    const irsFisRequest = new sql.Request(transaction);
+    await irsFisRequest
+      .input('refNo', sql.Int, refNo)
+      .input('fisNo', sql.VarChar(50), fisNo)
+      .input('tarih', sql.DateTime, tarih)
+      .input('cariKod', sql.VarChar(50), cariKod)
+      .input('tip', sql.SmallInt, 1) // 1 = Satış İrsaliyesi
+      .input('aciklama', sql.VarChar(255), aciklama)
+      .input('toplamTutar', sql.Decimal(18, 2), toplamTutar)
       .query(`
-        INSERT INTO ${ETA_TABLES.IRSALIYE_FIS}
-          (${ETA_FIELDS.IRS_FISNO}, ${ETA_FIELDS.IRS_TARIH}, ${ETA_FIELDS.IRS_CARI_KOD}, ${ETA_FIELDS.IRS_TIP}, ${ETA_FIELDS.IRS_ACIKLAMA})
+        INSERT INTO ${ETA_TABLES.IRS_FIS}
+          (RefNo, FisNo, Tarih, CariKod, Tip, Aciklama, ToplamTutar)
         VALUES
-          (@fisNo, @tarih, @cariKod, @tip, @aciklama)
+          (@refNo, @fisNo, @tarih, @cariKod, @tip, @aciklama, @toplamTutar)
       `);
 
-    // İrsaliye satırlarını ekle
+    // 2. IrsHar - İrsaliye Hareket Satırları
+    let satirNo = 0;
     for (const satir of irsaliye.satirlar) {
-      const satırRequest = new sql.Request(transaction);
-      await satırRequest
-        .input('fisNo', sql.VarChar, fisNo)
-        .input('stokKod', sql.VarChar, satir.stokKod)
+      satirNo++;
+      const satirTutar = satir.miktar * (satir.birimFiyat || 0);
+
+      const irsHarRequest = new sql.Request(transaction);
+      await irsHarRequest
+        .input('refNo', sql.Int, refNo)
+        .input('satirNo', sql.Int, satirNo)
+        .input('stokKod', sql.VarChar(50), satir.stokKod)
         .input('miktar', sql.Decimal(18, 3), satir.miktar)
-        .input('birim', sql.VarChar, satir.birim || 'ADET')
+        .input('birim', sql.VarChar(20), satir.birim || 'ADET')
         .input('birimFiyat', sql.Decimal(18, 4), satir.birimFiyat || 0)
+        .input('tutar', sql.Decimal(18, 2), satirTutar)
         .query(`
-          INSERT INTO ${ETA_TABLES.IRSALIYE_HAREKET}
-            (${ETA_FIELDS.IRSHR_FISNO}, ${ETA_FIELDS.IRSHR_STOK_KOD}, ${ETA_FIELDS.IRSHR_MIKTAR}, ${ETA_FIELDS.IRSHR_BIRIM}, ${ETA_FIELDS.IRSHR_BIRIM_FIYAT})
+          INSERT INTO ${ETA_TABLES.IRS_HAR}
+            (RefNo, SatirNo, StokKod, Miktar, Birim, BirimFiyat, Tutar)
           VALUES
-            (@fisNo, @stokKod, @miktar, @birim, @birimFiyat)
+            (@refNo, @satirNo, @stokKod, @miktar, @birim, @birimFiyat, @tutar)
+        `);
+
+      // 3. StkFis - Stok Fiş (her satır için)
+      const stkFisRequest = new sql.Request(transaction);
+      await stkFisRequest
+        .input('refNo', sql.Int, refNo)
+        .input('satirNo', sql.Int, satirNo)
+        .input('tarih', sql.DateTime, tarih)
+        .input('stokKod', sql.VarChar(50), satir.stokKod)
+        .input('tip', sql.SmallInt, 2) // 2 = Çıkış (Satış)
+        .input('miktar', sql.Decimal(18, 3), satir.miktar)
+        .input('aciklama', sql.VarChar(255), `İrsaliye: ${fisNo}`)
+        .query(`
+          INSERT INTO ${ETA_TABLES.STK_FIS}
+            (RefNo, SatirNo, Tarih, StokKod, Tip, Miktar, Aciklama)
+          VALUES
+            (@refNo, @satirNo, @tarih, @stokKod, @tip, @miktar, @aciklama)
+        `);
+
+      // 4. StkHar - Stok Hareket
+      const stkHarRequest = new sql.Request(transaction);
+      await stkHarRequest
+        .input('refNo', sql.Int, refNo)
+        .input('satirNo', sql.Int, satirNo)
+        .input('tarih', sql.DateTime, tarih)
+        .input('stokKod', sql.VarChar(50), satir.stokKod)
+        .input('girisCikis', sql.SmallInt, -1) // -1 = Çıkış
+        .input('miktar', sql.Decimal(18, 3), satir.miktar)
+        .input('birimFiyat', sql.Decimal(18, 4), satir.birimFiyat || 0)
+        .input('tutar', sql.Decimal(18, 2), satirTutar)
+        .query(`
+          INSERT INTO ${ETA_TABLES.STK_HAR}
+            (RefNo, SatirNo, Tarih, StokKod, GirisCikis, Miktar, BirimFiyat, Tutar)
+          VALUES
+            (@refNo, @satirNo, @tarih, @stokKod, @girisCikis, @miktar, @birimFiyat, @tutar)
         `);
     }
 
+    // 5. CarFis - Cari Fiş (Borç kaydı)
+    const carFisRequest = new sql.Request(transaction);
+    await carFisRequest
+      .input('refNo', sql.Int, refNo)
+      .input('tarih', sql.DateTime, tarih)
+      .input('cariKod', sql.VarChar(50), cariKod)
+      .input('tip', sql.SmallInt, 1) // 1 = Borç
+      .input('tutar', sql.Decimal(18, 2), toplamTutar)
+      .input('aciklama', sql.VarChar(255), `İrsaliye: ${fisNo}`)
+      .query(`
+        INSERT INTO ${ETA_TABLES.CAR_FIS}
+          (RefNo, Tarih, CariKod, Tip, Tutar, Aciklama)
+        VALUES
+          (@refNo, @tarih, @cariKod, @tip, @tutar, @aciklama)
+      `);
+
+    // 6. CarHar - Cari Hareket
+    const carHarRequest = new sql.Request(transaction);
+    await carHarRequest
+      .input('refNo', sql.Int, refNo)
+      .input('tarih', sql.DateTime, tarih)
+      .input('cariKod', sql.VarChar(50), cariKod)
+      .input('borcAlacak', sql.SmallInt, 1) // 1 = Borç
+      .input('tutar', sql.Decimal(18, 2), toplamTutar)
+      .input('aciklama', sql.VarChar(255), `İrsaliye: ${fisNo}`)
+      .query(`
+        INSERT INTO ${ETA_TABLES.CAR_HAR}
+          (RefNo, Tarih, CariKod, BorcAlacak, Tutar, Aciklama)
+        VALUES
+          (@refNo, @tarih, @cariKod, @borcAlacak, @tutar, @aciklama)
+      `);
+
     await transaction.commit();
 
+    console.log(`✓ ETA irsaliye oluşturuldu: RefNo=${refNo}, FisNo=${fisNo}`);
     return {
       success: true,
       fisNo,
-      message: `İrsaliye başarıyla oluşturuldu: ${fisNo}`,
+      refNo,
+      message: `İrsaliye başarıyla oluşturuldu: ${fisNo} (RefNo: ${refNo})`,
     };
   } catch (error: any) {
     await transaction.rollback();

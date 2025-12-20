@@ -92,6 +92,41 @@ router.get('/table/:name', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * Belirli bir tablodan örnek veri çeker (keşif için)
+ */
+router.get('/table/:name/sample', async (req: Request, res: Response) => {
+  try {
+    const { name } = req.params;
+    const limit = parseInt(req.query.limit as string) || 10;
+
+    const { getEtaPool } = await import('../services/eta-connection');
+    const pool = await getEtaPool();
+
+    // Güvenlik: Sadece harf, rakam ve alt çizgi içeren tablo isimlerine izin ver
+    if (!/^[a-zA-Z0-9_]+$/.test(name)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Geçersiz tablo adı',
+      });
+    }
+
+    const result = await pool.request().query(`SELECT TOP ${limit} * FROM [${name}]`);
+
+    res.json({
+      success: true,
+      table: name,
+      rowCount: result.recordset.length,
+      data: result.recordset,
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: `Örnek veri alınamadı: ${error.message}`,
+    });
+  }
+});
+
 // ============================================
 // ETA VERİLERİNİ LİSTELEME
 // ============================================

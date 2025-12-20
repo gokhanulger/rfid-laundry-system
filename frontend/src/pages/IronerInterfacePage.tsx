@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Printer, Sparkles, Building2, X, Plus, Search, Delete, Trash2, Sun, Moon, Settings, Wifi, WifiOff, Radio, AlertTriangle, CheckCircle, HelpCircle, XCircle, RefreshCw, Loader2 } from 'lucide-react';
 import { itemsApi, deliveriesApi, settingsApi, getErrorMessage } from '../lib/api';
@@ -101,6 +101,9 @@ export function IronerInterfacePage() {
   const [isScanning, setIsScanning] = useState(false);
   const [manualIp, setManualIp] = useState('');
   const [manualPort, setManualPort] = useState('20058');
+  const [rfPower, setRfPower] = useState(20); // RF power level 0-30 dBm
+  const [rssiThreshold, setRssiThreshold] = useState(-70); // RSSI threshold: -30 (very close) to -90 (far)
+  const rssiThresholdRef = useRef(rssiThreshold); // Ref for use in callbacks
 
   // Local cache of all items by RFID tag for fast offline lookup
   const [itemsCache, setItemsCache] = useState<Map<string, {
@@ -110,7 +113,7 @@ export function IronerInterfacePage() {
     itemTypeId: string;
     status: string;
   }>>(new Map());
-  const [itemsCacheLoading, setItemsCacheLoading] = useState(false);
+  const itemsCacheLoadingRef = useRef(false); // Ref to prevent infinite loop
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [_itemsCacheLastUpdate, setItemsCacheLastUpdate] = useState<Date | null>(null);
 
@@ -191,6 +194,18 @@ export function IronerInterfacePage() {
       if (savedPort) {
         setManualPort(savedPort);
         setRfidReaderPort(parseInt(savedPort));
+      }
+      // Load saved RF power
+      const savedPower = localStorage.getItem('rfid_reader_power');
+      if (savedPower) {
+        setRfPower(parseInt(savedPower));
+      }
+      // Load saved RSSI threshold
+      const savedRssi = localStorage.getItem('rfid_rssi_threshold');
+      if (savedRssi) {
+        const rssiValue = parseInt(savedRssi);
+        setRssiThreshold(rssiValue);
+        rssiThresholdRef.current = rssiValue;
       }
     }
 
@@ -276,9 +291,10 @@ export function IronerInterfacePage() {
 
   // Load all items into local cache for fast RFID lookup
   const loadItemsCache = useCallback(async () => {
-    if (itemsCacheLoading) return;
+    // Use ref to prevent multiple concurrent calls
+    if (itemsCacheLoadingRef.current) return;
 
-    setItemsCacheLoading(true);
+    itemsCacheLoadingRef.current = true;
     try {
       // Fetch all items (paginated, get all pages)
       const newCache = new Map<string, {
@@ -322,9 +338,9 @@ export function IronerInterfacePage() {
     } catch (error) {
       // Silently fail - will retry on next interval
     } finally {
-      setItemsCacheLoading(false);
+      itemsCacheLoadingRef.current = false;
     }
-  }, [itemsCacheLoading]);
+  }, []);
 
   // Load items cache when hotels are selected and periodically refresh
   useEffect(() => {
@@ -406,6 +422,17 @@ export function IronerInterfacePage() {
 
     // Listen for tag reads - validation is now instant (local cache lookup)
     const unsubTag = window.electronAPI.onUhfTag((tag: UhfTag) => {
+      // RSSI Filter: Skip tags with weak signal (too far away)
+      // rssi is negative: -30 = very close, -90 = far away
+      // rssiThreshold is negative: -50 means only accept tags with rssi >= -50 (closer)
+      const tagRssi = tag.rssi ?? -100;
+      const currentThreshold = rssiThresholdRef.current;
+
+      if (tagRssi < currentThreshold) {
+        // Tag is too far away, ignore it
+        return;
+      }
+
       setScannedTags(prev => {
         const newMap = new Map(prev);
         const existing = newMap.get(tag.epc);
@@ -496,7 +523,9 @@ export function IronerInterfacePage() {
   const tagCounts = useMemo(() => {
     const counts = { valid: 0, wrong_hotel: 0, unregistered: 0, checking: 0, total: 0 };
     scannedTags.forEach(tag => {
-      counts[tag.status]++;
+      if (tag.status in counts) {
+        counts[tag.status as keyof typeof counts]++;
+      }
       counts.total++;
     });
     return counts;
@@ -508,7 +537,7 @@ export function IronerInterfacePage() {
   // Check if there are any tags currently in range
   const hasTagsInRange = tagCounts.total > 0;
 
-  // Check if there are problematic tags (wrong hotel or unregistered)
+  // Check if there are problematic tags (wrong hotel, unregistered, or already processed)
   const hasProblematicTags = tagCounts.wrong_hotel > 0 || tagCounts.unregistered > 0;
 
   // Count wrong hotel items in confirmed scanned items
@@ -589,6 +618,8 @@ export function IronerInterfacePage() {
       // Clear scanned items after printing
       setConfirmedScannedItems(new Map());
       setScannedTags(new Map());
+      // Refresh local cache to get updated item statuses
+      loadItemsCache();
     },
     onError: (err) => toast.error('Failed to process items', getErrorMessage(err)),
   });
@@ -1284,6 +1315,85 @@ export function IronerInterfacePage() {
               >
                 Manuel Bağlan
               </button>
+            </div>
+
+            {/* RF Power Setting - Controls read range */}
+            <div className="border-t pt-4 mt-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-medium text-gray-700">RF Güç Seviyesi (Okuma Mesafesi)</p>
+                <span className="text-sm font-bold text-blue-600">{rfPower} dBm</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="30"
+                value={rfPower}
+                onChange={(e) => {
+                  const newPower = parseInt(e.target.value);
+                  setRfPower(newPower);
+                }}
+                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+              />
+              <div className="flex justify-between text-xs text-gray-500 mt-1">
+                <span>0 (Yakın)</span>
+                <span>15</span>
+                <span>30 (Uzak)</span>
+              </div>
+              <button
+                onClick={async () => {
+                  if (!uhfConnected) {
+                    toast.warning('Önce okuyucuya bağlanın');
+                    return;
+                  }
+                  try {
+                    const result = await window.electronAPI?.uhfSetPower(rfPower);
+                    if (result?.success) {
+                      localStorage.setItem('rfid_reader_power', String(rfPower));
+                      toast.success(`RF gücü ${rfPower} dBm olarak ayarlandı`);
+                    } else {
+                      toast.error(result?.error || 'Güç ayarlanamadı');
+                    }
+                  } catch (err) {
+                    toast.error('Güç ayarlama hatası');
+                  }
+                }}
+                disabled={!uhfConnected}
+                className="w-full mt-3 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed font-medium text-sm"
+              >
+                Güç Ayarını Uygula
+              </button>
+              <p className="text-xs text-gray-500 mt-2 text-center">
+                Düşük güç = kısa mesafe okuma, Yüksek güç = uzun mesafe okuma
+              </p>
+            </div>
+
+            {/* RSSI Filter - Software-based distance filtering */}
+            <div className="border-t pt-4 mt-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-medium text-gray-700">RSSI Filtresi (Mesafe Kontrolü)</p>
+                <span className="text-sm font-bold text-purple-600">{rssiThreshold} dBm</span>
+              </div>
+              <input
+                type="range"
+                min="-90"
+                max="-30"
+                value={rssiThreshold}
+                onChange={(e) => {
+                  const newRssi = parseInt(e.target.value);
+                  setRssiThreshold(newRssi);
+                  rssiThresholdRef.current = newRssi; // Update ref immediately
+                  localStorage.setItem('rfid_rssi_threshold', String(newRssi));
+                }}
+                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+              />
+              <div className="flex justify-between text-xs text-gray-500 mt-1">
+                <span>-90 (Uzak)</span>
+                <span>-60</span>
+                <span>-30 (Yakın)</span>
+              </div>
+              <p className="text-xs text-gray-500 mt-2 text-center">
+                Yüksek değer = sadece yakın tag'ler okunur (önerilen: -50 ile -40 arası)
+              </p>
             </div>
 
             {/* Auto Connect on Found */}

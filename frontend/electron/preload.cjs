@@ -50,6 +50,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Set UHF reader configuration
   uhfSetConfig: (config) => ipcRenderer.invoke('uhf-set-config', config),
 
+  // Set RF power level (0-30 dBm) - lower = shorter range
+  uhfSetPower: (power) => ipcRenderer.invoke('uhf-set-power', { power }),
+
+  // Get current RF power level
+  uhfGetPower: () => ipcRenderer.invoke('uhf-get-power'),
+
   // Scan network for RFID reader
   uhfScanNetwork: () => ipcRenderer.invoke('uhf-scan-network'),
 

@@ -24,7 +24,10 @@ const UHF_CMD = {
   GET_VERSION: 0x31,
   START_AUTO_READ: 0x2E,
   STOP_AUTO_READ: 0x2F,
-  DEVICE_INFO_REPORT: 0x67
+  DEVICE_INFO_REPORT: 0x67,
+  SET_RF_POWER: 0x76,      // Set RF power for all antennas (0-30 dBm)
+  GET_RF_POWER: 0x77,      // Get current RF power
+  SET_ANTENNA_POWER: 0xB6  // Alternative power command
 };
 
 // UHF Reader State
@@ -42,6 +45,7 @@ let userWantsConnection = false; // User initiated connection - auto-reconnect i
 let heartbeatTimer = null; // Timer for sending heartbeats
 let healthCheckTimer = null; // Timer for checking connection health
 const CONNECTION_TIMEOUT = 30000; // 30 seconds without data = connection lost
+let currentRfPower = 20; // Default RF power (0-30 dBm). Lower = shorter range
 
 // Common RFID reader ports to scan
 const COMMON_RFID_PORTS = [20058, 4001, 6000, 8080, 5000, 4196, 10001, 502, 7000, 8000, 9000, 3000, 4000, 6001, 20059, 8899, 9999, 2000, 1024, 23, 80];
@@ -433,11 +437,20 @@ function connectUhfReader() {
       mainWindow.webContents.send('uhf-status', { connected: true, ip: UHF_READER_CONFIG.ip, port: UHF_READER_CONFIG.port, inventoryActive: true });
     }
 
-    // Wait a moment then send START_AUTO_READ to begin tag scanning
+    // Wait a moment then apply power setting and start tag scanning
     setTimeout(() => {
       if (uhfSocket && !uhfSocket.destroyed && uhfConnected) {
         try {
-          uhfSocket.write(buildUhfCommand(UHF_CMD.START_AUTO_READ));
+          // Apply RF power setting first
+          const powerData = [currentRfPower, currentRfPower, currentRfPower, currentRfPower];
+          uhfSocket.write(buildUhfCommand(UHF_CMD.SET_RF_POWER, powerData));
+
+          // Then start auto-read after a short delay
+          setTimeout(() => {
+            if (uhfSocket && !uhfSocket.destroyed && uhfConnected) {
+              uhfSocket.write(buildUhfCommand(UHF_CMD.START_AUTO_READ));
+            }
+          }, 200);
         } catch (e) {
           // Silently handle error
         }
@@ -864,6 +877,46 @@ ipcMain.handle('uhf-set-config', async (event, config) => {
   if (config.ip) UHF_READER_CONFIG.ip = config.ip;
   if (config.port) UHF_READER_CONFIG.port = config.port;
   return { success: true, config: UHF_READER_CONFIG };
+});
+
+// Set RF power level (0-30 dBm)
+// Lower power = shorter read range
+// Higher power = longer read range
+ipcMain.handle('uhf-set-power', async (event, { power }) => {
+  if (!uhfConnected || !uhfSocket) {
+    return { success: false, error: 'Not connected' };
+  }
+
+  // Validate power level (0-30 dBm)
+  const powerLevel = Math.max(0, Math.min(30, parseInt(power) || 20));
+  currentRfPower = powerLevel;
+
+  try {
+    // BOHANG CM protocol: Set RF power for 4 antennas
+    // Format: [ant1_power, ant2_power, ant3_power, ant4_power]
+    // Each value is 0-30 dBm
+    const powerData = [powerLevel, powerLevel, powerLevel, powerLevel];
+
+    // Try multiple power commands - different BOHANG models use different commands
+    // Command 0x76: Set RF Power (common)
+    uhfSocket.write(buildUhfCommand(UHF_CMD.SET_RF_POWER, powerData));
+
+    // Also try alternative command 0xB6 with single byte
+    setTimeout(() => {
+      if (uhfSocket && !uhfSocket.destroyed) {
+        uhfSocket.write(buildUhfCommand(UHF_CMD.SET_ANTENNA_POWER, [powerLevel]));
+      }
+    }, 100);
+
+    return { success: true, power: powerLevel };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+// Get current RF power level
+ipcMain.handle('uhf-get-power', async () => {
+  return { success: true, power: currentRfPower };
 });
 
 // Auto-discover RFID reader on network

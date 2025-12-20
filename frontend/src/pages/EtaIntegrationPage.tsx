@@ -13,9 +13,96 @@ import {
   Settings2,
   ChevronDown,
   ChevronUp,
+  Eye,
 } from 'lucide-react';
 import api, { getErrorMessage } from '../lib/api';
 import { useToast } from '../components/Toast';
+
+// Ornek Veri Goruntuleme Componenti
+function SampleDataViewer({ tableName }: { tableName: string | null }) {
+  const [showData, setShowData] = useState(false);
+
+  const { data: sampleData, isLoading, refetch } = useQuery<{ data: any[]; rowCount: number }>({
+    queryKey: ['eta-sample', tableName],
+    queryFn: async () => {
+      const res = await api.get(`/eta/table/${tableName}/sample?limit=5`);
+      return res.data;
+    },
+    enabled: !!tableName && showData,
+  });
+
+  if (!tableName) {
+    return (
+      <div className="text-gray-400 text-sm py-8 text-center">
+        Ornek veri gormek icin bir tablo secin
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <h4 className="font-medium text-gray-700">{tableName} - Ornek Veri</h4>
+        <button
+          onClick={() => {
+            setShowData(true);
+            refetch();
+          }}
+          className="flex items-center gap-1 px-3 py-1 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+        >
+          <Eye className="w-3 h-3" />
+          Veri Getir
+        </button>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-8">
+          <RefreshCw className="w-5 h-5 animate-spin text-indigo-500" />
+        </div>
+      ) : showData && sampleData?.data ? (
+        <div className="border rounded-lg overflow-hidden">
+          {sampleData.data.length === 0 ? (
+            <div className="p-4 text-center text-gray-500 text-sm">
+              Bu tabloda veri yok
+            </div>
+          ) : (
+            <div className="max-h-80 overflow-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-100 sticky top-0">
+                  <tr>
+                    {Object.keys(sampleData.data[0]).map((key) => (
+                      <th key={key} className="px-2 py-1 text-left font-medium text-gray-600 whitespace-nowrap">
+                        {key}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {sampleData.data.map((row, idx) => (
+                    <tr key={idx} className="hover:bg-gray-50">
+                      {Object.values(row).map((val: any, i) => (
+                        <td key={i} className="px-2 py-1 text-gray-700 whitespace-nowrap max-w-[150px] truncate">
+                          {val === null ? <span className="text-gray-300">NULL</span> : String(val)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div className="p-2 bg-gray-50 border-t text-xs text-gray-500">
+            {sampleData.rowCount} kayit gosteriliyor
+          </div>
+        </div>
+      ) : (
+        <div className="border rounded-lg p-4 text-center text-gray-400 text-sm">
+          Ornek verileri gormek icin "Veri Getir" butonuna tiklayin
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface EtaStatusResponse {
   success: boolean;
@@ -422,28 +509,59 @@ ETA_SQL_PASSWORD=sifreniz`}
           >
             <div className="flex items-center gap-3">
               <Settings2 className="w-5 h-5 text-gray-400" />
-              <span className="font-medium text-gray-700">Gelismis: ETA Tablo Yapisi (Kesif)</span>
+              <span className="font-medium text-gray-700">ETA Tablo Yapisi Kesfi (Sutun ve Ornek Veri)</span>
             </div>
             {showTables ? <ChevronUp className="w-5 h-5 text-gray-400" /> : <ChevronDown className="w-5 h-5 text-gray-400" />}
           </button>
 
           {showTables && (
-            <div className="p-4 border-t">
+            <div className="p-4 border-t space-y-4">
+              {/* Hizli Erisim Butonlari */}
+              <div className="flex flex-wrap gap-2">
+                <span className="text-sm text-gray-500 mr-2">Hizli Erisim:</span>
+                {['IrsFis', 'IrsHar', 'CarFis', 'CarHar', 'StkFis', 'StkHar', 'CarKart', 'StkKart'].map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setSelectedTable(t)}
+                    className={`px-3 py-1 text-xs rounded-full border ${
+                      selectedTable === t
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200'
+                    }`}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+
               {isTablesLoading ? (
                 <div className="flex items-center justify-center py-8">
                   <RefreshCw className="w-6 h-6 animate-spin text-gray-400" />
                 </div>
               ) : etaTables?.tables ? (
-                <div className="grid gap-4 lg:grid-cols-2">
+                <div className="grid gap-4 lg:grid-cols-3">
+                  {/* Tablo Listesi */}
                   <div>
                     <h4 className="font-medium text-gray-700 mb-2">Tablolar ({etaTables.tables.length})</h4>
-                    <div className="max-h-64 overflow-y-auto border rounded-lg">
-                      {etaTables.tables.map((table, idx) => (
+                    <input
+                      type="text"
+                      placeholder="Tablo ara..."
+                      className="w-full px-3 py-2 border rounded-lg text-sm mb-2"
+                      onChange={(e) => {
+                        const search = e.target.value.toLowerCase();
+                        // Filter will be applied in the map below
+                        (window as any).__etaTableSearch = search;
+                      }}
+                    />
+                    <div className="max-h-80 overflow-y-auto border rounded-lg">
+                      {etaTables.tables
+                        .filter((t) => !((window as any).__etaTableSearch) || t.toLowerCase().includes((window as any).__etaTableSearch))
+                        .map((table, idx) => (
                         <button
                           key={idx}
                           onClick={() => setSelectedTable(table)}
                           className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 border-b last:border-0 ${
-                            selectedTable === table ? 'bg-indigo-50 text-indigo-600' : ''
+                            selectedTable === table ? 'bg-indigo-50 text-indigo-600 font-medium' : ''
                           }`}
                         >
                           {table}
@@ -451,22 +569,24 @@ ETA_SQL_PASSWORD=sifreniz`}
                       ))}
                     </div>
                   </div>
+
+                  {/* Kolon Yapisi */}
                   <div>
-                    {selectedTable && tableColumns?.columns && (
+                    {selectedTable && tableColumns?.columns ? (
                       <>
-                        <h4 className="font-medium text-gray-700 mb-2">{selectedTable} Kolonlari</h4>
-                        <div className="max-h-64 overflow-y-auto border rounded-lg">
+                        <h4 className="font-medium text-gray-700 mb-2">{selectedTable} - Sutunlar ({tableColumns.columns.length})</h4>
+                        <div className="max-h-80 overflow-y-auto border rounded-lg">
                           <table className="w-full text-sm">
                             <thead className="bg-gray-50 sticky top-0">
                               <tr>
-                                <th className="px-3 py-2 text-left">Kolon</th>
+                                <th className="px-3 py-2 text-left">Sutun</th>
                                 <th className="px-3 py-2 text-left">Tip</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y">
                               {tableColumns.columns.map((col, idx) => (
                                 <tr key={idx} className="hover:bg-gray-50">
-                                  <td className="px-3 py-2 font-mono text-xs">{col.name}</td>
+                                  <td className="px-3 py-2 font-mono text-xs font-medium">{col.name}</td>
                                   <td className="px-3 py-2 text-xs text-gray-500">{col.type}</td>
                                 </tr>
                               ))}
@@ -474,7 +594,16 @@ ETA_SQL_PASSWORD=sifreniz`}
                           </table>
                         </div>
                       </>
+                    ) : (
+                      <div className="text-gray-400 text-sm py-8 text-center">
+                        Sutunlari gormek icin bir tablo secin
+                      </div>
                     )}
+                  </div>
+
+                  {/* Ornek Veri */}
+                  <div>
+                    <SampleDataViewer tableName={selectedTable} />
                   </div>
                 </div>
               ) : (

@@ -50,6 +50,7 @@ interface UhfResult {
   config?: UhfReaderConfig;
   ip?: string;
   port?: number;
+  power?: number;
 }
 
 interface UhfScanProgress {
@@ -80,6 +81,8 @@ interface ElectronAPI {
   uhfGetTags: () => Promise<UhfTag[]>;
   uhfClearTags: () => Promise<UhfResult>;
   uhfSetConfig: (config: UhfReaderConfig) => Promise<UhfResult>;
+  uhfSetPower: (power: number) => Promise<UhfResult>;
+  uhfGetPower: () => Promise<UhfResult>;
   uhfScanNetwork: () => Promise<UhfResult>;
   uhfAutoConnect: () => Promise<UhfResult>;
   onUhfStatus: (callback: (status: UhfReaderStatus) => void) => () => void;
