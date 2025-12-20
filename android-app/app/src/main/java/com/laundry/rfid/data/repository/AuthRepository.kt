@@ -142,4 +142,17 @@ class AuthRepository @Inject constructor(
             Result.failure(e)
         }
     }
+
+    suspend fun setOfflineLogin(role: String) {
+        val user = User(
+            id = "offline-${UUID.randomUUID()}",
+            email = if (role == "DRIVER") "driver@laundry.com" else "admin@laundry.com",
+            firstName = if (role == "DRIVER") "Şoför" else "Admin",
+            lastName = "",
+            role = if (role == "DRIVER") "driver" else "system_admin",
+            tenantId = null
+        )
+        preferencesManager.setUser(user)
+        preferencesManager.setAuthToken("offline-token")
+    }
 }
