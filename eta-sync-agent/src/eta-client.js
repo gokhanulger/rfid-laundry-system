@@ -202,6 +202,7 @@ EtaClient.prototype.getNextIrsaliyeRefNo = function() {
 
 /**
  * Irsaliye olustur (RFID'den ETA'ya)
+ * Tum ilgili tablolara kayit atar: IRSFIS, IRSHAR, CARFIS, STKFIS, STKHAR
  */
 EtaClient.prototype.createIrsaliye = function(irsaliye) {
   var self = this;
@@ -212,61 +213,135 @@ EtaClient.prototype.createIrsaliye = function(irsaliye) {
     return self.getNextIrsaliyeRefNo();
   })
   .then(function(refNo) {
-    // IRSFIS (header) kaydi olustur
     var tarih = irsaliye.tarih || new Date();
     var saat = ('0' + tarih.getHours()).slice(-2) + ':' + ('0' + tarih.getMinutes()).slice(-2);
+    var cariKod = irsaliye.cariKod || '';
+    var cariUnvan = irsaliye.cariUnvan || '';
+    var aciklama = irsaliye.aciklama || 'RFID Sistem';
 
-    // ETA V.8 icin gerekli tum kolonlar
-    // IRSFISFIRMA: Firma kodu (genellikle 1)
-    // IRSFISTIPI: 1=Satis Irsaliyesi
-    // IRSFISKAYONC: 1=Cikis
-    var headerQuery =
+    // Toplam tutari hesapla
+    var toplamTutar = 0;
+    for (var t = 0; t < irsaliye.satirlar.length; t++) {
+      var s = irsaliye.satirlar[t];
+      toplamTutar += (s.miktar || 0) * (s.fiyat || 0);
+    }
+
+    console.log('  RefNo: ' + refNo + ' olusturuluyor...');
+
+    // 1. IRSFIS - Irsaliye Fis (Ana kayit)
+    var irsfisQuery =
       "INSERT INTO IRSFIS (IRSFISREFNO, IRSFISTAR, IRSFISTIPI, IRSFISCARKOD, IRSFISCARUNVAN, " +
-      "IRSFISACIKLAMA1, IRSFISSAAT, IRSFISKAYONC, IRSFISFIRMA) " +
-      "VALUES (@refNo, @tarih, 1, @cariKod, @cariUnvan, @aciklama, @saat, 1, 1)";
+      "IRSFISACIKLAMA1, IRSFISSAAT, IRSFISKAYONC, IRSFISGENTOPLAM) " +
+      "VALUES (@refNo, @tarih, 1, @cariKod, @cariUnvan, @aciklama, @saat, 1, @toplamTutar)";
 
     return self.pool.request()
       .input('refNo', sql.Int, refNo)
       .input('tarih', sql.DateTime, tarih)
-      .input('cariKod', sql.VarChar, irsaliye.cariKod || '')
-      .input('cariUnvan', sql.VarChar, irsaliye.cariUnvan || '')
-      .input('aciklama', sql.VarChar, irsaliye.aciklama || 'RFID Sistem')
+      .input('cariKod', sql.VarChar, cariKod)
+      .input('cariUnvan', sql.VarChar, cariUnvan)
+      .input('aciklama', sql.VarChar, aciklama)
       .input('saat', sql.VarChar, saat)
-      .query(headerQuery)
+      .input('toplamTutar', sql.Numeric, toplamTutar)
+      .query(irsfisQuery)
       .then(function() {
-        // IRSHAR (satirlar) kayitlari olustur
+        console.log('    IRSFIS OK');
+
+        // 2. CARFIS - Cari Fis (Borc kaydi)
+        var carfisQuery =
+          "INSERT INTO CARFIS (CARFISREFNO, CARFISTAR, CARFISTIPI, CARFISCARKOD, CARFISCARUNVAN, " +
+          "CARFISACIKLAMA1, CARFISBORCTOP, CARFISKAYONC) " +
+          "VALUES (@refNo, @tarih, 1, @cariKod, @cariUnvan, @aciklama, @toplamTutar, 1)";
+
+        return self.pool.request()
+          .input('refNo', sql.Int, refNo)
+          .input('tarih', sql.DateTime, tarih)
+          .input('cariKod', sql.VarChar, cariKod)
+          .input('cariUnvan', sql.VarChar, cariUnvan)
+          .input('aciklama', sql.VarChar, aciklama)
+          .input('toplamTutar', sql.Numeric, toplamTutar)
+          .query(carfisQuery);
+      })
+      .then(function() {
+        console.log('    CARFIS OK');
+
+        // 3. STKFIS - Stok Fis
+        var stkfisQuery =
+          "INSERT INTO STKFIS (STKFISREFNO, STKFISTAR, STKFISTIPI, STKFISCARKOD, " +
+          "STKFISACIKLAMA1, STKFISKAYONC, STKFISTOPTUT) " +
+          "VALUES (@refNo, @tarih, 1, @cariKod, @aciklama, 1, @toplamTutar)";
+
+        return self.pool.request()
+          .input('refNo', sql.Int, refNo)
+          .input('tarih', sql.DateTime, tarih)
+          .input('cariKod', sql.VarChar, cariKod)
+          .input('aciklama', sql.VarChar, aciklama)
+          .input('toplamTutar', sql.Numeric, toplamTutar)
+          .query(stkfisQuery);
+      })
+      .then(function() {
+        console.log('    STKFIS OK');
+
+        // 4. IRSHAR ve STKHAR - Satirlar
         var promise = Promise.resolve();
-        var siraNo = 0;
 
         for (var i = 0; i < irsaliye.satirlar.length; i++) {
           (function(satir, lineIndex) {
             promise = promise.then(function() {
-              siraNo = lineIndex + 1;
-              // ETA V.8 icin gerekli kolonlar
-              // IRSHARSIRANO: Satir numarasi (1'den baslar)
-              // IRSHARFIRMA: Firma kodu (genellikle 1)
-              var satirQuery =
+              var siraNo = lineIndex + 1;
+              var stokKod = satir.stokKod || satir.stokAd || '';
+              var birim = satir.birim || 'ADET';
+              var miktar = satir.miktar || 0;
+              var fiyat = satir.fiyat || 0;
+              var tutar = miktar * fiyat;
+
+              // IRSHAR - Irsaliye Hareket
+              var irsharQuery =
                 "INSERT INTO IRSHAR (IRSHARREFNO, IRSHARTAR, IRSHARTIPI, IRSHARCARKOD, " +
-                "IRSHARSTKKOD, IRSHARSTKBRM, IRSHARMIKTAR, IRSHARKAYONC, IRSHARSIRANO, IRSHARFIRMA) " +
-                "VALUES (@refNo, @tarih, 1, @cariKod, @stokKod, @birim, @miktar, 1, @siraNo, 1)";
+                "IRSHARSTKKOD, IRSHARSTKBRM, IRSHARMIKTAR, IRSHARFIYAT, IRSHARTUTAR, " +
+                "IRSHARKAYONC, IRSHARSIRANO) " +
+                "VALUES (@refNo, @tarih, 1, @cariKod, @stokKod, @birim, @miktar, @fiyat, @tutar, 1, @siraNo)";
 
               return self.pool.request()
                 .input('refNo', sql.Int, refNo)
                 .input('tarih', sql.DateTime, tarih)
-                .input('cariKod', sql.VarChar, irsaliye.cariKod || '')
-                .input('stokKod', sql.VarChar, satir.stokAd || '') // stokAd'i stokKod olarak kullan
-                .input('birim', sql.VarChar, satir.birim || 'ADET')
-                .input('miktar', sql.Numeric, satir.miktar || 0)
-                .input('siraNo', sql.Int, lineIndex + 1)
-                .query(satirQuery);
+                .input('cariKod', sql.VarChar, cariKod)
+                .input('stokKod', sql.VarChar, stokKod)
+                .input('birim', sql.VarChar, birim)
+                .input('miktar', sql.Numeric, miktar)
+                .input('fiyat', sql.Numeric, fiyat)
+                .input('tutar', sql.Numeric, tutar)
+                .input('siraNo', sql.Int, siraNo)
+                .query(irsharQuery)
+                .then(function() {
+                  // STKHAR - Stok Hareket
+                  var stkharQuery =
+                    "INSERT INTO STKHAR (STKHARREFNO, STKHARTAR, STKHARTIPI, STKHARCARKOD, " +
+                    "STKHARSTKKOD, STKHARSTKBRM, STKHARMIKTAR, STKHARFIYAT, STKHARTUTAR, " +
+                    "STKHARKAYONC, STKHARSIRANO) " +
+                    "VALUES (@refNo, @tarih, 1, @cariKod, @stokKod, @birim, @miktar, @fiyat, @tutar, 1, @siraNo)";
+
+                  return self.pool.request()
+                    .input('refNo', sql.Int, refNo)
+                    .input('tarih', sql.DateTime, tarih)
+                    .input('cariKod', sql.VarChar, cariKod)
+                    .input('stokKod', sql.VarChar, stokKod)
+                    .input('birim', sql.VarChar, birim)
+                    .input('miktar', sql.Numeric, miktar)
+                    .input('fiyat', sql.Numeric, fiyat)
+                    .input('tutar', sql.Numeric, tutar)
+                    .input('siraNo', sql.Int, siraNo)
+                    .query(stkharQuery);
+                });
             });
           })(irsaliye.satirlar[i], i);
         }
 
-        return promise.then(function() {
-          console.log('  + Irsaliye olusturuldu: RefNo=' + refNo);
-          return { success: true, refNo: refNo };
-        });
+        return promise;
+      })
+      .then(function() {
+        console.log('    IRSHAR + STKHAR OK');
+        console.log('  + Irsaliye olusturuldu: RefNo=' + refNo);
+        return { success: true, refNo: refNo };
       });
   })
   .catch(function(error) {
