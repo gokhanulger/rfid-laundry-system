@@ -44,6 +44,7 @@ const updateTenantSchema = z.object({
   phone: z.string().optional(),
   address: z.string().optional(),
   isActive: z.boolean().optional(),
+  qrCode: z.string().optional(),
 });
 
 // Get all tenants - PUBLIC (no auth required for station apps)
