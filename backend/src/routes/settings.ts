@@ -84,6 +84,39 @@ settingsRouter.post('/tenants', requireRole('system_admin'), async (req: AuthReq
   }
 });
 
+// Update tenant (admin only) - qrCode dahil
+settingsRouter.patch('/tenants/:id', requireRole('system_admin'), async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const { name, email, phone, address, qrCode } = req.body;
+
+    const existingTenant = await db.query.tenants.findFirst({
+      where: eq(tenants.id, id),
+    });
+
+    if (!existingTenant) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+
+    const updateData: any = { updatedAt: new Date() };
+    if (name !== undefined) updateData.name = name;
+    if (email !== undefined) updateData.email = email;
+    if (phone !== undefined) updateData.phone = phone;
+    if (address !== undefined) updateData.address = address;
+    if (qrCode !== undefined) updateData.qrCode = qrCode;
+
+    const [updatedTenant] = await db.update(tenants)
+      .set(updateData)
+      .where(eq(tenants.id, id))
+      .returning();
+
+    res.json(updatedTenant);
+  } catch (error) {
+    console.error('Update tenant error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Assign QR codes to existing tenants without one
 settingsRouter.post('/tenants/generate-qr-codes', requireRole('system_admin'), async (req: AuthRequest, res) => {
   try {
