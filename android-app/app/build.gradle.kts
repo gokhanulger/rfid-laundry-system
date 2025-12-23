@@ -1,8 +1,18 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.dagger.hilt.android")
     id("com.google.devtools.ksp")
+}
+
+// Load local.properties for keystore credentials
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localProperties.load(FileInputStream(localPropertiesFile))
 }
 
 android {
@@ -11,10 +21,17 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile = file("../laundry-rfid.keystore")
-            storePassword = "laundry123"
-            keyAlias = "laundry-rfid"
-            keyPassword = "laundry123"
+            val keystorePath = localProperties.getProperty("KEYSTORE_PATH", "../laundry-rfid.keystore")
+            val keystorePass = localProperties.getProperty("KEYSTORE_PASSWORD")
+            val keyAliasName = localProperties.getProperty("KEY_ALIAS", "laundry-rfid")
+            val keyPass = localProperties.getProperty("KEY_PASSWORD")
+
+            if (keystorePass != null && keyPass != null) {
+                storeFile = file(keystorePath)
+                storePassword = keystorePass
+                keyAlias = keyAliasName
+                keyPassword = keyPass
+            }
         }
     }
 
@@ -29,6 +46,27 @@ android {
 
         // API Base URL - change for production
         buildConfigField("String", "API_BASE_URL", "\"https://rfid-laundry-backend-production.up.railway.app/api/\"")
+
+        // Authentication credentials - loaded from local.properties for security
+        val driverPin = localProperties.getProperty("DRIVER_PIN", "1234")
+        val adminPin = localProperties.getProperty("ADMIN_PIN", "145344")
+        val driverEmail = localProperties.getProperty("DRIVER_EMAIL", "driver@laundry.com")
+        val driverPassword = localProperties.getProperty("DRIVER_PASSWORD", "driver123")
+        val adminEmail = localProperties.getProperty("ADMIN_EMAIL", "admin@laundry.com")
+        val adminPassword = localProperties.getProperty("ADMIN_PASSWORD", "admin123")
+
+        buildConfigField("String", "DRIVER_PIN", "\"$driverPin\"")
+        buildConfigField("String", "ADMIN_PIN", "\"$adminPin\"")
+        buildConfigField("String", "DRIVER_EMAIL", "\"$driverEmail\"")
+        buildConfigField("String", "DRIVER_PASSWORD", "\"$driverPassword\"")
+        buildConfigField("String", "ADMIN_EMAIL", "\"$adminEmail\"")
+        buildConfigField("String", "ADMIN_PASSWORD", "\"$adminPassword\"")
+
+        // Support both 32-bit and 64-bit architectures
+        // Handheld SDK only has 32-bit libModuleAPI_Android.so
+        ndk {
+            abiFilters += listOf("armeabi-v7a", "armeabi")
+        }
     }
 
     buildTypes {

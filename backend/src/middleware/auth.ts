@@ -5,7 +5,11 @@ import { users } from '../db/schema';
 import { eq } from 'drizzle-orm';
 
 // JWT secret - must match the one in auth routes
-const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'dev-jwt-secret-change-in-production';
+const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET;
+
+if (!JWT_SECRET) {
+  throw new Error('FATAL: JWT_SECRET or SESSION_SECRET environment variable is required');
+}
 
 export interface AuthRequest extends Request {
   user?: typeof users.$inferSelect;

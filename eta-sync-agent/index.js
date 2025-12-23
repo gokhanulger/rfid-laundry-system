@@ -22,6 +22,46 @@ try {
   process.exit(1);
 }
 
+// Environment variable'lardan credentials'lari oku (guvenlik icin)
+// Bu degerler config.json'daki degerleri override eder
+if (process.env.ETA_SERVER) {
+  config.eta.server = process.env.ETA_SERVER;
+}
+if (process.env.ETA_PORT) {
+  config.eta.port = parseInt(process.env.ETA_PORT, 10);
+}
+if (process.env.ETA_DATABASE) {
+  config.eta.database = process.env.ETA_DATABASE;
+}
+if (process.env.ETA_USER) {
+  config.eta.user = process.env.ETA_USER;
+}
+if (process.env.ETA_PASSWORD) {
+  config.eta.password = process.env.ETA_PASSWORD;
+}
+if (process.env.RFID_API_URL) {
+  config.rfid.apiUrl = process.env.RFID_API_URL;
+}
+if (process.env.RFID_USERNAME) {
+  config.rfid.username = process.env.RFID_USERNAME;
+}
+if (process.env.RFID_PASSWORD) {
+  config.rfid.password = process.env.RFID_PASSWORD;
+}
+
+// Credentials kontrolu
+var missingCreds = [];
+if (!config.eta.password) missingCreds.push('ETA_PASSWORD');
+if (!config.rfid.password) missingCreds.push('RFID_PASSWORD');
+if (missingCreds.length > 0) {
+  console.error('HATA: Asagidaki credentials eksik!');
+  console.error('Environment variable olarak ayarlayin veya config.json\'a ekleyin:');
+  for (var i = 0; i < missingCreds.length; i++) {
+    console.error('  - ' + missingCreds[i]);
+  }
+  process.exit(1);
+}
+
 var syncService = new SyncService(config);
 
 // Otomatik sync modu
@@ -116,19 +156,25 @@ function showSettings() {
   for (var i = 0; i < etaPassLen; i++) etaStars += '*';
   for (var i = 0; i < rfidPassLen; i++) rfidStars += '*';
 
+  // Kaynak gostergesi
+  function src(envVar) {
+    return process.env[envVar] ? ' (ENV)' : ' (config)';
+  }
+
   console.log('\n--- Mevcut Ayarlar ---\n');
   console.log('ETA SQL Server:');
-  console.log('  Sunucu: ' + config.eta.server + ':' + config.eta.port);
-  console.log('  Veritabani: ' + config.eta.database);
-  console.log('  Kullanici: ' + config.eta.user);
-  console.log('  Sifre: ' + etaStars);
+  console.log('  Sunucu: ' + config.eta.server + ':' + config.eta.port + src('ETA_SERVER'));
+  console.log('  Veritabani: ' + config.eta.database + src('ETA_DATABASE'));
+  console.log('  Kullanici: ' + config.eta.user + src('ETA_USER'));
+  console.log('  Sifre: ' + etaStars + src('ETA_PASSWORD'));
   console.log('');
   console.log('RFID API:');
-  console.log('  URL: ' + config.rfid.apiUrl);
-  console.log('  Kullanici: ' + config.rfid.username);
-  console.log('  Sifre: ' + rfidStars);
+  console.log('  URL: ' + config.rfid.apiUrl + src('RFID_API_URL'));
+  console.log('  Kullanici: ' + config.rfid.username + src('RFID_USERNAME'));
+  console.log('  Sifre: ' + rfidStars + src('RFID_PASSWORD'));
   console.log('');
-  console.log('Ayarlari degistirmek icin config.json dosyasini duzenleyin.');
+  console.log('Not: (ENV) = Environment variable\'dan, (config) = config.json\'dan');
+  console.log('Guvenlik icin credentials ENV variable olarak ayarlanmali.');
 }
 
 // Readline interface

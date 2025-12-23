@@ -2,6 +2,7 @@ package com.laundry.rfid.ui.login
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.laundry.rfid.BuildConfig
 import com.laundry.rfid.data.repository.AuthRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -27,9 +28,9 @@ class LoginViewModel @Inject constructor(
 
     val isLoggedIn: Flow<Boolean> = authRepository.isLoggedIn
 
-    // Şifre tanımları
-    private val DRIVER_PASSWORD = "1234"
-    private val ADMIN_PASSWORD = "145344"
+    // Şifre tanımları - BuildConfig'den okunur (local.properties'den konfigüre edilebilir)
+    private val DRIVER_PIN = BuildConfig.DRIVER_PIN
+    private val ADMIN_PIN = BuildConfig.ADMIN_PIN
 
     fun onEmailChange(email: String) {
         _uiState.update { it.copy(email = email, error = null) }
@@ -58,8 +59,8 @@ class LoginViewModel @Inject constructor(
 
         // Şifre doğrulama
         val isValid = when (state.role) {
-            "DRIVER" -> state.password == DRIVER_PASSWORD
-            "ADMIN" -> state.password == ADMIN_PASSWORD
+            "DRIVER" -> state.password == DRIVER_PIN
+            "ADMIN" -> state.password == ADMIN_PIN
             else -> false
         }
 
@@ -72,16 +73,16 @@ class LoginViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
 
-            // Backend'e uygun email ile giriş yap
+            // Backend'e uygun credentials ile giriş yap - BuildConfig'den okunur
             val email = when (state.role) {
-                "DRIVER" -> "driver@laundry.com"
-                "ADMIN" -> "admin@laundry.com"
-                else -> "driver@laundry.com"
+                "DRIVER" -> BuildConfig.DRIVER_EMAIL
+                "ADMIN" -> BuildConfig.ADMIN_EMAIL
+                else -> BuildConfig.DRIVER_EMAIL
             }
             val password = when (state.role) {
-                "DRIVER" -> "driver123"
-                "ADMIN" -> "admin123"
-                else -> "driver123"
+                "DRIVER" -> BuildConfig.DRIVER_PASSWORD
+                "ADMIN" -> BuildConfig.ADMIN_PASSWORD
+                else -> BuildConfig.DRIVER_PASSWORD
             }
 
             val result = authRepository.login(email, password)

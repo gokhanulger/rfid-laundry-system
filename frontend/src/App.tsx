@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ToastProvider } from './components/Toast';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Layout } from './components/Layout';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 // Pages
 import { LoginPage } from './pages/LoginPage';
@@ -64,10 +65,11 @@ const queryClient = new QueryClient({
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <ToastProvider>
-        <AuthProvider>
-          <HashRouter>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <AuthProvider>
+            <HashRouter>
             <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route path="/ironer" element={<IronerLoginPage />} />
@@ -125,10 +127,11 @@ function App() {
                 <Route path="driver/hotel-delivery" element={<HotelDeliveryPage />} />
               </Route>
             </Routes>
-          </HashRouter>
-        </AuthProvider>
-      </ToastProvider>
-    </QueryClientProvider>
+            </HashRouter>
+          </AuthProvider>
+        </ToastProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
 

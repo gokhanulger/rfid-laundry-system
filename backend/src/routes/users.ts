@@ -129,6 +129,7 @@ usersRouter.post('/', async (req: AuthRequest, res) => {
 usersRouter.patch('/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
+    const currentUser = req.user!;
     const validation = updateUserSchema.safeParse(req.body);
 
     if (!validation.success) {
@@ -136,6 +137,11 @@ usersRouter.patch('/:id', async (req: AuthRequest, res) => {
         error: 'Validation failed',
         details: validation.error.errors,
       });
+    }
+
+    // Only system_admin can change roles - prevent privilege escalation
+    if (validation.data.role && currentUser.role !== 'system_admin') {
+      return res.status(403).json({ error: 'Only system administrators can change user roles' });
     }
 
     const existingUser = await db.query.users.findFirst({
@@ -172,8 +178,8 @@ usersRouter.patch('/:id', async (req: AuthRequest, res) => {
   }
 });
 
-// Reset password
-usersRouter.post('/:id/reset-password', async (req: AuthRequest, res) => {
+// Reset password - only system_admin can reset passwords
+usersRouter.post('/:id/reset-password', requireRole('system_admin'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const validation = resetPasswordSchema.safeParse(req.body);

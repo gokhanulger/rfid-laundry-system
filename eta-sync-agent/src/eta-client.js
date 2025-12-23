@@ -6,7 +6,37 @@
 
 var sql = require('mssql');
 
+// Retry configuration
+var MAX_RETRIES = 3;
+var RETRY_DELAY_MS = 2000;
+
+// Helper: delay function
+function delay(ms) {
+  return new Promise(function(resolve) {
+    setTimeout(resolve, ms);
+  });
+}
+
+// Helper: retry wrapper for database operations
+function withRetry(operation, retries, delayMs) {
+  retries = retries || MAX_RETRIES;
+  delayMs = delayMs || RETRY_DELAY_MS;
+
+  return operation().catch(function(error) {
+    if (retries <= 0) {
+      throw error;
+    }
+    console.log('  Veritabani hatasi, ' + retries + ' deneme kaldi. ' + (delayMs/1000) + ' saniye bekleniyor...');
+    return delay(delayMs).then(function() {
+      return withRetry(operation, retries - 1, delayMs * 1.5); // Exponential backoff
+    });
+  });
+}
+
 function EtaClient(config) {
+  // Use encryption settings from config, with secure defaults
+  var configOptions = config.options || {};
+
   this.config = {
     server: config.server,
     port: config.port,
@@ -14,8 +44,10 @@ function EtaClient(config) {
     user: config.user,
     password: config.password,
     options: {
-      encrypt: false,
-      trustServerCertificate: true,
+      // Default to encrypted connection for security
+      encrypt: configOptions.encrypt !== undefined ? configOptions.encrypt : true,
+      trustServerCertificate: configOptions.trustServerCertificate !== undefined ? configOptions.trustServerCertificate : true,
+      enableArithAbort: true,
     },
     pool: {
       max: 10,
@@ -23,21 +55,39 @@ function EtaClient(config) {
       idleTimeoutMillis: 30000,
     },
   };
+
   this.pool = null;
+
+  // Debug: config'i goster
+  console.log('  ETA Config: server=' + config.server + ', user=' + config.user + ', db=' + config.database);
 }
 
 EtaClient.prototype.connect = function() {
   var self = this;
-  return new sql.ConnectionPool(this.config).connect()
-    .then(function(pool) {
-      self.pool = pool;
-      console.log('+ ETA SQL Server baglantisi basarili');
-      return true;
-    })
-    .catch(function(error) {
-      console.error('x ETA baglanti hatasi:', error.message);
-      throw error;
-    });
+
+  // Use retry wrapper for connection
+  return withRetry(function() {
+    return new sql.ConnectionPool(self.config).connect()
+      .then(function(pool) {
+        self.pool = pool;
+        console.log('+ ETA SQL Server baglantisi basarili');
+        return true;
+      });
+  }).catch(function(error) {
+    console.error('x ETA baglanti hatasi (tum denemeler basarisiz):', error.message);
+    throw error;
+  });
+};
+
+// Ensure connection is available, reconnect if needed
+EtaClient.prototype.ensureConnection = function() {
+  var self = this;
+  if (this.pool && this.pool.connected) {
+    return Promise.resolve(this.pool);
+  }
+  return this.connect().then(function() {
+    return self.pool;
+  });
 };
 
 EtaClient.prototype.disconnect = function() {
@@ -202,7 +252,8 @@ EtaClient.prototype.getNextIrsaliyeRefNo = function() {
 
 /**
  * Irsaliye olustur (RFID'den ETA'ya)
- * Tum ilgili tablolara kayit atar: IRSFIS, IRSHAR, CARFIS, STKFIS, STKHAR
+ * Tum ilgili tablolara kayit atar: IRSFIS, IRSHAR, CARFIS, CARHAR, STKFIS, STKHAR
+ * ONEMLI: FIRMA alanlari ETA'da kayitlarin gorulmesi icin gereklidir!
  */
 EtaClient.prototype.createIrsaliye = function(irsaliye) {
   var self = this;
@@ -218,6 +269,7 @@ EtaClient.prototype.createIrsaliye = function(irsaliye) {
     var cariKod = irsaliye.cariKod || '';
     var cariUnvan = irsaliye.cariUnvan || '';
     var aciklama = irsaliye.aciklama || 'RFID Sistem';
+    var firma = irsaliye.firma || 1; // ETA firma kodu - genellikle 1
 
     // Toplam tutari hesapla
     var toplamTutar = 0;
@@ -226,13 +278,18 @@ EtaClient.prototype.createIrsaliye = function(irsaliye) {
       toplamTutar += (s.miktar || 0) * (s.fiyat || 0);
     }
 
-    console.log('  RefNo: ' + refNo + ' olusturuluyor...');
+    console.log('  RefNo: ' + refNo + ' olusturuluyor (Firma: ' + firma + ')...');
 
     // 1. IRSFIS - Irsaliye Fis (Ana kayit)
+    // IRSFISTIPI: 3 = Temiz/Cikis Irsaliyesi
+    // IRSFISKAYNAK: 6, IRSFISGCFLAG: 2, IRSFISFATKONT: 1, IRSFISSEVNO: 1
+    var evrakNo = irsaliye.evrakNo || irsaliye.barcode || '';
     var irsfisQuery =
       "INSERT INTO IRSFIS (IRSFISREFNO, IRSFISTAR, IRSFISTIPI, IRSFISCARKOD, IRSFISCARUNVAN, " +
-      "IRSFISACIKLAMA1, IRSFISSAAT, IRSFISKAYONC, IRSFISGENTOPLAM) " +
-      "VALUES (@refNo, @tarih, 1, @cariKod, @cariUnvan, @aciklama, @saat, 1, @toplamTutar)";
+      "IRSFISACIKLAMA1, IRSFISSAAT, IRSFISKAYONC, IRSFISGENTOPLAM, " +
+      "IRSFISKAYNAK, IRSFISGCFLAG, IRSFISFATKONT, IRSFISEVRAKNO1, IRSFISSEVNO) " +
+      "VALUES (@refNo, @tarih, 3, @cariKod, @cariUnvan, @aciklama, @saat, 1, @toplamTutar, " +
+      "6, 2, 1, @evrakNo, 1)";
 
     return self.pool.request()
       .input('refNo', sql.Int, refNo)
@@ -242,15 +299,16 @@ EtaClient.prototype.createIrsaliye = function(irsaliye) {
       .input('aciklama', sql.VarChar, aciklama)
       .input('saat', sql.VarChar, saat)
       .input('toplamTutar', sql.Numeric, toplamTutar)
+      .input('evrakNo', sql.VarChar, evrakNo)
       .query(irsfisQuery)
       .then(function() {
         console.log('    IRSFIS OK');
 
-        // 2. CARFIS - Cari Fis (Borc kaydi)
+        // 2. CARFIS - Cari Fis (Borc kaydi) - TIPI = 3
         var carfisQuery =
           "INSERT INTO CARFIS (CARFISREFNO, CARFISTAR, CARFISTIPI, CARFISCARKOD, CARFISCARUNVAN, " +
           "CARFISACIKLAMA1, CARFISBORCTOP, CARFISKAYONC) " +
-          "VALUES (@refNo, @tarih, 1, @cariKod, @cariUnvan, @aciklama, @toplamTutar, 1)";
+          "VALUES (@refNo, @tarih, 3, @cariKod, @cariUnvan, @aciklama, @toplamTutar, 1)";
 
         return self.pool.request()
           .input('refNo', sql.Int, refNo)
@@ -264,28 +322,82 @@ EtaClient.prototype.createIrsaliye = function(irsaliye) {
       .then(function() {
         console.log('    CARFIS OK');
 
-        // 3. STKFIS - Stok Fis
-        var stkfisQuery =
-          "INSERT INTO STKFIS (STKFISREFNO, STKFISTAR, STKFISTIPI, STKFISCARKOD, " +
-          "STKFISACIKLAMA1, STKFISKAYONC, STKFISTOPTUT) " +
-          "VALUES (@refNo, @tarih, 1, @cariKod, @aciklama, 1, @toplamTutar)";
+        // 3. CARHAR - Cari Hareket (Her satir icin borc kaydi)
+        var carharPromise = Promise.resolve();
 
-        return self.pool.request()
-          .input('refNo', sql.Int, refNo)
-          .input('tarih', sql.DateTime, tarih)
-          .input('cariKod', sql.VarChar, cariKod)
-          .input('aciklama', sql.VarChar, aciklama)
-          .input('toplamTutar', sql.Numeric, toplamTutar)
-          .query(stkfisQuery);
+        for (var c = 0; c < irsaliye.satirlar.length; c++) {
+          (function(satir, lineIndex) {
+            carharPromise = carharPromise.then(function() {
+              var siraNo = lineIndex + 1;
+              var miktar = satir.miktar || 0;
+              var fiyat = satir.fiyat || 0;
+              var tutar = miktar * fiyat;
+
+              // CARHAR - TIPI = 3
+              var carharQuery =
+                "INSERT INTO CARHAR (CARHARREFNO, CARHARTAR, CARHARTIPI, CARHARCARKOD, " +
+                "CARHARTUTAR, CARHARKAYONC, CARHARSIRANO) " +
+                "VALUES (@refNo, @tarih, 3, @cariKod, @tutar, 1, @siraNo)";
+
+              return self.pool.request()
+                .input('refNo', sql.Int, refNo)
+                .input('tarih', sql.DateTime, tarih)
+                .input('cariKod', sql.VarChar, cariKod)
+                .input('tutar', sql.Numeric, tutar)
+                .input('siraNo', sql.Int, siraNo)
+                .query(carharQuery);
+            });
+          })(irsaliye.satirlar[c], c);
+        }
+
+        return carharPromise;
       })
       .then(function() {
+        console.log('    CARHAR OK');
+
+        // 4. STKFIS - Stok Fis - TIPI = 3
+        // STKFIS kendi REFNO sirasini kullaniyor, ayri almamiz gerekiyor
+        return self.pool.request()
+          .query("SELECT ISNULL(MAX(STKFISREFNO), 0) + 1 as nextRefNo FROM STKFIS")
+          .then(function(result) {
+            var stkfisRefNo = result.recordset[0].nextRefNo;
+            console.log('    STKFIS RefNo: ' + stkfisRefNo);
+
+            var stkfisQuery =
+              "INSERT INTO STKFIS (STKFISREFNO, STKFISTAR, STKFISTIPI, STKFISCARKOD, " +
+              "STKFISACIKLAMA1, STKFISKAYONC, STKFISTOPNTUT) " +
+              "VALUES (@stkfisRefNo, @tarih, 3, @cariKod, @aciklama, 1, @toplamTutar)";
+
+            return self.pool.request()
+              .input('stkfisRefNo', sql.Int, stkfisRefNo)
+              .input('tarih', sql.DateTime, tarih)
+              .input('cariKod', sql.VarChar, cariKod)
+              .input('aciklama', sql.VarChar, aciklama)
+              .input('toplamTutar', sql.Numeric, toplamTutar)
+              .query(stkfisQuery)
+              .then(function() {
+                return stkfisRefNo; // STKHAR icin refNo'yu dondur
+              });
+          });
+      })
+      .then(function(stkfisRefNo) {
         console.log('    STKFIS OK');
 
-        // 4. IRSHAR ve STKHAR - Satirlar
+        // 5. IRSHAR ve STKHAR - Satirlar
+        // ONEMLI: TIPI = 3 (Satis Irsaliyesi)
+        // IRSHAR icin IRSFIS refNo, STKHAR icin STKFIS refNo kullanilir
         var promise = Promise.resolve();
+        var satirSayisi = irsaliye.satirlar ? irsaliye.satirlar.length : 0;
+
+        console.log('    IRSHAR/STKHAR icin ' + satirSayisi + ' satir islenecek');
+
+        if (satirSayisi === 0) {
+          console.log('    UYARI: Satir yok, IRSHAR/STKHAR olusturulmayacak!');
+          return Promise.resolve();
+        }
 
         for (var i = 0; i < irsaliye.satirlar.length; i++) {
-          (function(satir, lineIndex) {
+          (function(satir, lineIndex, stkRefNo) {
             promise = promise.then(function() {
               var siraNo = lineIndex + 1;
               var stokKod = satir.stokKod || satir.stokAd || '';
@@ -294,12 +406,14 @@ EtaClient.prototype.createIrsaliye = function(irsaliye) {
               var fiyat = satir.fiyat || 0;
               var tutar = miktar * fiyat;
 
-              // IRSHAR - Irsaliye Hareket
+              console.log('      Satir ' + siraNo + ': ' + stokKod + ' x ' + miktar);
+
+              // IRSHAR - Irsaliye Hareket (TIPI = 3) - IRSFIS refNo kullanir
               var irsharQuery =
                 "INSERT INTO IRSHAR (IRSHARREFNO, IRSHARTAR, IRSHARTIPI, IRSHARCARKOD, " +
                 "IRSHARSTKKOD, IRSHARSTKBRM, IRSHARMIKTAR, IRSHARFIYAT, IRSHARTUTAR, " +
                 "IRSHARKAYONC, IRSHARSIRANO) " +
-                "VALUES (@refNo, @tarih, 1, @cariKod, @stokKod, @birim, @miktar, @fiyat, @tutar, 1, @siraNo)";
+                "VALUES (@refNo, @tarih, 3, @cariKod, @stokKod, @birim, @miktar, @fiyat, @tutar, 1, @siraNo)";
 
               return self.pool.request()
                 .input('refNo', sql.Int, refNo)
@@ -313,15 +427,16 @@ EtaClient.prototype.createIrsaliye = function(irsaliye) {
                 .input('siraNo', sql.Int, siraNo)
                 .query(irsharQuery)
                 .then(function() {
-                  // STKHAR - Stok Hareket
+                  console.log('        IRSHAR OK (satir ' + siraNo + ')');
+                  // STKHAR - Stok Hareket (TIPI = 3) - STKFIS refNo kullanir
                   var stkharQuery =
                     "INSERT INTO STKHAR (STKHARREFNO, STKHARTAR, STKHARTIPI, STKHARCARKOD, " +
                     "STKHARSTKKOD, STKHARSTKBRM, STKHARMIKTAR, STKHARFIYAT, STKHARTUTAR, " +
                     "STKHARKAYONC, STKHARSIRANO) " +
-                    "VALUES (@refNo, @tarih, 1, @cariKod, @stokKod, @birim, @miktar, @fiyat, @tutar, 1, @siraNo)";
+                    "VALUES (@stkRefNo, @tarih, 3, @cariKod, @stokKod, @birim, @miktar, @fiyat, @tutar, 1, @siraNo)";
 
                   return self.pool.request()
-                    .input('refNo', sql.Int, refNo)
+                    .input('stkRefNo', sql.Int, stkRefNo)
                     .input('tarih', sql.DateTime, tarih)
                     .input('cariKod', sql.VarChar, cariKod)
                     .input('stokKod', sql.VarChar, stokKod)
@@ -331,9 +446,12 @@ EtaClient.prototype.createIrsaliye = function(irsaliye) {
                     .input('tutar', sql.Numeric, tutar)
                     .input('siraNo', sql.Int, siraNo)
                     .query(stkharQuery);
+                })
+                .then(function() {
+                  console.log('        STKHAR OK (satir ' + siraNo + ')');
                 });
             });
-          })(irsaliye.satirlar[i], i);
+          })(irsaliye.satirlar[i], i, stkfisRefNo);
         }
 
         return promise;
@@ -361,7 +479,7 @@ EtaClient.prototype.getLastIrsaliyeler = function(limit) {
 
   return connectPromise.then(function() {
     var query =
-      "SELECT TOP " + limit + " IRSFISREFNO, IRSFISTAR, IRSFISCARKOD, IRSFISCARUNVAN, IRSFISACIKLAMA1, IRSFISFIRMA " +
+      "SELECT TOP " + limit + " IRSFISREFNO, IRSFISTAR, IRSFISCARKOD, IRSFISCARUNVAN, IRSFISACIKLAMA1 " +
       "FROM IRSFIS ORDER BY IRSFISREFNO DESC";
 
     return self.pool.request().query(query);

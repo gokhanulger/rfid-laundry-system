@@ -1,0 +1,22 @@
+# Android SDK location (required)
+sdk.dir=/Users/YOUR_USERNAME/Library/Android/sdk
+
+# Keystore credentials for release signing (required for release builds)
+# Copy this file to local.properties and fill in your values
+# IMPORTANT: Never commit local.properties to git!
+
+KEYSTORE_PATH=../laundry-rfid.keystore
+KEYSTORE_PASSWORD=your_keystore_password_here
+KEY_ALIAS=laundry-rfid
+KEY_PASSWORD=your_key_password_here
+
+# Authentication credentials (optional - defaults provided if not set)
+# Local device PINs
+DRIVER_PIN=1234
+ADMIN_PIN=145344
+
+# Backend API credentials
+DRIVER_EMAIL=driver@laundry.com
+DRIVER_PASSWORD=your_driver_password_here
+ADMIN_EMAIL=admin@laundry.com
+ADMIN_PASSWORD=your_admin_password_here

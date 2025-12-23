@@ -8,8 +8,12 @@ import { requireAuth, AuthRequest } from '../middleware/auth';
 
 export const authRouter = Router();
 
-// JWT secret - use environment variable in production
-const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'dev-jwt-secret-change-in-production';
+// JWT secret - must be set in environment
+const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET;
+
+if (!JWT_SECRET) {
+  throw new Error('FATAL: JWT_SECRET or SESSION_SECRET environment variable is required');
+}
 const JWT_EXPIRES_IN = '7d'; // Token expires in 7 days
 
 // Register

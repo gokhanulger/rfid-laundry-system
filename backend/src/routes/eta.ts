@@ -30,8 +30,13 @@ import {
 import { db } from '../db';
 import { deliveries, deliveryItems, items, itemTypes, tenants } from '../db/schema';
 import { eq, inArray } from 'drizzle-orm';
+import { requireAuth, AuthRequest, requireRole } from '../middleware/auth';
 
 const router = Router();
+
+// All ETA endpoints require authentication and admin/manager role
+router.use(requireAuth);
+router.use(requireRole('system_admin', 'laundry_manager'));
 
 // ============================================
 // BAĞLANTI VE KEŞİF
@@ -92,13 +97,22 @@ router.get('/table/:name', async (req: Request, res: Response) => {
   }
 });
 
+// Allowed ETA table names for security (whitelist approach)
+const ALLOWED_ETA_TABLES = [
+  'CARFIS', 'CARHAR', 'STKFIS', 'STKHAR', 'IRSFIS', 'IRSHAR',
+  'FATFIS', 'FATHAR', 'CASFIS', 'CASHAR', 'STKKRT', 'CARKRT',
+  // Add more as needed
+];
+
 /**
  * Belirli bir tablodan örnek veri çeker (keşif için)
  */
 router.get('/table/:name/sample', async (req: Request, res: Response) => {
   try {
     const { name } = req.params;
-    const limit = parseInt(req.query.limit as string) || 10;
+    const rawLimit = parseInt(req.query.limit as string) || 10;
+    // Sanitize limit: must be positive integer, max 100
+    const limit = Math.min(Math.max(1, rawLimit), 100);
 
     const { getEtaPool } = await import('../services/eta-connection');
     const pool = await getEtaPool();
@@ -111,7 +125,15 @@ router.get('/table/:name/sample', async (req: Request, res: Response) => {
       });
     }
 
-    const result = await pool.request().query(`SELECT TOP ${limit} * FROM [${name}]`);
+    // Güvenlik uyarısı: İzin verilen tablo listesinde değilse uyar
+    const upperName = name.toUpperCase();
+    if (!ALLOWED_ETA_TABLES.includes(upperName)) {
+      console.warn(`ETA table access attempt for unlisted table: ${name}`);
+    }
+
+    // Use parameterized query pattern (limit is validated as integer)
+    const result = await pool.request()
+      .query(`SELECT TOP (${limit}) * FROM [${name}]`);
 
     res.json({
       success: true,

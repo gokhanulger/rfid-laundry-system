@@ -19,11 +19,18 @@ const updateItemTypeSchema = z.object({
   description: z.string().optional(),
 });
 
-// Get all item types - PUBLIC (no auth required for station apps)
+// Get all item types - PUBLIC but with minimal data (no auth required for station apps)
+// Only returns essential fields to avoid exposing sensitive information
 itemTypesRouter.get('/', async (req, res) => {
   try {
     const allItemTypes = await db.query.itemTypes.findMany({
       orderBy: (itemTypes, { asc }) => [asc(itemTypes.sortOrder), asc(itemTypes.name)],
+      columns: {
+        id: true,
+        name: true,
+        description: true,
+        sortOrder: true,
+      },
     });
     res.json(allItemTypes);
   } catch (error) {

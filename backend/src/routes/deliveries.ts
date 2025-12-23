@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { db } from '../db';
+import { db, withTransaction } from '../db';
 import { deliveries, deliveryItems, deliveryPackages, items, tenants, users } from '../db/schema';
 import { eq, and, inArray, desc } from 'drizzle-orm';
 import { requireAuth, AuthRequest, requireRole } from '../middleware/auth';
@@ -73,55 +73,59 @@ deliveriesRouter.post('/', requireRole('operator', 'laundry_manager', 'system_ad
       }
     }
 
-    // Generate unique barcode - 9 digit sequential number starting from 1
-    const lastDelivery = await db.query.deliveries.findFirst({
-      orderBy: desc(deliveries.createdAt),
-      columns: { barcode: true }
+    // Use transaction for atomic delivery creation
+    const newDeliveryId = await withTransaction(async (tx) => {
+      // Generate unique barcode - 9 digit sequential number starting from 1
+      const lastDelivery = await tx.query.deliveries.findFirst({
+        orderBy: desc(deliveries.createdAt),
+        columns: { barcode: true }
+      });
+
+      let nextNumber = 1;
+      if (lastDelivery?.barcode) {
+        const num = parseInt(lastDelivery.barcode, 10);
+        if (!isNaN(num)) {
+          nextNumber = num + 1;
+        }
+      }
+      const barcode = nextNumber.toString().padStart(9, '0');
+
+      // Create delivery
+      const [newDelivery] = await tx.insert(deliveries).values({
+        tenantId,
+        barcode,
+        packageCount,
+        notes,
+      }).returning();
+
+      // Associate items with delivery (skip if no items - manual delivery)
+      if (itemIds.length > 0) {
+        await tx.insert(deliveryItems).values(
+          itemIds.map((itemId: string) => ({
+            deliveryId: newDelivery.id,
+            itemId,
+          }))
+        );
+      }
+
+      // Create delivery packages
+      const packageInserts = [];
+      for (let i = 1; i <= packageCount; i++) {
+        const packageBarcode = `${barcode}-PKG${i}`;
+        packageInserts.push({
+          deliveryId: newDelivery.id,
+          packageBarcode,
+          sequenceNumber: i,
+        });
+      }
+      await tx.insert(deliveryPackages).values(packageInserts);
+
+      return newDelivery.id;
     });
 
-    let nextNumber = 1;
-    if (lastDelivery?.barcode) {
-      // Try to parse the barcode as a number
-      const num = parseInt(lastDelivery.barcode, 10);
-      if (!isNaN(num)) {
-        nextNumber = num + 1;
-      }
-    }
-    const barcode = nextNumber.toString().padStart(9, '0');
-
-    // Create delivery
-    const [newDelivery] = await db.insert(deliveries).values({
-      tenantId,
-      barcode,
-      packageCount,
-      notes,
-    }).returning();
-
-    // Associate items with delivery (skip if no items - manual delivery)
-    if (itemIds.length > 0) {
-      await db.insert(deliveryItems).values(
-        itemIds.map((itemId: string) => ({
-          deliveryId: newDelivery.id,
-          itemId,
-        }))
-      );
-    }
-
-    // Create delivery packages
-    const packageInserts = [];
-    for (let i = 1; i <= packageCount; i++) {
-      const packageBarcode = `${barcode}-PKG${i}`;
-      packageInserts.push({
-        deliveryId: newDelivery.id,
-        packageBarcode,
-        sequenceNumber: i,
-      });
-    }
-    await db.insert(deliveryPackages).values(packageInserts);
-
-    // Get delivery with relations
+    // Get delivery with relations (outside transaction for read)
     const deliveryWithRelations = await db.query.deliveries.findFirst({
-      where: eq(deliveries.id, newDelivery.id),
+      where: eq(deliveries.id, newDeliveryId),
       with: {
         tenant: true,
         deliveryItems: {
@@ -603,40 +607,45 @@ deliveriesRouter.post('/:id/deliver', requireRole('driver', 'laundry_manager', '
       console.warn('⚠️ Hotel location not configured, skipping proximity check');
     }
 
-    const [updatedDelivery] = await db.update(deliveries)
-      .set({
-        status: 'delivered',
-        driverId: req.user!.id,
-        deliveredAt: new Date(),
-        deliveryLatitude: latitude ? String(latitude) : null,
-        deliveryLongitude: longitude ? String(longitude) : null,
-        deliveryAddress: address || null,
-        updatedAt: new Date(),
-      })
-      .where(eq(deliveries.id, id))
-      .returning();
+    // Use transaction for atomic delivery completion
+    const { updatedDelivery, deliveryItemsList } = await withTransaction(async (tx) => {
+      const [updated] = await tx.update(deliveries)
+        .set({
+          status: 'delivered',
+          driverId: req.user!.id,
+          deliveredAt: new Date(),
+          deliveryLatitude: latitude ? String(latitude) : null,
+          deliveryLongitude: longitude ? String(longitude) : null,
+          deliveryAddress: address || null,
+          updatedAt: new Date(),
+        })
+        .where(eq(deliveries.id, id))
+        .returning();
 
-    // Update items status and increment wash count
-    const deliveryItemsList = await db.query.deliveryItems.findMany({
-      where: eq(deliveryItems.deliveryId, id),
-    });
-
-    for (const deliveryItem of deliveryItemsList) {
-      const item = await db.query.items.findFirst({
-        where: eq(items.id, deliveryItem.itemId),
+      // Update items status and increment wash count
+      const itemsList = await tx.query.deliveryItems.findMany({
+        where: eq(deliveryItems.deliveryId, id),
       });
 
-      if (item) {
-        await db.update(items)
-          .set({
-            status: 'at_hotel',
-            washCount: item.washCount + 1,
-            lastWashDate: new Date(),
-            updatedAt: new Date(),
-          })
-          .where(eq(items.id, deliveryItem.itemId));
+      for (const deliveryItem of itemsList) {
+        const item = await tx.query.items.findFirst({
+          where: eq(items.id, deliveryItem.itemId),
+        });
+
+        if (item) {
+          await tx.update(items)
+            .set({
+              status: 'at_hotel',
+              washCount: item.washCount + 1,
+              lastWashDate: new Date(),
+              updatedAt: new Date(),
+            })
+            .where(eq(items.id, deliveryItem.itemId));
+        }
       }
-    }
+
+      return { updatedDelivery: updated, deliveryItemsList: itemsList };
+    });
 
     // Send email notification to hotel owner
     try {
@@ -895,26 +904,29 @@ deliveriesRouter.post('/:id/cancel', requireRole('packager', 'laundry_manager', 
       return res.status(400).json({ error: 'Cannot cancel delivered delivery' });
     }
 
-    // Get items and reset their status
-    const deliveryItemsList = await db.query.deliveryItems.findMany({
-      where: eq(deliveryItems.deliveryId, id),
+    // Use transaction for atomic cancellation
+    await withTransaction(async (tx) => {
+      // Get items and reset their status
+      const deliveryItemsList = await tx.query.deliveryItems.findMany({
+        where: eq(deliveryItems.deliveryId, id),
+      });
+
+      if (deliveryItemsList.length > 0) {
+        const itemIds = deliveryItemsList.map(di => di.itemId);
+        await tx.update(items)
+          .set({ status: 'ready_for_delivery', updatedAt: new Date() })
+          .where(inArray(items.id, itemIds));
+      }
+
+      // Delete delivery items
+      await tx.delete(deliveryItems).where(eq(deliveryItems.deliveryId, id));
+
+      // Delete delivery packages
+      await tx.delete(deliveryPackages).where(eq(deliveryPackages.deliveryId, id));
+
+      // Delete delivery
+      await tx.delete(deliveries).where(eq(deliveries.id, id));
     });
-
-    if (deliveryItemsList.length > 0) {
-      const itemIds = deliveryItemsList.map(di => di.itemId);
-      await db.update(items)
-        .set({ status: 'ready_for_delivery', updatedAt: new Date() })
-        .where(inArray(items.id, itemIds));
-    }
-
-    // Delete delivery items
-    await db.delete(deliveryItems).where(eq(deliveryItems.deliveryId, id));
-
-    // Delete delivery packages
-    await db.delete(deliveryPackages).where(eq(deliveryPackages.deliveryId, id));
-
-    // Delete delivery
-    await db.delete(deliveries).where(eq(deliveries.id, id));
 
     res.json({ message: 'Delivery cancelled' });
   } catch (error) {

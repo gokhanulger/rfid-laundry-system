@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import session from 'express-session';
 import dotenv from 'dotenv';
+import logger from './utils/logger';
 import { authRouter } from './routes/auth';
 import { itemsRouter } from './routes/items';
 import { pickupsRouter } from './routes/pickups';
@@ -25,23 +26,54 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Rate limiting store (simple in-memory implementation)
-const rateLimitStore = new Map<string, { count: number; resetTime: number }>();
+// Key format: "ip:endpoint" for per-endpoint limiting
+const rateLimitStore = new Map<string, { count: number; resetTime: number; blocked: boolean }>();
 
-function rateLimit(maxRequests: number, windowMs: number) {
+// Extract real client IP from X-Forwarded-For header (for proxied environments)
+function getClientIp(req: Request): string {
+  const forwardedFor = req.headers['x-forwarded-for'];
+  if (forwardedFor) {
+    // X-Forwarded-For can be a comma-separated list, first one is the client
+    const ips = (Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor).split(',');
+    return ips[0].trim();
+  }
+  return req.ip || req.socket.remoteAddress || 'unknown';
+}
+
+function rateLimit(maxRequests: number, windowMs: number, keyPrefix: string = 'global') {
   return (req: Request, res: Response, next: NextFunction) => {
-    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    const ip = getClientIp(req);
+    const key = `${ip}:${keyPrefix}`;
     const now = Date.now();
-    const record = rateLimitStore.get(ip);
+    const record = rateLimitStore.get(key);
+
+    // Add rate limit headers
+    res.setHeader('X-RateLimit-Limit', maxRequests);
 
     if (!record || now > record.resetTime) {
-      rateLimitStore.set(ip, { count: 1, resetTime: now + windowMs });
+      rateLimitStore.set(key, { count: 1, resetTime: now + windowMs, blocked: false });
+      res.setHeader('X-RateLimit-Remaining', maxRequests - 1);
+      res.setHeader('X-RateLimit-Reset', Math.ceil((now + windowMs) / 1000));
       return next();
     }
 
+    const remaining = Math.max(0, maxRequests - record.count);
+    res.setHeader('X-RateLimit-Remaining', remaining);
+    res.setHeader('X-RateLimit-Reset', Math.ceil(record.resetTime / 1000));
+
     if (record.count >= maxRequests) {
+      const retryAfter = Math.ceil((record.resetTime - now) / 1000);
+      res.setHeader('Retry-After', retryAfter);
+
+      // Log rate limit violations for monitoring
+      if (!record.blocked) {
+        console.warn(`Rate limit exceeded for ${ip} on ${keyPrefix}`);
+        record.blocked = true;
+      }
+
       return res.status(429).json({
         error: 'Too many requests',
-        retryAfter: Math.ceil((record.resetTime - now) / 1000)
+        retryAfter
       });
     }
 
@@ -74,14 +106,20 @@ function requestLogger(req: Request, res: Response, next: NextFunction) {
   const start = Date.now();
   res.on('finish', () => {
     const duration = Date.now() - start;
-    console.log(`${req.method} ${req.path} ${res.statusCode} ${duration}ms`);
+    logger.request(req.method, req.path, res.statusCode, duration, {
+      ip: getClientIp(req),
+    });
   });
   next();
 }
 
 // Error handling middleware
 function errorHandler(err: Error, req: Request, res: Response, next: NextFunction) {
-  console.error('Unhandled error:', err);
+  logger.error('Unhandled error', err, {
+    method: req.method,
+    path: req.path,
+    ip: getClientIp(req),
+  });
   res.status(500).json({
     error: 'Internal server error',
     message: process.env.NODE_ENV === 'development' ? err.message : undefined
@@ -125,8 +163,20 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Session configuration
 const sessionSecret = process.env.SESSION_SECRET;
-if (!sessionSecret || sessionSecret === 'change-me-in-production') {
-  console.warn('WARNING: Using default session secret. Set SESSION_SECRET environment variable for production!');
+const isProduction = process.env.NODE_ENV === 'production';
+
+if (!sessionSecret) {
+  if (isProduction) {
+    console.error('FATAL: SESSION_SECRET environment variable is required in production!');
+    process.exit(1);
+  }
+  console.warn('WARNING: SESSION_SECRET not set. Using insecure default for development only.');
+} else if (sessionSecret === 'change-me-in-production' || sessionSecret.length < 32) {
+  if (isProduction) {
+    console.error('FATAL: SESSION_SECRET is too weak for production! Use at least 32 random characters.');
+    process.exit(1);
+  }
+  console.warn('WARNING: SESSION_SECRET is too weak. Use at least 32 random characters in production.');
 }
 
 app.set('trust proxy', 1); // Trust first proxy (Railway/Vercel)
@@ -145,12 +195,15 @@ app.use(session({
   } as any, // TypeScript doesn't know about partitioned yet
 }));
 
-// Apply stricter rate limiting to auth endpoints
-app.use('/api/auth/login', rateLimit(30, 60000)); // 30 requests per minute
-app.use('/api/auth/register', rateLimit(10, 60000)); // 10 requests per minute
+// Apply stricter rate limiting to auth endpoints (brute force protection)
+app.use('/api/auth/login', rateLimit(10, 60000, 'login')); // 10 login attempts per minute
+app.use('/api/auth/register', rateLimit(5, 60000, 'register')); // 5 registrations per minute
+
+// Password reset endpoints need extra protection
+app.use('/api/users/:id/reset-password', rateLimit(3, 60000, 'password-reset')); // 3 resets per minute
 
 // Apply general rate limiting to all API endpoints
-app.use('/api', rateLimit(200, 60000)); // 200 requests per minute
+app.use('/api', rateLimit(200, 60000, 'api')); // 200 requests per minute
 
 // Routes
 app.use('/api/auth', authRouter);
