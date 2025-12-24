@@ -771,6 +771,8 @@ ipcMain.handle('print-label', async (event, { html, printerName, copies }) => {
 
 // Handle irsaliye printing (205mm x 217.5mm - special paper size)
 ipcMain.handle('print-irsaliye', async (event, { html, printerName, copies }) => {
+  console.log('[Print] Irsaliye print request:', { printerName, copies, htmlLength: html?.length || 0 });
+
   return new Promise((resolve) => {
     // Create a hidden window for printing
     const printWindow = new BrowserWindow({
@@ -788,6 +790,7 @@ ipcMain.handle('print-irsaliye', async (event, { html, printerName, copies }) =>
     printWindow.loadURL(`data:text/html;base64,${base64Html}`);
 
     printWindow.webContents.on('did-finish-load', () => {
+      console.log('[Print] Irsaliye content loaded, sending to printer:', printerName);
       // Wait a bit for content to fully render
       setTimeout(() => {
         printWindow.webContents.print(
@@ -801,6 +804,7 @@ ipcMain.handle('print-irsaliye', async (event, { html, printerName, copies }) =>
           },
           (success, failureReason) => {
             printWindow.close();
+            console.log('[Print] Irsaliye print result:', { success, failureReason });
             if (success) {
               resolve({ success: true });
             } else {

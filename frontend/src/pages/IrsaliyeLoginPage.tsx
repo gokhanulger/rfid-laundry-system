@@ -1,19 +1,19 @@
 import { useState, useEffect } from 'react';
-import { Package, Lock } from 'lucide-react';
-import { PackagingPage } from './PackagingPage';
+import { FileText, Lock } from 'lucide-react';
+import { IrsaliyePage } from './IrsaliyePage';
 import api, { setStoredToken } from '../lib/api';
 
-// Storage key for packager authentication
-const PACKAGER_AUTH_KEY = 'laundry_packager_auth';
-const PACKAGER_PIN = '5678'; // Default PIN for packager
+// Storage key for irsaliye authentication
+const IRSALIYE_AUTH_KEY = 'laundry_irsaliye_auth';
+const IRSALIYE_PIN = '1234'; // Default PIN for irsaliye
 
-// Backend credentials for packager station
-const PACKAGER_CREDENTIALS = {
-  email: 'packager@laundry.com',
-  password: 'password123',
+// Backend credentials for irsaliye station (uses admin for full access)
+const IRSALIYE_CREDENTIALS = {
+  email: 'admin@laundry.com',
+  password: 'admin123',
 };
 
-export function PackagerLoginPage() {
+export function IrsaliyeLoginPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
@@ -22,17 +22,17 @@ export function PackagerLoginPage() {
   // Check if already authenticated on mount and re-authenticate with backend
   useEffect(() => {
     const initAuth = async () => {
-      const savedAuth = localStorage.getItem(PACKAGER_AUTH_KEY);
+      const savedAuth = localStorage.getItem(IRSALIYE_AUTH_KEY);
       if (savedAuth === 'true') {
         // Re-authenticate with backend to get fresh token
         try {
-          const response = await api.post('/auth/login', PACKAGER_CREDENTIALS);
+          const response = await api.post('/auth/login', IRSALIYE_CREDENTIALS);
           if (response.data?.token) {
             setStoredToken(response.data.token);
-            console.log('[PackagerLogin] Backend re-auth successful');
+            console.log('[IrsaliyeLogin] Backend re-auth successful');
           }
         } catch (err) {
-          console.error('[PackagerLogin] Backend re-auth failed:', err);
+          console.error('[IrsaliyeLogin] Backend re-auth failed:', err);
         }
         setIsAuthenticated(true);
       }
@@ -40,13 +40,6 @@ export function PackagerLoginPage() {
     };
     initAuth();
   }, []);
-
-  // Handle logout
-  const handleLogout = () => {
-    localStorage.removeItem(PACKAGER_AUTH_KEY);
-    setIsAuthenticated(false);
-    setPin('');
-  };
 
   const handlePinInput = async (digit: string) => {
     if (pin.length < 4) {
@@ -57,18 +50,19 @@ export function PackagerLoginPage() {
       // Auto-submit when 4 digits entered
       if (newPin.length === 4) {
         setTimeout(async () => {
-          if (newPin === PACKAGER_PIN) {
+          if (newPin === IRSALIYE_PIN) {
             // Authenticate with backend for API access
             try {
-              const response = await api.post('/auth/login', PACKAGER_CREDENTIALS);
+              const response = await api.post('/auth/login', IRSALIYE_CREDENTIALS);
               if (response.data?.token) {
                 setStoredToken(response.data.token);
-                console.log('[PackagerLogin] Backend auth successful');
+                console.log('[IrsaliyeLogin] Backend auth successful');
               }
             } catch (err) {
-              console.error('[PackagerLogin] Backend auth failed:', err);
+              console.error('[IrsaliyeLogin] Backend auth failed:', err);
+              // Continue anyway - some features may work
             }
-            localStorage.setItem(PACKAGER_AUTH_KEY, 'true');
+            localStorage.setItem(IRSALIYE_AUTH_KEY, 'true');
             setIsAuthenticated(true);
           } else {
             setError('Yanlis sifre');
@@ -93,29 +87,14 @@ export function PackagerLoginPage() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-600"></div>
       </div>
     );
   }
 
-  // If authenticated, show the packaging interface with logout header
+  // If authenticated, show the irsaliye interface
   if (isAuthenticated) {
-    return (
-      <div className="h-screen flex flex-col">
-        <div className="bg-gray-900 text-white px-4 py-2 flex items-center justify-between">
-          <span className="text-sm">Paketçi İstasyonu</span>
-          <button
-            onClick={handleLogout}
-            className="text-xs bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded"
-          >
-            Çıkış
-          </button>
-        </div>
-        <div className="flex-1 overflow-auto">
-          <PackagingPage />
-        </div>
-      </div>
-    );
+    return <IrsaliyePage />;
   }
 
   // Show PIN entry screen
@@ -124,12 +103,13 @@ export function PackagerLoginPage() {
       <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-sm">
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-indigo-100 rounded-full mb-4">
-            <Package className="w-8 h-8 text-indigo-600" />
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-teal-100 rounded-full mb-4">
+            <FileText className="w-8 h-8 text-teal-600" />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">RFID Çamaşırhane</h1>
+          <h1 className="text-2xl font-bold text-gray-900">RFID Camasirhane</h1>
           <p className="text-sm text-gray-500">by Karbeyaz & Demet Laundry</p>
-          <p className="text-gray-500 mt-3">Şifre girin</p>
+          <p className="text-gray-500 mt-3">Irsaliye Istasyonu</p>
+          <p className="text-gray-400 text-sm">Sifre girin</p>
         </div>
 
         {/* PIN Display */}
@@ -139,12 +119,12 @@ export function PackagerLoginPage() {
               key={index}
               className={`w-14 h-14 rounded-xl border-2 flex items-center justify-center text-2xl font-bold transition-all ${
                 pin.length > index
-                  ? 'border-indigo-500 bg-indigo-50 text-indigo-600'
+                  ? 'border-teal-500 bg-teal-50 text-teal-600'
                   : 'border-gray-200 bg-gray-50'
               }`}
             >
               {pin.length > index ? (
-                <div className="w-3 h-3 rounded-full bg-indigo-600" />
+                <div className="w-3 h-3 rounded-full bg-teal-600" />
               ) : null}
             </div>
           ))}
