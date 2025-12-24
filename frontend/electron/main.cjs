@@ -3,6 +3,10 @@ const path = require('path');
 const net = require('net');
 const os = require('os');
 
+// Database and Sync Service
+const db = require('./database.cjs');
+const syncService = require('./sync-service.cjs');
+
 // Development or production mode
 const isDev = !app.isPackaged;
 
@@ -975,11 +979,154 @@ ipcMain.handle('uhf-auto-connect', async () => {
 // End UHF RFID Reader IPC Handlers
 // ==========================================
 
-app.whenReady().then(() => {
+// ==========================================
+// SQLite Database IPC Handlers
+// ==========================================
+
+// Initialize database and sync
+ipcMain.handle('db-init', async (event, { token }) => {
+  try {
+    await db.initDatabase();
+    if (token) {
+      syncService.setAuthToken(token);
+    }
+    syncService.setMainWindow(mainWindow);
+    const stats = db.getDatabaseStats();
+    console.log('[Main] Database initialized:', stats);
+    return { success: true, stats };
+  } catch (error) {
+    console.error('[Main] Database init error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Set auth token for sync
+ipcMain.handle('db-set-token', async (event, { token }) => {
+  syncService.setAuthToken(token);
+  return { success: true };
+});
+
+// Full sync from API to SQLite
+ipcMain.handle('db-full-sync', async () => {
+  try {
+    const result = await syncService.fullSync();
+    return result;
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Delta sync (only changes)
+ipcMain.handle('db-delta-sync', async () => {
+  try {
+    const result = await syncService.deltaSync();
+    return result;
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Get item by RFID (fast local lookup)
+ipcMain.handle('db-get-item-by-rfid', async (event, { rfidTag }) => {
+  try {
+    const item = db.getItemByRfid(rfidTag);
+    return { success: true, item };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Get database stats
+ipcMain.handle('db-get-stats', async () => {
+  try {
+    const stats = db.getDatabaseStats();
+    const sampleRfids = db.getSampleRfids(5);
+    console.log('[Main] DB Stats:', stats, 'Sample RFIDs:', sampleRfids);
+    return { success: true, stats, sampleRfids };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Get all tenants from local cache
+ipcMain.handle('db-get-tenants', async () => {
+  try {
+    const tenants = db.getAllTenants();
+    return { success: true, tenants };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Get all item types from local cache
+ipcMain.handle('db-get-item-types', async () => {
+  try {
+    const itemTypes = db.getAllItemTypes();
+    return { success: true, itemTypes };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Mark items as clean (with offline queue support)
+ipcMain.handle('db-mark-items-clean', async (event, { itemIds }) => {
+  try {
+    const result = await syncService.markItemsClean(itemIds);
+    return result;
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Get pending operations count
+ipcMain.handle('db-get-pending-count', async () => {
+  try {
+    const count = db.getPendingOperationsCount();
+    return { success: true, count };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Process pending operations
+ipcMain.handle('db-process-pending', async () => {
+  try {
+    const result = await syncService.processPendingOperations();
+    return { success: true, ...result };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Check online status
+ipcMain.handle('db-is-online', async () => {
+  return { online: syncService.isOnline() };
+});
+
+// ==========================================
+// End SQLite Database IPC Handlers
+// ==========================================
+
+app.whenReady().then(async () => {
+  // Initialize database before creating window
+  try {
+    await db.initDatabase();
+    console.log('[Main] Database pre-initialized');
+  } catch (error) {
+    console.error('[Main] Database pre-init error:', error);
+  }
+
   createWindow();
+
+  // Set main window for sync service
+  syncService.setMainWindow(mainWindow);
 });
 
 app.on('window-all-closed', () => {
+  // Close database on quit
+  db.closeDatabase();
+  syncService.stopAutoSync();
+
   if (process.platform !== 'darwin') {
     app.quit();
   }

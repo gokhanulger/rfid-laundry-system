@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { db } from '../db';
 import { items, itemTypes, tenants } from '../db/schema';
-import { eq, and, inArray, desc, sql, like } from 'drizzle-orm';
+import { eq, and, inArray, desc, sql, like, gt, gte } from 'drizzle-orm';
 import { requireAuth, AuthRequest, requireRole } from '../middleware/auth';
 import { z } from 'zod';
 
@@ -40,12 +40,14 @@ const scanSchema = z.object({
 });
 
 // Get all items with pagination and filtering
+// Supports delta sync with updatedSince parameter
 itemsRouter.get('/', async (req: AuthRequest, res) => {
   try {
-    const { status, tenantId, search, itemTypeId } = req.query;
+    const { status, tenantId, search, itemTypeId, updatedSince } = req.query;
     const user = req.user!;
     const page = parseInt(req.query.page as string) || 1;
-    const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
+    // Allow up to 1000 items per page for sync efficiency
+    const limit = Math.min(parseInt(req.query.limit as string) || 20, 1000);
     const offset = (page - 1) * limit;
 
     // Build where conditions
@@ -71,6 +73,14 @@ itemsRouter.get('/', async (req: AuthRequest, res) => {
     // Search by RFID tag
     if (search && typeof search === 'string') {
       conditions.push(like(items.rfidTag, `%${search}%`));
+    }
+
+    // Delta sync: only items updated after a certain time
+    if (updatedSince && typeof updatedSince === 'string') {
+      const sinceDate = new Date(updatedSince);
+      if (!isNaN(sinceDate.getTime())) {
+        conditions.push(gte(items.updatedAt, sinceDate));
+      }
     }
 
     const allItems = await db.query.items.findMany({
