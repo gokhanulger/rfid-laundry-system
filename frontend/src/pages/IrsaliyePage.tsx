@@ -44,14 +44,61 @@ let roosterAudio: HTMLAudioElement | null = null;
 function playSuccessSound() {
   try {
     if (!roosterAudio) {
-      roosterAudio = new Audio('/rooster.mp3');
-      roosterAudio.volume = 0.5;
+      // Electron ve browser için farklı path'ler dene
+      const basePath = import.meta.env.BASE_URL || '/';
+      roosterAudio = new Audio(`${basePath}rooster.mp3`);
+      roosterAudio.volume = 0.7;
+
+      // Hata durumunda alternatif path dene
+      roosterAudio.onerror = () => {
+        console.log('[Audio] Trying alternative path...');
+        roosterAudio = new Audio('./rooster.mp3');
+        roosterAudio.volume = 0.7;
+        roosterAudio.play().catch(() => {
+          // Son çare: Web Audio API ile basit ses
+          playFallbackSuccessSound();
+        });
+      };
     }
     roosterAudio.currentTime = 0;
-    roosterAudio.play();
+    roosterAudio.play().catch(() => {
+      playFallbackSuccessSound();
+    });
     console.log('[Audio] Horoz sesi calindi (MP3)');
   } catch (e) {
     console.warn('[Audio] Could not play success sound:', e);
+    playFallbackSuccessSound();
+  }
+}
+
+// Fallback success sound (Web Audio API)
+function playFallbackSuccessSound() {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const now = ctx.currentTime;
+
+    // Horoz benzeri ses
+    const notes = [
+      { freq: 600, start: 0, duration: 0.1 },
+      { freq: 800, start: 0.12, duration: 0.1 },
+      { freq: 1000, start: 0.24, duration: 0.15 },
+      { freq: 1200, start: 0.4, duration: 0.3 },
+    ];
+
+    notes.forEach((note) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(note.freq, now + note.start);
+      gain.gain.setValueAtTime(0.3, now + note.start);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + note.start + note.duration);
+      osc.start(now + note.start);
+      osc.stop(now + note.start + note.duration);
+    });
+  } catch (e) {
+    console.warn('[Audio] Fallback sound failed:', e);
   }
 }
 
@@ -701,7 +748,7 @@ export function IrsaliyePage() {
             display: flex;
             width: 297mm;
             height: 210mm;
-            padding-top: 3mm;
+            padding-top: 48mm;            /* 9-10 satır yukarı = ~45-50mm */
             padding-left: 6mm;
             padding-right: 2mm;
           }
@@ -709,6 +756,7 @@ export function IrsaliyePage() {
             width: 50%;
             height: 100%;
             padding: 3mm;
+            padding-right: 20mm;          /* 5-6 karakter sola = ~15-20mm daha sağdan boşluk */
             position: relative;
           }
 
@@ -716,27 +764,28 @@ export function IrsaliyePage() {
           .header-row {
             display: flex;
             justify-content: space-between;
-            padding-top: 2mm;
-            margin-bottom: 5mm;
+            padding-top: 0mm;
+            margin-bottom: 3mm;
           }
           .hotel-info {
             flex: 1;
             padding-right: 5mm;
           }
           .hotel-name {
-            font-size: 14pt;              /* 10pt + 4pt */
+            font-size: 14pt;
             font-weight: bold;
             margin-bottom: 1mm;
           }
           .hotel-address {
-            font-size: 12pt;              /* 8pt + 4pt */
+            font-size: 12pt;
             line-height: 1.4;
             white-space: pre-line;
           }
           .doc-info {
             text-align: right;
-            font-size: 13pt;              /* 9pt + 4pt */
+            font-size: 13pt;
             min-width: 30mm;
+            padding-right: 5mm;           /* Sola kaydır */
           }
           .doc-info div {
             margin-bottom: 1mm;
@@ -744,12 +793,12 @@ export function IrsaliyePage() {
 
           /* Ürün listesi */
           .products {
-            margin-top: 2mm;
+            margin-top: 32mm;             /* 6-7 satır yukarı = ~30-35mm */
           }
           .product-row {
             display: flex;
             justify-content: space-between;
-            font-size: 13pt;              /* 9pt + 4pt */
+            font-size: 13pt;
             line-height: 1.5;
             padding: 0.5mm 0;
           }
@@ -759,7 +808,7 @@ export function IrsaliyePage() {
           .product-qty {
             text-align: right;
             min-width: 15mm;
-            padding-right: 15mm;          /* Sola kaydır - yırtma çizgisinden uzak */
+            padding-right: 5mm;           /* Sola kaydır */
           }
 
           /* Alt kısım: Paket sayısı */
@@ -767,8 +816,8 @@ export function IrsaliyePage() {
             position: absolute;
             bottom: 45mm;
             left: 3mm;
-            right: 3mm;
-            font-size: 18pt;              /* 14pt + 4pt */
+            right: 20mm;                  /* Sola kaydır */
+            font-size: 18pt;
             font-weight: bold;
           }
           .footer-row {
@@ -780,7 +829,7 @@ export function IrsaliyePage() {
             /* Matbu kağıtta yazıyor ama biz de yazalım */
           }
           .footer-value {
-            padding-right: 15mm;          /* Sola kaydır - yırtma çizgisinden uzak */
+            padding-right: 5mm;           /* Sola kaydır */
           }
         </style>
       </head>

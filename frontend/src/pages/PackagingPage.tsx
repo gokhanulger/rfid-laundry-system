@@ -14,14 +14,59 @@ let roosterAudio: HTMLAudioElement | null = null;
 function playSuccessSound() {
   try {
     if (!roosterAudio) {
-      roosterAudio = new Audio('/rooster.mp3');
-      roosterAudio.volume = 0.5;
+      // Electron ve browser için farklı path'ler dene
+      const basePath = import.meta.env.BASE_URL || '/';
+      roosterAudio = new Audio(`${basePath}rooster.mp3`);
+      roosterAudio.volume = 0.7;
+
+      // Hata durumunda alternatif path dene
+      roosterAudio.onerror = () => {
+        console.log('[Audio] Trying alternative path...');
+        roosterAudio = new Audio('./rooster.mp3');
+        roosterAudio.volume = 0.7;
+        roosterAudio.play().catch(() => {
+          playFallbackSuccessSound();
+        });
+      };
     }
     roosterAudio.currentTime = 0;
-    roosterAudio.play();
+    roosterAudio.play().catch(() => {
+      playFallbackSuccessSound();
+    });
     console.log('[Audio] Horoz sesi calindi (MP3)');
   } catch (e) {
     console.warn('[Audio] Could not play success sound:', e);
+    playFallbackSuccessSound();
+  }
+}
+
+// Fallback success sound (Web Audio API)
+function playFallbackSuccessSound() {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const now = ctx.currentTime;
+
+    const notes = [
+      { freq: 600, start: 0, duration: 0.1 },
+      { freq: 800, start: 0.12, duration: 0.1 },
+      { freq: 1000, start: 0.24, duration: 0.15 },
+      { freq: 1200, start: 0.4, duration: 0.3 },
+    ];
+
+    notes.forEach((note) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(note.freq, now + note.start);
+      gain.gain.setValueAtTime(0.3, now + note.start);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + note.start + note.duration);
+      osc.start(now + note.start);
+      osc.stop(now + note.start + note.duration);
+    });
+  } catch (e) {
+    console.warn('[Audio] Fallback sound failed:', e);
   }
 }
 
