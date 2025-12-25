@@ -160,6 +160,58 @@ tenantsRouter.patch('/:id', requireAuth, requireRole('system_admin', 'laundry_ma
   }
 });
 
+// Bulk update ETA database name - requires auth
+const bulkUpdateDbSchema = z.object({
+  oldValue: z.string().optional(), // If provided, only update tenants with this value
+  newValue: z.string().min(1, 'New database name is required'),
+});
+
+tenantsRouter.post('/bulk-update-database', requireAuth, requireRole('system_admin', 'laundry_manager'), async (req: AuthRequest, res) => {
+  try {
+    const validation = bulkUpdateDbSchema.safeParse(req.body);
+    if (!validation.success) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: validation.error.errors,
+      });
+    }
+
+    const { oldValue, newValue } = validation.data;
+
+    let updatedCount = 0;
+
+    if (oldValue) {
+      // Update only tenants with specific old value
+      const result = await db.update(tenants)
+        .set({
+          etaDatabaseName: newValue,
+          updatedAt: new Date(),
+        })
+        .where(eq(tenants.etaDatabaseName, oldValue))
+        .returning();
+      updatedCount = result.length;
+    } else {
+      // Update all tenants (set database for all)
+      const result = await db.update(tenants)
+        .set({
+          etaDatabaseName: newValue,
+          updatedAt: new Date(),
+        })
+        .returning();
+      updatedCount = result.length;
+    }
+
+    res.json({
+      success: true,
+      message: `${updatedCount} otel guncellendi`,
+      updatedCount
+    });
+  } catch (error) {
+    console.error('Bulk update database error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Delete tenant with cascade - requires auth
 tenantsRouter.delete('/:id', requireAuth, requireRole('system_admin'), async (req: AuthRequest, res) => {
   try {

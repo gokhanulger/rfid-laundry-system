@@ -41,6 +41,8 @@ export function HotelManagementPage() {
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState<{ total: number; current: number; results: { name: string; success: boolean; error?: string }[] }>({ total: 0, current: 0, results: [] });
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showBulkDbModal, setShowBulkDbModal] = useState(false);
+  const [bulkDbForm, setBulkDbForm] = useState({ oldValue: '', newValue: '' });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -90,6 +92,18 @@ export function HotelManagementPage() {
       queryClient.invalidateQueries({ queryKey: ['tenants'] });
     },
     onError: (err) => toast.error('Durum guncellenemedi', getErrorMessage(err)),
+  });
+
+  const bulkUpdateDbMutation = useMutation({
+    mutationFn: (data: { oldValue?: string; newValue: string }) =>
+      api.post('/tenants/bulk-update-database', data),
+    onSuccess: (res) => {
+      toast.success(res.data.message || 'Toplu guncelleme basarili!');
+      queryClient.invalidateQueries({ queryKey: ['tenants'] });
+      setShowBulkDbModal(false);
+      setBulkDbForm({ oldValue: '', newValue: '' });
+    },
+    onError: (err) => toast.error('Toplu guncelleme basarisiz', getErrorMessage(err)),
   });
 
   const openCreateModal = () => {
@@ -445,6 +459,13 @@ export function HotelManagementPage() {
           >
             <Printer className="w-4 h-4" />
             Tum QR Kodlari Yazdir
+          </button>
+          <button
+            onClick={() => setShowBulkDbModal(true)}
+            className="flex items-center gap-2 px-4 py-2 text-indigo-600 hover:bg-indigo-50 rounded-lg border border-indigo-200"
+          >
+            <RefreshCw className="w-4 h-4" />
+            ETA DB Toplu
           </button>
           <button
             onClick={openCreateModal}
@@ -922,6 +943,90 @@ export function HotelManagementPage() {
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Database Update Modal */}
+      {showBulkDbModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+            <div className="p-6 border-b flex items-center justify-between">
+              <h2 className="text-xl font-bold">ETA Veritabani Toplu Guncelle</h2>
+              <button onClick={() => setShowBulkDbModal(false)} className="text-gray-500 hover:text-gray-700">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!bulkDbForm.newValue.trim()) {
+                  toast.error('Yeni veritabani adi gerekli');
+                  return;
+                }
+                bulkUpdateDbMutation.mutate({
+                  oldValue: bulkDbForm.oldValue.trim() || undefined,
+                  newValue: bulkDbForm.newValue.trim(),
+                });
+              }}
+              className="p-6 space-y-4"
+            >
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <p className="text-sm text-blue-800">
+                  Bu islem tum otellerin ETA veritabani adini toplu olarak degistirir.
+                  Ornegin yil sonunda DEMET_2025'i DEMET_2026 yapabilirsiniz.
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Eski Veritabani Adi (opsiyonel)
+                </label>
+                <input
+                  type="text"
+                  value={bulkDbForm.oldValue}
+                  onChange={(e) => setBulkDbForm({ ...bulkDbForm, oldValue: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
+                  placeholder="orn: DEMET_2025 (bos birakilirsa tum oteller)"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Sadece bu degere sahip oteller guncellenir. Bos birakilirsa tum oteller guncellenir.
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Yeni Veritabani Adi *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={bulkDbForm.newValue}
+                  onChange={(e) => setBulkDbForm({ ...bulkDbForm, newValue: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
+                  placeholder="orn: DEMET_2026"
+                />
+              </div>
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowBulkDbModal(false)}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                >
+                  Iptal
+                </button>
+                <button
+                  type="submit"
+                  disabled={bulkUpdateDbMutation.isPending}
+                  className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {bulkUpdateDbMutation.isPending ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Check className="w-4 h-4" />
+                  )}
+                  Toplu Guncelle
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
