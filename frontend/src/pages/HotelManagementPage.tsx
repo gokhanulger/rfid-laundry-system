@@ -213,6 +213,7 @@ export function HotelManagementPage() {
           address: getColumnValue(row, 'Adres', 'address', 'Address', 'Konum'),
           latitude: getColumnValue(row, 'Enlem', 'latitude', 'Lat'),
           longitude: getColumnValue(row, 'Boylam', 'longitude', 'Lng', 'Long'),
+          etaDatabaseName: getColumnValue(row, 'ETA DB', 'ETA Veritabani', 'etaDatabaseName', 'Database'),
         };
 
         if (!hotelData.name) {
