@@ -748,23 +748,25 @@ export function IrsaliyePage() {
             display: flex;
             width: 297mm;
             height: 210mm;
-            padding-top: 48mm;            /* 9-10 satır yukarı = ~45-50mm */
+            padding-top: 0mm;
             padding-left: 6mm;
             padding-right: 2mm;
           }
           .irsaliye {
             width: 50%;
             height: 100%;
-            padding: 3mm;
-            padding-right: 20mm;          /* 5-6 karakter sola = ~15-20mm daha sağdan boşluk */
+            padding: 0mm;
+            padding-left: 3mm;
+            padding-right: 20mm;          /* 5-6 karakter sola */
             position: relative;
+            overflow: visible;
           }
 
           /* Header: Otel bilgisi (sol) + Belge no/Tarih (sağ) */
           .header-row {
             display: flex;
             justify-content: space-between;
-            padding-top: 0mm;
+            margin-top: -48mm;            /* 9-10 satır YUKARI çık */
             margin-bottom: 3mm;
           }
           .hotel-info {
@@ -793,7 +795,7 @@ export function IrsaliyePage() {
 
           /* Ürün listesi */
           .products {
-            margin-top: 32mm;             /* 6-7 satır yukarı = ~30-35mm */
+            margin-top: -32mm;            /* 6-7 satır YUKARI çık */
           }
           .product-row {
             display: flex;
