@@ -988,22 +988,17 @@ export function HotelManagementPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Yil
                 </label>
-                <div className="flex gap-2">
-                  {[2024, 2025, 2026].map((year) => (
-                    <button
-                      key={year}
-                      type="button"
-                      onClick={() => setBulkDbYear(String(year))}
-                      className={`flex-1 px-4 py-3 rounded-lg border-2 font-bold transition-all ${
-                        bulkDbYear === String(year)
-                          ? 'border-blue-500 bg-blue-50 text-blue-700'
-                          : 'border-gray-200 hover:border-gray-300'
-                      }`}
-                    >
+                <select
+                  value={bulkDbYear}
+                  onChange={(e) => setBulkDbYear(e.target.value)}
+                  className="w-full px-4 py-3 rounded-lg border-2 border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 text-lg font-bold"
+                >
+                  {Array.from({ length: 11 }, (_, i) => 2020 + i).map((year) => (
+                    <option key={year} value={String(year)}>
                       {year}
-                    </button>
+                    </option>
                   ))}
-                </div>
+                </select>
               </div>
 
               {/* Tip Seçimi */}
