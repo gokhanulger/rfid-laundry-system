@@ -53,10 +53,11 @@ const updateTenantSchema = z.object({
 
 // Helper to map DB tenant to API response (etaDatabaseName -> etaDatabaseType)
 function mapTenantToResponse(tenant: any) {
-  const { etaDatabaseName, ...rest } = tenant;
+  const { etaDatabaseName, etaDatabaseYear, ...rest } = tenant;
   return {
     ...rest,
     etaDatabaseType: etaDatabaseName === 'unofficial' ? 'unofficial' : 'official',
+    etaDatabaseYear: etaDatabaseYear || String(new Date().getFullYear()),
   };
 }
 
@@ -173,9 +174,10 @@ tenantsRouter.patch('/:id', requireAuth, requireRole('system_admin', 'laundry_ma
   }
 });
 
-// Bulk update ETA database type - requires auth
+// Bulk update ETA database type and year - requires auth
 const bulkUpdateDbSchema = z.object({
   newType: z.enum(['official', 'unofficial']),
+  newYear: z.string().regex(/^\d{4}$/, 'Year must be 4 digits').optional(),
 });
 
 tenantsRouter.post('/bulk-update-database', requireAuth, requireRole('system_admin', 'laundry_manager'), async (req: AuthRequest, res) => {
@@ -188,20 +190,23 @@ tenantsRouter.post('/bulk-update-database', requireAuth, requireRole('system_adm
       });
     }
 
-    const { newType } = validation.data;
+    const { newType, newYear } = validation.data;
+    const yearToSet = newYear || String(new Date().getFullYear());
 
     // Update all tenants
     const result = await db.update(tenants)
       .set({
         etaDatabaseName: newType,
+        etaDatabaseYear: yearToSet,
         updatedAt: new Date(),
       })
       .returning();
 
     const typeLabel = newType === 'official' ? 'Resmi (DEMET)' : 'Gayri Resmi (TEKLIF)';
+    const dbName = `${newType === 'official' ? 'DEMET' : 'TEKLIF'}_${yearToSet}`;
     res.json({
       success: true,
-      message: `${result.length} otel ${typeLabel} olarak guncellendi`,
+      message: `${result.length} otel ${dbName} olarak guncellendi`,
       updatedCount: result.length
     });
   } catch (error) {

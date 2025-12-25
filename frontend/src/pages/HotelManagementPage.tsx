@@ -43,6 +43,7 @@ export function HotelManagementPage() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [showBulkDbModal, setShowBulkDbModal] = useState(false);
   const [bulkDbType, setBulkDbType] = useState<'official' | 'unofficial'>('official');
+  const [bulkDbYear, setBulkDbYear] = useState(String(new Date().getFullYear()));
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -95,8 +96,8 @@ export function HotelManagementPage() {
   });
 
   const bulkUpdateDbMutation = useMutation({
-    mutationFn: (newType: 'official' | 'unofficial') =>
-      api.post('/tenants/bulk-update-database', { newType }),
+    mutationFn: ({ newType, newYear }: { newType: 'official' | 'unofficial'; newYear: string }) =>
+      api.post('/tenants/bulk-update-database', { newType, newYear }),
     onSuccess: (res) => {
       toast.success(res.data.message || 'Toplu guncelleme basarili!');
       queryClient.invalidateQueries({ queryKey: ['tenants'] });
@@ -978,12 +979,37 @@ export function HotelManagementPage() {
             <div className="p-6 space-y-4">
               <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
                 <p className="text-sm text-yellow-800">
-                  Bu islem TUM otellerin ETA veritabani tipini degistirir!
+                  Bu islem TUM otellerin ETA veritabani ayarlarini degistirir!
                 </p>
               </div>
+
+              {/* Yıl Seçimi */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Yeni Veritabani Tipi
+                  Yil
+                </label>
+                <div className="flex gap-2">
+                  {[2024, 2025, 2026].map((year) => (
+                    <button
+                      key={year}
+                      type="button"
+                      onClick={() => setBulkDbYear(String(year))}
+                      className={`flex-1 px-4 py-3 rounded-lg border-2 font-bold transition-all ${
+                        bulkDbYear === String(year)
+                          ? 'border-blue-500 bg-blue-50 text-blue-700'
+                          : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      {year}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tip Seçimi */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Veritabani Tipi
                 </label>
                 <div className="flex gap-3">
                   <button
@@ -996,7 +1022,7 @@ export function HotelManagementPage() {
                     }`}
                   >
                     <div className="text-lg font-bold">Resmi</div>
-                    <div className="text-sm text-gray-500">DEMET_{new Date().getFullYear()}</div>
+                    <div className="text-sm text-gray-500">DEMET_{bulkDbYear}</div>
                   </button>
                   <button
                     type="button"
@@ -1008,10 +1034,19 @@ export function HotelManagementPage() {
                     }`}
                   >
                     <div className="text-lg font-bold">Gayri Resmi</div>
-                    <div className="text-sm text-gray-500">TEKLIF_{new Date().getFullYear()}</div>
+                    <div className="text-sm text-gray-500">TEKLIF_{bulkDbYear}</div>
                   </button>
                 </div>
               </div>
+
+              {/* Sonuç Önizleme */}
+              <div className={`p-4 rounded-lg text-center ${bulkDbType === 'official' ? 'bg-green-100' : 'bg-red-100'}`}>
+                <p className="text-sm text-gray-600">Secilen veritabani:</p>
+                <p className={`text-2xl font-bold ${bulkDbType === 'official' ? 'text-green-700' : 'text-red-700'}`}>
+                  {bulkDbType === 'official' ? 'DEMET' : 'TEKLIF'}_{bulkDbYear}
+                </p>
+              </div>
+
               <div className="flex gap-3 pt-4">
                 <button
                   type="button"
@@ -1022,7 +1057,7 @@ export function HotelManagementPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => bulkUpdateDbMutation.mutate(bulkDbType)}
+                  onClick={() => bulkUpdateDbMutation.mutate({ newType: bulkDbType, newYear: bulkDbYear })}
                   disabled={bulkUpdateDbMutation.isPending}
                   className={`flex-1 px-4 py-2 text-white rounded-lg disabled:opacity-50 flex items-center justify-center gap-2 ${
                     bulkDbType === 'official' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'

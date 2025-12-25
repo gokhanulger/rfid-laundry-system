@@ -107,6 +107,7 @@ export const tenants = pgTable('tenants', {
   longitude: text('longitude'), // Hotel GPS longitude
   qrCode: text('qr_code').unique(), // Unique QR code for quick hotel identification
   etaDatabaseName: text('eta_database_name'), // 'official' or 'unofficial' - determines DEMET vs TEKLIF
+  etaDatabaseYear: text('eta_database_year'), // Year for ETA database (e.g., '2025')
   isActive: boolean('is_active').default(true).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

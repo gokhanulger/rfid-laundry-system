@@ -357,12 +357,12 @@ SyncService.prototype.syncIrsaliyeler = function() {
 
                   // Otel bazli veritabani secimi (official=DEMET, unofficial=TEKLIF)
                   var dbType = tenant.etaDatabaseType || 'official';
-                  var year = self.config.eta.year || new Date().getFullYear();
+                  var year = tenant.etaDatabaseYear || self.config.eta.year || new Date().getFullYear();
                   var dbPrefix = self.config.eta.databases && self.config.eta.databases[dbType]
                     ? self.config.eta.databases[dbType]
                     : (dbType === 'unofficial' ? 'TEKLIF' : 'DEMET');
                   var targetDatabase = dbPrefix + '_' + year;
-                  console.log('  Veritabani tipi: ' + dbType + ' -> ' + targetDatabase);
+                  console.log('  Otel: ' + tenant.name + ' -> ' + targetDatabase);
 
                   // Veritabani degistir (gerekirse)
                   return self.etaClient.switchDatabase(targetDatabase)
