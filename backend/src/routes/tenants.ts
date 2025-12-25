@@ -36,7 +36,7 @@ const createTenantSchema = z.object({
   email: z.string().email('Invalid email').optional().or(z.literal('')),
   phone: z.string().optional(),
   address: z.string().optional(),
-  etaDatabaseType: z.enum(['official', 'unofficial']).optional(), // official=DEMET, unofficial=TEKLIF
+  etaDatabaseType: z.enum(['official', 'unofficial']).optional(), // Maps to etaDatabaseName in DB
 });
 
 const updateTenantSchema = z.object({
@@ -48,8 +48,17 @@ const updateTenantSchema = z.object({
   longitude: z.string().optional(),
   isActive: z.boolean().optional(),
   qrCode: z.string().optional(),
-  etaDatabaseType: z.enum(['official', 'unofficial']).optional(), // official=DEMET, unofficial=TEKLIF
+  etaDatabaseType: z.enum(['official', 'unofficial']).optional(), // Maps to etaDatabaseName in DB
 });
+
+// Helper to map DB tenant to API response (etaDatabaseName -> etaDatabaseType)
+function mapTenantToResponse(tenant: any) {
+  const { etaDatabaseName, ...rest } = tenant;
+  return {
+    ...rest,
+    etaDatabaseType: etaDatabaseName === 'unofficial' ? 'unofficial' : 'official',
+  };
+}
 
 // Get all tenants - returns full data for admin use
 tenantsRouter.get('/', async (req, res) => {
@@ -57,7 +66,7 @@ tenantsRouter.get('/', async (req, res) => {
     const allTenants = await db.query.tenants.findMany({
       orderBy: (tenants, { asc }) => [asc(tenants.name)],
     });
-    res.json(allTenants);
+    res.json(allTenants.map(mapTenantToResponse));
   } catch (error) {
     console.error('Get tenants error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -76,7 +85,7 @@ tenantsRouter.get('/:id', requireAuth, async (req: AuthRequest, res) => {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    res.json(tenant);
+    res.json(mapTenantToResponse(tenant));
   } catch (error) {
     console.error('Get tenant error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -114,10 +123,10 @@ tenantsRouter.post('/', requireAuth, requireRole('system_admin', 'laundry_manage
       phone,
       address,
       qrCode,
-      etaDatabaseType: etaDatabaseType || 'official',
+      etaDatabaseName: etaDatabaseType || 'official',
     }).returning();
 
-    res.status(201).json(newTenant);
+    res.status(201).json(mapTenantToResponse(newTenant));
   } catch (error) {
     console.error('Create tenant error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -145,15 +154,19 @@ tenantsRouter.patch('/:id', requireAuth, requireRole('system_admin', 'laundry_ma
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
+    // Map etaDatabaseType to etaDatabaseName for DB
+    const { etaDatabaseType, ...restData } = validation.data;
+    const updateData: any = { ...restData, updatedAt: new Date() };
+    if (etaDatabaseType !== undefined) {
+      updateData.etaDatabaseName = etaDatabaseType;
+    }
+
     const [updatedTenant] = await db.update(tenants)
-      .set({
-        ...validation.data,
-        updatedAt: new Date(),
-      })
+      .set(updateData)
       .where(eq(tenants.id, id))
       .returning();
 
-    res.json(updatedTenant);
+    res.json(mapTenantToResponse(updatedTenant));
   } catch (error) {
     console.error('Update tenant error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -180,7 +193,7 @@ tenantsRouter.post('/bulk-update-database', requireAuth, requireRole('system_adm
     // Update all tenants
     const result = await db.update(tenants)
       .set({
-        etaDatabaseType: newType,
+        etaDatabaseName: newType,
         updatedAt: new Date(),
       })
       .returning();
