@@ -192,8 +192,8 @@ tenantsRouter.patch('/:id', requireAuth, requireRole('system_admin', 'laundry_ma
 
 // Bulk update ETA database type and year - requires auth
 const bulkUpdateDbSchema = z.object({
-  newType: z.enum(['official', 'unofficial']),
-  newYear: z.string().regex(/^\d{4}$/, 'Year must be 4 digits').optional(),
+  newType: z.enum(['official', 'unofficial']).nullable().optional(), // null = sadece yıl güncelle
+  newYear: z.string().regex(/^\d{4}$/, 'Year must be 4 digits'),
 });
 
 tenantsRouter.post('/bulk-update-database', requireAuth, requireRole('system_admin', 'laundry_manager'), async (req: AuthRequest, res) => {
@@ -207,24 +207,55 @@ tenantsRouter.post('/bulk-update-database', requireAuth, requireRole('system_adm
     }
 
     const { newType, newYear } = validation.data;
-    const yearToSet = newYear || String(new Date().getFullYear());
-    // Store as combined format: "official_2025"
-    const etaDatabaseNameValue = `${newType}_${yearToSet}`;
 
-    // Update all tenants
-    const result = await db.update(tenants)
-      .set({
-        etaDatabaseName: etaDatabaseNameValue,
-        updatedAt: new Date(),
-      })
-      .returning();
+    if (newType) {
+      // Tip + Yıl güncelleme: Tüm otelleri aynı tipe ata
+      const etaDatabaseNameValue = `${newType}_${newYear}`;
+      const result = await db.update(tenants)
+        .set({
+          etaDatabaseName: etaDatabaseNameValue,
+          updatedAt: new Date(),
+        })
+        .returning();
 
-    const dbName = `${newType === 'official' ? 'DEMET' : 'TEKLIF'}_${yearToSet}`;
-    res.json({
-      success: true,
-      message: `${result.length} otel ${dbName} olarak guncellendi`,
-      updatedCount: result.length
-    });
+      const dbName = `${newType === 'official' ? 'DEMET' : 'TEKLIF'}_${newYear}`;
+      res.json({
+        success: true,
+        message: `${result.length} otel ${dbName} olarak guncellendi`,
+        updatedCount: result.length
+      });
+    } else {
+      // Sadece Yıl güncelleme: Mevcut tipleri koru, sadece yılı değiştir
+      const allTenants = await db.query.tenants.findMany();
+      let updatedCount = 0;
+
+      for (const tenant of allTenants) {
+        // Mevcut tipi al (legacy format veya yeni format)
+        let currentType = 'official';
+        if (tenant.etaDatabaseName) {
+          if (tenant.etaDatabaseName.includes('_')) {
+            currentType = tenant.etaDatabaseName.split('_')[0];
+          } else {
+            currentType = tenant.etaDatabaseName;
+          }
+        }
+        // Yeni format ile kaydet
+        const newDbName = `${currentType}_${newYear}`;
+        await db.update(tenants)
+          .set({
+            etaDatabaseName: newDbName,
+            updatedAt: new Date(),
+          })
+          .where(eq(tenants.id, tenant.id));
+        updatedCount++;
+      }
+
+      res.json({
+        success: true,
+        message: `${updatedCount} otelin yili ${newYear} olarak guncellendi (tipler korundu)`,
+        updatedCount
+      });
+    }
   } catch (error) {
     console.error('Bulk update database error:', error);
     res.status(500).json({ error: 'Internal server error' });

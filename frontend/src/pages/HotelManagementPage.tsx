@@ -42,8 +42,9 @@ export function HotelManagementPage() {
   const [importProgress, setImportProgress] = useState<{ total: number; current: number; results: { name: string; success: boolean; error?: string }[] }>({ total: 0, current: 0, results: [] });
   const [showImportModal, setShowImportModal] = useState(false);
   const [showBulkDbModal, setShowBulkDbModal] = useState(false);
-  const [bulkDbType, setBulkDbType] = useState<'official' | 'unofficial'>('official');
+  const [bulkDbType, setBulkDbType] = useState<'official' | 'unofficial' | null>(null);
   const [bulkDbYear, setBulkDbYear] = useState(String(new Date().getFullYear()));
+  const [bulkYearOnly, setBulkYearOnly] = useState(true); // Sadece yıl güncelle modu
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -96,7 +97,7 @@ export function HotelManagementPage() {
   });
 
   const bulkUpdateDbMutation = useMutation({
-    mutationFn: ({ newType, newYear }: { newType: 'official' | 'unofficial'; newYear: string }) =>
+    mutationFn: ({ newType, newYear }: { newType?: 'official' | 'unofficial' | null; newYear: string }) =>
       api.post('/tenants/bulk-update-database', { newType, newYear }),
     onSuccess: (res) => {
       toast.success(res.data.message || 'Toplu guncelleme basarili!');
@@ -977,11 +978,39 @@ export function HotelManagementPage() {
               </button>
             </div>
             <div className="p-6 space-y-4">
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                <p className="text-sm text-yellow-800">
-                  Bu islem TUM otellerin ETA veritabani ayarlarini degistirir!
-                </p>
+              {/* Mod Seçimi */}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setBulkYearOnly(true); setBulkDbType(null); }}
+                  className={`flex-1 px-4 py-3 rounded-lg border-2 font-medium transition-all ${
+                    bulkYearOnly
+                      ? 'border-blue-500 bg-blue-50 text-blue-700'
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  Sadece Yil Guncelle
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setBulkYearOnly(false); setBulkDbType('official'); }}
+                  className={`flex-1 px-4 py-3 rounded-lg border-2 font-medium transition-all ${
+                    !bulkYearOnly
+                      ? 'border-blue-500 bg-blue-50 text-blue-700'
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  Tip + Yil Guncelle
+                </button>
               </div>
+
+              {bulkYearOnly && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <p className="text-sm text-blue-800">
+                    Mevcut Resmi/Gayriresmi ayarlari korunacak, sadece yil degisecek.
+                  </p>
+                </div>
+              )}
 
               {/* Yıl Seçimi */}
               <div>
@@ -1001,45 +1030,59 @@ export function HotelManagementPage() {
                 </select>
               </div>
 
-              {/* Tip Seçimi */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Veritabani Tipi
-                </label>
-                <div className="flex gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setBulkDbType('official')}
-                    className={`flex-1 px-4 py-4 rounded-lg border-2 transition-all ${
-                      bulkDbType === 'official'
-                        ? 'border-green-500 bg-green-50 text-green-700'
-                        : 'border-gray-200 hover:border-gray-300'
-                    }`}
-                  >
-                    <div className="text-lg font-bold">Resmi</div>
-                    <div className="text-sm text-gray-500">DEMET_{bulkDbYear}</div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setBulkDbType('unofficial')}
-                    className={`flex-1 px-4 py-4 rounded-lg border-2 transition-all ${
-                      bulkDbType === 'unofficial'
-                        ? 'border-red-500 bg-red-50 text-red-700'
-                        : 'border-gray-200 hover:border-gray-300'
-                    }`}
-                  >
-                    <div className="text-lg font-bold">Gayri Resmi</div>
-                    <div className="text-sm text-gray-500">TEKLIF_{bulkDbYear}</div>
-                  </button>
+              {/* Tip Seçimi - sadece tip+yıl modunda */}
+              {!bulkYearOnly && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Veritabani Tipi
+                  </label>
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setBulkDbType('official')}
+                      className={`flex-1 px-4 py-4 rounded-lg border-2 transition-all ${
+                        bulkDbType === 'official'
+                          ? 'border-green-500 bg-green-50 text-green-700'
+                          : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="text-lg font-bold">Resmi</div>
+                      <div className="text-sm text-gray-500">DEMET_{bulkDbYear}</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBulkDbType('unofficial')}
+                      className={`flex-1 px-4 py-4 rounded-lg border-2 transition-all ${
+                        bulkDbType === 'unofficial'
+                          ? 'border-red-500 bg-red-50 text-red-700'
+                          : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="text-lg font-bold">Gayri Resmi</div>
+                      <div className="text-sm text-gray-500">TEKLIF_{bulkDbYear}</div>
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Sonuç Önizleme */}
-              <div className={`p-4 rounded-lg text-center ${bulkDbType === 'official' ? 'bg-green-100' : 'bg-red-100'}`}>
-                <p className="text-sm text-gray-600">Secilen veritabani:</p>
-                <p className={`text-2xl font-bold ${bulkDbType === 'official' ? 'text-green-700' : 'text-red-700'}`}>
-                  {bulkDbType === 'official' ? 'DEMET' : 'TEKLIF'}_{bulkDbYear}
-                </p>
+              <div className={`p-4 rounded-lg text-center ${
+                bulkYearOnly ? 'bg-blue-100' : (bulkDbType === 'official' ? 'bg-green-100' : 'bg-red-100')
+              }`}>
+                {bulkYearOnly ? (
+                  <>
+                    <p className="text-sm text-gray-600">Tum otellerin yili degisecek:</p>
+                    <p className="text-2xl font-bold text-blue-700">{bulkDbYear}</p>
+                    <p className="text-sm text-gray-500 mt-1">Resmi → DEMET_{bulkDbYear} | Gayriresmi → TEKLIF_{bulkDbYear}</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm text-gray-600">Tum oteller su veritabanina atanacak:</p>
+                    <p className={`text-2xl font-bold ${bulkDbType === 'official' ? 'text-green-700' : 'text-red-700'}`}>
+                      {bulkDbType === 'official' ? 'DEMET' : 'TEKLIF'}_{bulkDbYear}
+                    </p>
+                  </>
+                )}
               </div>
 
               <div className="flex gap-3 pt-4">
@@ -1052,10 +1095,13 @@ export function HotelManagementPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => bulkUpdateDbMutation.mutate({ newType: bulkDbType, newYear: bulkDbYear })}
+                  onClick={() => bulkUpdateDbMutation.mutate({
+                    newType: bulkYearOnly ? null : bulkDbType,
+                    newYear: bulkDbYear
+                  })}
                   disabled={bulkUpdateDbMutation.isPending}
                   className={`flex-1 px-4 py-2 text-white rounded-lg disabled:opacity-50 flex items-center justify-center gap-2 ${
-                    bulkDbType === 'official' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'
+                    bulkYearOnly ? 'bg-blue-600 hover:bg-blue-700' : (bulkDbType === 'official' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700')
                   }`}
                 >
                   {bulkUpdateDbMutation.isPending ? (
@@ -1063,7 +1109,7 @@ export function HotelManagementPage() {
                   ) : (
                     <Check className="w-4 h-4" />
                   )}
-                  Tumu Guncelle
+                  {bulkYearOnly ? 'Yillari Guncelle' : 'Tumu Guncelle'}
                 </button>
               </div>
             </div>
