@@ -355,12 +355,11 @@ SyncService.prototype.syncIrsaliyeler = function() {
                     satirlar: satirlar
                   };
 
-                  // Otel bazli veritabani secimi (official=DEMET, unofficial=TEKLIF)
+                  // Otel bazli veritabani secimi
+                  // API'den etaDatabaseType ve etaDatabaseYear geliyor
                   var dbType = tenant.etaDatabaseType || 'official';
                   var year = tenant.etaDatabaseYear || self.config.eta.year || new Date().getFullYear();
-                  var dbPrefix = self.config.eta.databases && self.config.eta.databases[dbType]
-                    ? self.config.eta.databases[dbType]
-                    : (dbType === 'unofficial' ? 'TEKLIF' : 'DEMET');
+                  var dbPrefix = dbType === 'unofficial' ? 'TEKLIF' : 'DEMET';
                   var targetDatabase = dbPrefix + '_' + year;
                   console.log('  Otel: ' + tenant.name + ' -> ' + targetDatabase);
 

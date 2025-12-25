@@ -51,13 +51,29 @@ const updateTenantSchema = z.object({
   etaDatabaseType: z.enum(['official', 'unofficial']).optional(), // Maps to etaDatabaseName in DB
 });
 
-// Helper to map DB tenant to API response (etaDatabaseName -> etaDatabaseType)
+// Helper to map DB tenant to API response (etaDatabaseName -> etaDatabaseType + etaDatabaseYear)
+// etaDatabaseName format: "official_2025" or "unofficial_2024" or legacy "official"/"unofficial"
 function mapTenantToResponse(tenant: any) {
-  const { etaDatabaseName, etaDatabaseYear, ...rest } = tenant;
+  const { etaDatabaseName, ...rest } = tenant;
+  let dbType = 'official';
+  let dbYear = String(new Date().getFullYear());
+
+  if (etaDatabaseName) {
+    if (etaDatabaseName.includes('_')) {
+      // New format: "official_2025"
+      const parts = etaDatabaseName.split('_');
+      dbType = parts[0] === 'unofficial' ? 'unofficial' : 'official';
+      dbYear = parts[1] || dbYear;
+    } else {
+      // Legacy format: "official" or "unofficial"
+      dbType = etaDatabaseName === 'unofficial' ? 'unofficial' : 'official';
+    }
+  }
+
   return {
     ...rest,
-    etaDatabaseType: etaDatabaseName === 'unofficial' ? 'unofficial' : 'official',
-    etaDatabaseYear: etaDatabaseYear || String(new Date().getFullYear()),
+    etaDatabaseType: dbType,
+    etaDatabaseYear: dbYear,
   };
 }
 
@@ -192,17 +208,17 @@ tenantsRouter.post('/bulk-update-database', requireAuth, requireRole('system_adm
 
     const { newType, newYear } = validation.data;
     const yearToSet = newYear || String(new Date().getFullYear());
+    // Store as combined format: "official_2025"
+    const etaDatabaseNameValue = `${newType}_${yearToSet}`;
 
     // Update all tenants
     const result = await db.update(tenants)
       .set({
-        etaDatabaseName: newType,
-        etaDatabaseYear: yearToSet,
+        etaDatabaseName: etaDatabaseNameValue,
         updatedAt: new Date(),
       })
       .returning();
 
-    const typeLabel = newType === 'official' ? 'Resmi (DEMET)' : 'Gayri Resmi (TEKLIF)';
     const dbName = `${newType === 'official' ? 'DEMET' : 'TEKLIF'}_${yearToSet}`;
     res.json({
       success: true,
