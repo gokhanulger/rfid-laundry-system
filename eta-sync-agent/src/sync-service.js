@@ -210,6 +210,7 @@ SyncService.prototype.syncAll = function() {
 
 /**
  * RFID teslimatlarini ETA'ya irsaliye olarak gonderir
+ * Waybill (irsaliye) basilmis olanlari alir
  */
 SyncService.prototype.syncIrsaliyeler = function() {
   var self = this;
@@ -221,9 +222,9 @@ SyncService.prototype.syncIrsaliyeler = function() {
   // RFID'ye giris yap
   return this.rfidClient.login()
     .then(function() {
-      // Irsaliyesi yazdirilmis ama ETA'ya gonderilmemis deliveryleri al
-      console.log('RFID\'den irsaliyesi yazdirilmis teslimatlar cekiliyor...');
-      return self.rfidClient.getDeliveredDeliveries();
+      // Waybill (irsaliye) basilmis ama ETA'ya gonderilmemis deliveryleri al
+      console.log('RFID\'den irsaliyesi basilmis teslimatlar cekiliyor...');
+      return self.rfidClient.getPrintedWaybills();
     })
     .then(function(deliveries) {
       console.log(deliveries.length + ' teslimat bulundu (ETA\'ya gonderilecek)\n');
@@ -248,8 +249,11 @@ SyncService.prototype.syncIrsaliyeler = function() {
 
                   // Tenant bilgisini al
                   var tenant = details.tenant || {};
-                  var cariKod = tenant.qrCode || '';
+                  console.log('  DEBUG - Tenant tum alanlar:', JSON.stringify(tenant, null, 2));
+                  // ETA cari kodu icin oncelik: etaCariKod > etaCode > cariKod > code > qrCode
+                  var cariKod = tenant.etaCariKod || tenant.etaCode || tenant.cariKod || tenant.code || tenant.qrCode || '';
                   var cariUnvan = tenant.name || '';
+                  console.log('  DEBUG - Secilen cariKod: ' + cariKod + ', cariUnvan: ' + cariUnvan);
 
                   var satirlar = [];
 
@@ -339,31 +343,43 @@ SyncService.prototype.syncIrsaliyeler = function() {
                   }
 
                   // ETA'ya irsaliye olustur
+                  // waybillNumber varsa evrak no olarak kullan (A-407912105 gibi)
+                  var evrakNo = delivery.waybillNumber || delivery.barcode;
                   var irsaliye = {
                     cariKod: cariKod,
                     cariUnvan: cariUnvan,
-                    tarih: delivery.deliveredAt ? new Date(delivery.deliveredAt) : new Date(),
-                    aciklama: 'RFID: ' + delivery.barcode,
+                    tarih: delivery.pickedUpAt ? new Date(delivery.pickedUpAt) : new Date(),
+                    aciklama: 'RFID: ' + evrakNo,
+                    evrakNo: evrakNo,
+                    barcode: delivery.barcode,
                     satirlar: satirlar
                   };
 
-                  return self.etaClient.createIrsaliye(irsaliye)
+                  // Otel bazli veritabani secimi
+                  var targetDatabase = tenant.etaDatabaseName || self.config.eta.database;
+                  console.log('  Hedef veritabani: ' + targetDatabase);
+
+                  // Veritabani degistir (gerekirse)
+                  return self.etaClient.switchDatabase(targetDatabase)
+                    .then(function() {
+                      return self.etaClient.createIrsaliye(irsaliye);
+                    })
                     .then(function(result) {
                       if (result.success) {
                         sent++;
-                        console.log('  + ' + delivery.barcode + ' -> ETA RefNo: ' + result.refNo);
+                        console.log('  + Irsaliye ' + evrakNo + ' (Delivery: ' + delivery.barcode + ') -> ETA RefNo: ' + result.refNo);
 
                         // RFID'de isaretle
                         return self.rfidClient.markDeliveryAsEtaSynced(delivery.id, result.refNo);
                       } else {
                         errors++;
-                        console.log('  x ' + delivery.barcode + ': ' + result.error);
+                        console.log('  x Irsaliye ' + evrakNo + ': ' + result.error);
                       }
                     });
                 })
                 .catch(function(error) {
                   errors++;
-                  console.log('  x ' + delivery.barcode + ': ' + error.message);
+                  console.log('  x Irsaliye ' + (delivery.waybillNumber || delivery.barcode) + ': ' + error.message);
                 });
             });
           });

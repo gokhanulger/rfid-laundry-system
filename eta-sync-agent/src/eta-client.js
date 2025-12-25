@@ -37,10 +37,10 @@ function EtaClient(config) {
   // Use encryption settings from config, with secure defaults
   var configOptions = config.options || {};
 
-  this.config = {
+  this.baseConfig = {
     server: config.server,
     port: config.port,
-    database: config.database,
+    database: config.database, // Default database
     user: config.user,
     password: config.password,
     options: {
@@ -56,11 +56,38 @@ function EtaClient(config) {
     },
   };
 
+  this.config = Object.assign({}, this.baseConfig);
   this.pool = null;
+  this.currentDatabase = config.database;
 
   // Debug: config'i goster
   console.log('  ETA Config: server=' + config.server + ', user=' + config.user + ', db=' + config.database);
 }
+
+/**
+ * Veritabani degistir - otel bazli veritabani secimi icin
+ * @param {string} databaseName - Yeni veritabani adi (orn: Demet_2025, Gayri_2025)
+ */
+EtaClient.prototype.switchDatabase = function(databaseName) {
+  var self = this;
+
+  // Eger ayni veritabanindaysak degisiklik yapma
+  if (this.currentDatabase === databaseName) {
+    return Promise.resolve();
+  }
+
+  console.log('  DB degistiriliyor: ' + this.currentDatabase + ' -> ' + databaseName);
+
+  // Mevcut baglantıyı kapat
+  var closePromise = this.pool ? this.disconnect() : Promise.resolve();
+
+  return closePromise.then(function() {
+    // Yeni config olustur
+    self.config = Object.assign({}, self.baseConfig, { database: databaseName });
+    self.currentDatabase = databaseName;
+    return self.connect();
+  });
+};
 
 EtaClient.prototype.connect = function() {
   var self = this;

@@ -1,0 +1,1 @@
+ALTER TABLE "tenants" ADD COLUMN "eta_database_name" text;

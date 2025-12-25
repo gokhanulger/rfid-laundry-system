@@ -16,6 +16,7 @@ interface Tenant {
   latitude: string | null;
   longitude: string | null;
   qrCode: string | null;
+  etaDatabaseName: string | null;
   isActive: boolean;
   createdAt: string;
 }
@@ -27,9 +28,10 @@ interface TenantForm {
   address: string;
   latitude: string;
   longitude: string;
+  etaDatabaseName: string;
 }
 
-const emptyForm: TenantForm = { name: '', email: '', phone: '', address: '', latitude: '', longitude: '' };
+const emptyForm: TenantForm = { name: '', email: '', phone: '', address: '', latitude: '', longitude: '', etaDatabaseName: '' };
 
 export function HotelManagementPage() {
   const [showModal, setShowModal] = useState(false);
@@ -105,6 +107,7 @@ export function HotelManagementPage() {
       address: tenant.address || '',
       latitude: tenant.latitude || '',
       longitude: tenant.longitude || '',
+      etaDatabaseName: tenant.etaDatabaseName || '',
     });
     setShowModal(true);
   };
@@ -488,6 +491,7 @@ export function HotelManagementPage() {
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ad</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">E-posta</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Telefon</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ETA DB</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">QR Kod</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Durum</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Islemler</th>
@@ -497,8 +501,17 @@ export function HotelManagementPage() {
               {tenants.map((tenant) => (
                 <tr key={tenant.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 font-medium">{tenant.name}</td>
-                  <td className="px-4 py-3 text-gray-600">{tenant.email}</td>
+                  <td className="px-4 py-3 text-gray-600">{tenant.email || '-'}</td>
                   <td className="px-4 py-3 text-gray-600">{tenant.phone || '-'}</td>
+                  <td className="px-4 py-3">
+                    {tenant.etaDatabaseName ? (
+                      <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-mono">
+                        {tenant.etaDatabaseName}
+                      </span>
+                    ) : (
+                      <span className="text-gray-400 text-xs">Varsayilan</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3">
                     {tenant.qrCode ? (
                       <button
@@ -647,7 +660,22 @@ export function HotelManagementPage() {
               </div>
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                 <p className="text-xs text-blue-800">
-                  💡 Google Maps'ten konum almak için: Otelin konumuna sağ tıklayın → İlk satırdaki koordinatları kopyalayın
+                  Google Maps'ten konum almak icin: Otelin konumuna sag tiklayin - Ilk satirdaki koordinatlari kopyalayin
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  ETA Veritabani
+                </label>
+                <input
+                  type="text"
+                  value={form.etaDatabaseName}
+                  onChange={(e) => setForm({ ...form, etaDatabaseName: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500"
+                  placeholder="orn: Demet_2025 (bos birakilirsa varsayilan kullanilir)"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Bu otel icin irsaliyelerin atilacagi ETA veritabani adi
                 </p>
               </div>
               <div className="flex gap-3 pt-4">

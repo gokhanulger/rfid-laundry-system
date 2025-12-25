@@ -36,6 +36,7 @@ const createTenantSchema = z.object({
   email: z.string().email('Invalid email').optional().or(z.literal('')),
   phone: z.string().optional(),
   address: z.string().optional(),
+  etaDatabaseName: z.string().optional(), // ETA database name for waybill sync
 });
 
 const updateTenantSchema = z.object({
@@ -47,6 +48,7 @@ const updateTenantSchema = z.object({
   longitude: z.string().optional(),
   isActive: z.boolean().optional(),
   qrCode: z.string().optional(),
+  etaDatabaseName: z.string().optional(), // ETA database name for waybill sync
 });
 
 // Get all tenants - returns full data for admin use
@@ -92,7 +94,7 @@ tenantsRouter.post('/', requireAuth, requireRole('system_admin', 'laundry_manage
       });
     }
 
-    const { name, email, phone, address } = validation.data;
+    const { name, email, phone, address, etaDatabaseName } = validation.data;
 
     // Check for duplicate name
     const existing = await db.query.tenants.findFirst({
@@ -112,6 +114,7 @@ tenantsRouter.post('/', requireAuth, requireRole('system_admin', 'laundry_manage
       phone,
       address,
       qrCode,
+      etaDatabaseName: etaDatabaseName || null,
     }).returning();
 
     res.status(201).json(newTenant);
