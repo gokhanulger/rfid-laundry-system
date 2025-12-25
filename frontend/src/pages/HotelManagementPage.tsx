@@ -16,7 +16,7 @@ interface Tenant {
   latitude: string | null;
   longitude: string | null;
   qrCode: string | null;
-  etaDatabaseName: string | null;
+  etaDatabaseType: 'official' | 'unofficial' | null;
   isActive: boolean;
   createdAt: string;
 }
@@ -28,10 +28,10 @@ interface TenantForm {
   address: string;
   latitude: string;
   longitude: string;
-  etaDatabaseName: string;
+  etaDatabaseType: 'official' | 'unofficial';
 }
 
-const emptyForm: TenantForm = { name: '', email: '', phone: '', address: '', latitude: '', longitude: '', etaDatabaseName: '' };
+const emptyForm: TenantForm = { name: '', email: '', phone: '', address: '', latitude: '', longitude: '', etaDatabaseType: 'official' };
 
 export function HotelManagementPage() {
   const [showModal, setShowModal] = useState(false);
@@ -42,7 +42,7 @@ export function HotelManagementPage() {
   const [importProgress, setImportProgress] = useState<{ total: number; current: number; results: { name: string; success: boolean; error?: string }[] }>({ total: 0, current: 0, results: [] });
   const [showImportModal, setShowImportModal] = useState(false);
   const [showBulkDbModal, setShowBulkDbModal] = useState(false);
-  const [bulkDbForm, setBulkDbForm] = useState({ oldValue: '', newValue: '' });
+  const [bulkDbType, setBulkDbType] = useState<'official' | 'unofficial'>('official');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -95,13 +95,12 @@ export function HotelManagementPage() {
   });
 
   const bulkUpdateDbMutation = useMutation({
-    mutationFn: (data: { oldValue?: string; newValue: string }) =>
-      api.post('/tenants/bulk-update-database', data),
+    mutationFn: (newType: 'official' | 'unofficial') =>
+      api.post('/tenants/bulk-update-database', { newType }),
     onSuccess: (res) => {
       toast.success(res.data.message || 'Toplu guncelleme basarili!');
       queryClient.invalidateQueries({ queryKey: ['tenants'] });
       setShowBulkDbModal(false);
-      setBulkDbForm({ oldValue: '', newValue: '' });
     },
     onError: (err) => toast.error('Toplu guncelleme basarisiz', getErrorMessage(err)),
   });
@@ -121,7 +120,7 @@ export function HotelManagementPage() {
       address: tenant.address || '',
       latitude: tenant.latitude || '',
       longitude: tenant.longitude || '',
-      etaDatabaseName: tenant.etaDatabaseName || '',
+      etaDatabaseType: tenant.etaDatabaseType || 'official',
     });
     setShowModal(true);
   };
@@ -220,6 +219,7 @@ export function HotelManagementPage() {
 
       for (let i = 0; i < jsonData.length; i++) {
         const row = jsonData[i];
+        const etaTypeValue = getColumnValue(row, 'ETA Tipi', 'ETA DB', 'Tip', 'Type').toLowerCase();
         const hotelData: TenantForm = {
           name: getColumnValue(row, 'Otel Adi', 'Otel Adı', 'name', 'Name', 'Otel', 'Hotel', 'Ad', 'Isim', 'İsim'),
           email: getColumnValue(row, 'E-posta', 'E-Posta', 'email', 'Email', 'Mail', 'Eposta'),
@@ -227,7 +227,7 @@ export function HotelManagementPage() {
           address: getColumnValue(row, 'Adres', 'address', 'Address', 'Konum'),
           latitude: getColumnValue(row, 'Enlem', 'latitude', 'Lat'),
           longitude: getColumnValue(row, 'Boylam', 'longitude', 'Lng', 'Long'),
-          etaDatabaseName: getColumnValue(row, 'ETA DB', 'ETA Veritabani', 'etaDatabaseName', 'Database'),
+          etaDatabaseType: etaTypeValue.includes('gayri') || etaTypeValue.includes('unofficial') || etaTypeValue.includes('teklif') ? 'unofficial' : 'official',
         };
 
         if (!hotelData.name) {
@@ -526,12 +526,14 @@ export function HotelManagementPage() {
                   <td className="px-4 py-3 text-gray-600">{tenant.email || '-'}</td>
                   <td className="px-4 py-3 text-gray-600">{tenant.phone || '-'}</td>
                   <td className="px-4 py-3">
-                    {tenant.etaDatabaseName ? (
-                      <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-mono">
-                        {tenant.etaDatabaseName}
+                    {tenant.etaDatabaseType === 'unofficial' ? (
+                      <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-medium">
+                        Gayri Resmi
                       </span>
                     ) : (
-                      <span className="text-gray-400 text-xs">Varsayilan</span>
+                      <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium">
+                        Resmi
+                      </span>
                     )}
                   </td>
                   <td className="px-4 py-3">
@@ -686,19 +688,35 @@ export function HotelManagementPage() {
                 </p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  ETA Veritabani
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  ETA Veritabani Tipi
                 </label>
-                <input
-                  type="text"
-                  value={form.etaDatabaseName}
-                  onChange={(e) => setForm({ ...form, etaDatabaseName: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500"
-                  placeholder="orn: Demet_2025 (bos birakilirsa varsayilan kullanilir)"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Bu otel icin irsaliyelerin atilacagi ETA veritabani adi
-                </p>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, etaDatabaseType: 'official' })}
+                    className={`flex-1 px-4 py-3 rounded-lg border-2 transition-all ${
+                      form.etaDatabaseType === 'official'
+                        ? 'border-green-500 bg-green-50 text-green-700'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="font-medium">Resmi</div>
+                    <div className="text-xs text-gray-500">DEMET</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, etaDatabaseType: 'unofficial' })}
+                    className={`flex-1 px-4 py-3 rounded-lg border-2 transition-all ${
+                      form.etaDatabaseType === 'unofficial'
+                        ? 'border-red-500 bg-red-50 text-red-700'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="font-medium">Gayri Resmi</div>
+                    <div className="text-xs text-gray-500">TEKLIF</div>
+                  </button>
+                </div>
               </div>
               <div className="flex gap-3 pt-4">
                 <button
@@ -952,58 +970,47 @@ export function HotelManagementPage() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
             <div className="p-6 border-b flex items-center justify-between">
-              <h2 className="text-xl font-bold">ETA Veritabani Toplu Guncelle</h2>
+              <h2 className="text-xl font-bold">Tum Otelleri Guncelle</h2>
               <button onClick={() => setShowBulkDbModal(false)} className="text-gray-500 hover:text-gray-700">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (!bulkDbForm.newValue.trim()) {
-                  toast.error('Yeni veritabani adi gerekli');
-                  return;
-                }
-                bulkUpdateDbMutation.mutate({
-                  oldValue: bulkDbForm.oldValue.trim() || undefined,
-                  newValue: bulkDbForm.newValue.trim(),
-                });
-              }}
-              className="p-6 space-y-4"
-            >
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                <p className="text-sm text-blue-800">
-                  Bu islem tum otellerin ETA veritabani adini toplu olarak degistirir.
-                  Ornegin yil sonunda DEMET_2025'i DEMET_2026 yapabilirsiniz.
+            <div className="p-6 space-y-4">
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                <p className="text-sm text-yellow-800">
+                  Bu islem TUM otellerin ETA veritabani tipini degistirir!
                 </p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Eski Veritabani Adi (opsiyonel)
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Yeni Veritabani Tipi
                 </label>
-                <input
-                  type="text"
-                  value={bulkDbForm.oldValue}
-                  onChange={(e) => setBulkDbForm({ ...bulkDbForm, oldValue: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
-                  placeholder="orn: DEMET_2025 (bos birakilirsa tum oteller)"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Sadece bu degere sahip oteller guncellenir. Bos birakilirsa tum oteller guncellenir.
-                </p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Yeni Veritabani Adi *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={bulkDbForm.newValue}
-                  onChange={(e) => setBulkDbForm({ ...bulkDbForm, newValue: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
-                  placeholder="orn: DEMET_2026"
-                />
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setBulkDbType('official')}
+                    className={`flex-1 px-4 py-4 rounded-lg border-2 transition-all ${
+                      bulkDbType === 'official'
+                        ? 'border-green-500 bg-green-50 text-green-700'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="text-lg font-bold">Resmi</div>
+                    <div className="text-sm text-gray-500">DEMET_{new Date().getFullYear()}</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBulkDbType('unofficial')}
+                    className={`flex-1 px-4 py-4 rounded-lg border-2 transition-all ${
+                      bulkDbType === 'unofficial'
+                        ? 'border-red-500 bg-red-50 text-red-700'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="text-lg font-bold">Gayri Resmi</div>
+                    <div className="text-sm text-gray-500">TEKLIF_{new Date().getFullYear()}</div>
+                  </button>
+                </div>
               </div>
               <div className="flex gap-3 pt-4">
                 <button
@@ -1014,19 +1021,22 @@ export function HotelManagementPage() {
                   Iptal
                 </button>
                 <button
-                  type="submit"
+                  type="button"
+                  onClick={() => bulkUpdateDbMutation.mutate(bulkDbType)}
                   disabled={bulkUpdateDbMutation.isPending}
-                  className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                  className={`flex-1 px-4 py-2 text-white rounded-lg disabled:opacity-50 flex items-center justify-center gap-2 ${
+                    bulkDbType === 'official' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'
+                  }`}
                 >
                   {bulkUpdateDbMutation.isPending ? (
                     <RefreshCw className="w-4 h-4 animate-spin" />
                   ) : (
                     <Check className="w-4 h-4" />
                   )}
-                  Toplu Guncelle
+                  Tumu Guncelle
                 </button>
               </div>
-            </form>
+            </div>
           </div>
         </div>
       )}

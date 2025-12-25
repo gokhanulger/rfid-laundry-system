@@ -96,6 +96,9 @@ export const users = pgTable('users', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+// ETA Database Type enum
+export const etaDatabaseTypeEnum = pgEnum('eta_database_type', ['official', 'unofficial']);
+
 // Tenants (Hotels)
 export const tenants = pgTable('tenants', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -106,7 +109,7 @@ export const tenants = pgTable('tenants', {
   latitude: text('latitude'), // Hotel GPS latitude
   longitude: text('longitude'), // Hotel GPS longitude
   qrCode: text('qr_code').unique(), // Unique QR code for quick hotel identification
-  etaDatabaseName: text('eta_database_name'), // ETA database name for this hotel (e.g., Demet_2025, Gayri_2025)
+  etaDatabaseType: etaDatabaseTypeEnum('eta_database_type').default('official'), // official=DEMET, unofficial=TEKLIF
   isActive: boolean('is_active').default(true).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

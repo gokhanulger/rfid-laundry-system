@@ -108,13 +108,69 @@ RfidClient.prototype.findTenantByQrCode = function(qrCode) {
     // Hata olursa yukari firlatilsin, null donmesin
 };
 
+// İsmi normalize et - Türkçe karakterleri İngilizce'ye çevir, sadece harf ve rakam
+function normalizeName(name) {
+  if (!name) return '';
+  // Türkçe -> İngilizce dönüşüm
+  var tr = {'İ':'I', 'I':'I', 'Ğ':'G', 'Ü':'U', 'Ş':'S', 'Ö':'O', 'Ç':'C',
+            'ı':'I', 'i':'I', 'ğ':'G', 'ü':'U', 'ş':'S', 'ö':'O', 'ç':'C'};
+  var result = name.toUpperCase();
+  for (var k in tr) {
+    result = result.split(k).join(tr[k]);
+  }
+  // Sadece A-Z ve 0-9 kalsın
+  return result.replace(/[^A-Z0-9]/g, '');
+}
+
+RfidClient.prototype.findTenantByName = function(name) {
+  var searchNorm = normalizeName(name);
+
+  return this.getTenants()
+    .then(function(tenants) {
+      // 1. Tam eşleşme (normalize edilmiş)
+      for (var i = 0; i < tenants.length; i++) {
+        var tenantNorm = normalizeName(tenants[i].name);
+        if (tenantNorm === searchNorm) {
+          console.log('      Tam eslesme: "' + tenants[i].name + '" = "' + name + '"');
+          return tenants[i];
+        }
+      }
+
+      // 2. Kısmi eşleşme (biri diğerini içeriyorsa)
+      for (var i = 0; i < tenants.length; i++) {
+        var tenantNorm = normalizeName(tenants[i].name);
+        if (tenantNorm.length > 3 && searchNorm.length > 3) {
+          if (tenantNorm.indexOf(searchNorm) !== -1 || searchNorm.indexOf(tenantNorm) !== -1) {
+            console.log('      Kismi eslesme: "' + tenants[i].name + '" ~ "' + name + '"');
+            return tenants[i];
+          }
+        }
+      }
+
+      console.log('      Eslesme bulunamadi: "' + name + '"');
+      return null;
+    });
+};
+
 RfidClient.prototype.syncTenant = function(tenant) {
   var self = this;
+
+  // Önce qrCode ile ara, bulamazsa isim ile ara
   return this.findTenantByQrCode(tenant.kod)
     .then(function(existing) {
       if (existing) {
+        return existing;
+      }
+      // qrCode ile bulunamadı, isim ile ara
+      return self.findTenantByName(tenant.unvan);
+    })
+    .then(function(existing) {
+      if (existing) {
+        // Mevcut tenant'ı güncelle - qrCode'u ETA cari koduyla değiştir
+        console.log('    Tenant bulundu (id: ' + existing.id + '), qrCode guncelleniyor: ' + tenant.kod);
         return self.client.patch('/settings/tenants/' + existing.id, {
           name: tenant.unvan,
+          qrCode: tenant.kod,  // ETA cari kodunu qrCode olarak kaydet
           address: tenant.adres,
           phone: tenant.telefon,
           email: tenant.email,
@@ -123,6 +179,7 @@ RfidClient.prototype.syncTenant = function(tenant) {
           return { action: 'updated', id: existing.id };
         });
       } else {
+        // Yeni tenant oluştur
         return self.client.post('/settings/tenants', {
           name: tenant.unvan,
           qrCode: tenant.kod,
@@ -322,6 +379,79 @@ RfidClient.prototype.markDeliveryAsEtaSynced = function(deliveryId, etaRefNo) {
   .catch(function(error) {
     console.error('Delivery ETA sync isareti hatasi:', error.message);
     return { success: false, error: error.message };
+  });
+};
+
+/**
+ * Irsaliyesi basilmis (waybill) ama ETA'ya gonderilmemis delivery'leri al
+ * Waybill tablosundan bakar - printed status'ta ve etaSynced=false olanlar
+ */
+RfidClient.prototype.getPrintedWaybills = function(retryCount) {
+  var self = this;
+  retryCount = retryCount || 0;
+
+  console.log('  Waybill\'lar kontrol ediliyor...');
+  return this.client.get('/waybills', {
+    params: {
+      status: 'printed',
+      limit: 100
+    }
+  })
+  .then(function(response) {
+    var data = response.data;
+    var waybills = [];
+
+    if (Array.isArray(data)) {
+      waybills = data;
+    } else if (data && Array.isArray(data.data)) {
+      waybills = data.data;
+    }
+
+    console.log('    Toplam ' + waybills.length + ' waybill bulundu');
+
+    // Her waybill icin detay al (delivery bilgileri icin)
+    var detailPromises = waybills.map(function(w) {
+      return self.client.get('/waybills/' + w.id)
+        .then(function(r) { return r.data; })
+        .catch(function() { return null; });
+    });
+
+    return Promise.all(detailPromises);
+  })
+  .then(function(waybillDetails) {
+    // null olanlari filtrele ve etaSynced=false olan delivery'leri topla
+    var result = [];
+
+    for (var i = 0; i < waybillDetails.length; i++) {
+      var w = waybillDetails[i];
+      if (!w || !w.waybillDeliveries) continue;
+
+      for (var j = 0; j < w.waybillDeliveries.length; j++) {
+        var wd = w.waybillDeliveries[j];
+        var delivery = wd.delivery;
+
+        if (delivery && !delivery.etaSynced) {
+          // Waybill bilgisini delivery'ye ekle
+          delivery.waybillNumber = w.waybillNumber;
+          delivery.waybillId = w.id;
+          result.push(delivery);
+        }
+      }
+    }
+
+    console.log('    ETA\'ya gonderilecek ' + result.length + ' delivery bulundu');
+    return result;
+  })
+  .catch(function(error) {
+    var status = error.response && error.response.status;
+    if (status === 429 && retryCount < 5) {
+      console.log('  Waybill listesi icin rate limit, 10 saniye bekleniyor...');
+      return delay(10000).then(function() {
+        return self.getPrintedWaybills(retryCount + 1);
+      });
+    }
+    console.error('Waybill listesi alinamadi:', error.message);
+    throw error;
   });
 };
 

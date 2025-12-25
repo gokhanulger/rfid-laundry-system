@@ -36,7 +36,7 @@ const createTenantSchema = z.object({
   email: z.string().email('Invalid email').optional().or(z.literal('')),
   phone: z.string().optional(),
   address: z.string().optional(),
-  etaDatabaseName: z.string().optional(), // ETA database name for waybill sync
+  etaDatabaseType: z.enum(['official', 'unofficial']).optional(), // official=DEMET, unofficial=TEKLIF
 });
 
 const updateTenantSchema = z.object({
@@ -48,7 +48,7 @@ const updateTenantSchema = z.object({
   longitude: z.string().optional(),
   isActive: z.boolean().optional(),
   qrCode: z.string().optional(),
-  etaDatabaseName: z.string().optional(), // ETA database name for waybill sync
+  etaDatabaseType: z.enum(['official', 'unofficial']).optional(), // official=DEMET, unofficial=TEKLIF
 });
 
 // Get all tenants - returns full data for admin use
@@ -94,7 +94,7 @@ tenantsRouter.post('/', requireAuth, requireRole('system_admin', 'laundry_manage
       });
     }
 
-    const { name, email, phone, address, etaDatabaseName } = validation.data;
+    const { name, email, phone, address, etaDatabaseType } = validation.data;
 
     // Check for duplicate name
     const existing = await db.query.tenants.findFirst({
@@ -114,7 +114,7 @@ tenantsRouter.post('/', requireAuth, requireRole('system_admin', 'laundry_manage
       phone,
       address,
       qrCode,
-      etaDatabaseName: etaDatabaseName || null,
+      etaDatabaseType: etaDatabaseType || 'official',
     }).returning();
 
     res.status(201).json(newTenant);
@@ -160,10 +160,9 @@ tenantsRouter.patch('/:id', requireAuth, requireRole('system_admin', 'laundry_ma
   }
 });
 
-// Bulk update ETA database name - requires auth
+// Bulk update ETA database type - requires auth
 const bulkUpdateDbSchema = z.object({
-  oldValue: z.string().optional(), // If provided, only update tenants with this value
-  newValue: z.string().min(1, 'New database name is required'),
+  newType: z.enum(['official', 'unofficial']),
 });
 
 tenantsRouter.post('/bulk-update-database', requireAuth, requireRole('system_admin', 'laundry_manager'), async (req: AuthRequest, res) => {
@@ -176,35 +175,21 @@ tenantsRouter.post('/bulk-update-database', requireAuth, requireRole('system_adm
       });
     }
 
-    const { oldValue, newValue } = validation.data;
+    const { newType } = validation.data;
 
-    let updatedCount = 0;
+    // Update all tenants
+    const result = await db.update(tenants)
+      .set({
+        etaDatabaseType: newType,
+        updatedAt: new Date(),
+      })
+      .returning();
 
-    if (oldValue) {
-      // Update only tenants with specific old value
-      const result = await db.update(tenants)
-        .set({
-          etaDatabaseName: newValue,
-          updatedAt: new Date(),
-        })
-        .where(eq(tenants.etaDatabaseName, oldValue))
-        .returning();
-      updatedCount = result.length;
-    } else {
-      // Update all tenants (set database for all)
-      const result = await db.update(tenants)
-        .set({
-          etaDatabaseName: newValue,
-          updatedAt: new Date(),
-        })
-        .returning();
-      updatedCount = result.length;
-    }
-
+    const typeLabel = newType === 'official' ? 'Resmi (DEMET)' : 'Gayri Resmi (TEKLIF)';
     res.json({
       success: true,
-      message: `${updatedCount} otel guncellendi`,
-      updatedCount
+      message: `${result.length} otel ${typeLabel} olarak guncellendi`,
+      updatedCount: result.length
     });
   } catch (error) {
     console.error('Bulk update database error:', error);
