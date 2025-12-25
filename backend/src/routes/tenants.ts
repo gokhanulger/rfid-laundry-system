@@ -43,6 +43,8 @@ const updateTenantSchema = z.object({
   email: z.string().email().optional(),
   phone: z.string().optional(),
   address: z.string().optional(),
+  latitude: z.string().optional(),
+  longitude: z.string().optional(),
   isActive: z.boolean().optional(),
   qrCode: z.string().optional(),
 });
