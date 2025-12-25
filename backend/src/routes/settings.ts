@@ -17,14 +17,7 @@ settingsRouter.use(requireAuth);
 settingsRouter.get('/tenants', async (req: AuthRequest, res) => {
   try {
     const allTenants = await db.query.tenants.findMany({
-      columns: {
-        id: true,
-        name: true,
-        email: true,
-        phone: true,
-        address: true,
-        qrCode: true,
-      }
+      orderBy: (tenants, { asc }) => [asc(tenants.name)],
     });
     res.json(allTenants);
   } catch (error) {
@@ -84,11 +77,11 @@ settingsRouter.post('/tenants', requireRole('system_admin'), async (req: AuthReq
   }
 });
 
-// Update tenant (admin only) - qrCode dahil
+// Update tenant (admin only) - tüm alanları destekler
 settingsRouter.patch('/tenants/:id', requireRole('system_admin'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
-    const { name, email, phone, address, qrCode } = req.body;
+    const { name, email, phone, address, qrCode, latitude, longitude, isActive } = req.body;
 
     const existingTenant = await db.query.tenants.findFirst({
       where: eq(tenants.id, id),
@@ -104,6 +97,9 @@ settingsRouter.patch('/tenants/:id', requireRole('system_admin'), async (req: Au
     if (phone !== undefined) updateData.phone = phone;
     if (address !== undefined) updateData.address = address;
     if (qrCode !== undefined) updateData.qrCode = qrCode;
+    if (latitude !== undefined) updateData.latitude = latitude;
+    if (longitude !== undefined) updateData.longitude = longitude;
+    if (isActive !== undefined) updateData.isActive = isActive;
 
     const [updatedTenant] = await db.update(tenants)
       .set(updateData)

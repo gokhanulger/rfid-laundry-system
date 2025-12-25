@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Package, CheckCircle, RefreshCw, QrCode, Box, Trash2 } from 'lucide-react';
 import { deliveriesApi, getErrorMessage } from '../lib/api';
@@ -6,6 +6,72 @@ import { useToast } from '../components/Toast';
 import type { Delivery } from '../types';
 
 type TabType = 'packaging' | 'history';
+
+// Horoz sesi için Audio element
+let roosterAudio: HTMLAudioElement | null = null;
+
+// Play success sound (rooster crow MP3)
+function playSuccessSound() {
+  try {
+    if (!roosterAudio) {
+      roosterAudio = new Audio('/rooster.mp3');
+      roosterAudio.volume = 0.5;
+    }
+    roosterAudio.currentTime = 0;
+    roosterAudio.play();
+    console.log('[Audio] Horoz sesi calindi (MP3)');
+  } catch (e) {
+    console.warn('[Audio] Could not play success sound:', e);
+  }
+}
+
+// Error sound için AudioContext
+let errorAudioContext: AudioContext | null = null;
+
+// Play error sound (sert çan sesi - harsh bell)
+function playErrorSound() {
+  try {
+    if (!errorAudioContext) {
+      errorAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+
+    const ctx = errorAudioContext;
+    const now = ctx.currentTime;
+
+    // Sert çan sesi - daha yüksek frekanslı ve keskin
+    for (let i = 0; i < 4; i++) {
+      const oscillator = ctx.createOscillator();
+      const oscillator2 = ctx.createOscillator();
+      const gainNode = ctx.createGain();
+
+      oscillator.connect(gainNode);
+      oscillator2.connect(gainNode);
+      gainNode.connect(ctx.destination);
+
+      // Ana ton - keskin metalik ses
+      oscillator.type = 'square';
+      oscillator.frequency.setValueAtTime(800, now + i * 0.15);
+      oscillator.frequency.setValueAtTime(600, now + i * 0.15 + 0.05);
+
+      // Harmonik - çan tınısı için
+      oscillator2.type = 'triangle';
+      oscillator2.frequency.setValueAtTime(1600, now + i * 0.15);
+      oscillator2.frequency.setValueAtTime(1200, now + i * 0.15 + 0.05);
+
+      gainNode.gain.setValueAtTime(0.4, now + i * 0.15);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, now + i * 0.15 + 0.12);
+
+      oscillator.start(now + i * 0.15);
+      oscillator.stop(now + i * 0.15 + 0.15);
+      oscillator2.start(now + i * 0.15);
+      oscillator2.stop(now + i * 0.15 + 0.15);
+    }
+
+    console.log('[Audio] Error sound played (sert çan)');
+  } catch (e) {
+    console.warn('[Audio] Could not play error sound:', e);
+  }
+}
 
 // Storage key for product counter (shared with ironer)
 const PRODUCT_COUNTER_KEY = 'laundry_product_counter';
@@ -16,6 +82,14 @@ export function PackagingPage() {
   const [scannedDelivery, setScannedDelivery] = useState<Delivery | null>(null);
   const queryClient = useQueryClient();
   const toast = useToast();
+  const barcodeInputRef = useRef<HTMLInputElement>(null);
+
+  // Global barcode scanner buffer (for scanners that send characters quickly)
+  const scanBufferRef = useRef('');
+  const scanTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Ref to hold the scan function (to avoid dependency issues with useEffect)
+  const doScanRef = useRef<(barcode: string) => void>(() => {});
 
   // Current shift for counter
   const [currentShift, setCurrentShift] = useState<'day' | 'night'>('day');
@@ -34,6 +108,98 @@ export function PackagingPage() {
     const interval = setInterval(updateShift, 60000);
     return () => clearInterval(interval);
   }, []);
+
+  // Global barcode scanner listener
+  // Catches barcode input even when input field is not focused
+  // Barcode scanners send characters very quickly (< 50ms between chars)
+  useEffect(() => {
+    if (activeTab !== 'packaging') return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Skip if user is typing in an input (except our barcode input)
+      const target = e.target as HTMLElement;
+      const isOurInput = target === barcodeInputRef.current;
+      const isOtherInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+
+      if (isOtherInput && !isOurInput) return;
+
+      // Enter or Tab = submit barcode
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        const barcode = scanBufferRef.current.trim();
+        scanBufferRef.current = '';
+
+        if (barcode.length > 0) {
+          // Directly call API via ref to avoid stale closure
+          setBarcodeInput(barcode);
+          doScanRef.current(barcode);
+        }
+        return;
+      }
+
+      // Only accept printable characters for barcode
+      if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        // Clear previous timeout
+        if (scanTimeoutRef.current) {
+          clearTimeout(scanTimeoutRef.current);
+        }
+
+        // Add character to buffer
+        scanBufferRef.current += e.key;
+
+        // Focus input field
+        if (barcodeInputRef.current && document.activeElement !== barcodeInputRef.current) {
+          barcodeInputRef.current.focus();
+        }
+
+        // Set timeout to clear buffer if no more chars within 100ms
+        scanTimeoutRef.current = setTimeout(() => {
+          // If buffer has content but no Enter was pressed, update input
+          if (scanBufferRef.current.length > 0) {
+            setBarcodeInput(scanBufferRef.current);
+            scanBufferRef.current = '';
+          }
+        }, 100);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      if (scanTimeoutRef.current) {
+        clearTimeout(scanTimeoutRef.current);
+      }
+    };
+  }, [activeTab]);
+
+  // Keep focus on barcode input in packaging tab
+  useEffect(() => {
+    if (activeTab !== 'packaging') return;
+
+    const maintainFocus = () => {
+      if (barcodeInputRef.current && document.activeElement !== barcodeInputRef.current) {
+        // Don't steal focus from modals or other inputs
+        const active = document.activeElement as HTMLElement;
+        if (!active || (active.tagName !== 'INPUT' && active.tagName !== 'TEXTAREA' && !active.isContentEditable)) {
+          barcodeInputRef.current.focus();
+        }
+      }
+    };
+
+    // Initial focus
+    setTimeout(maintainFocus, 100);
+
+    // Re-focus when clicking on empty areas
+    const handleClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA' && target.tagName !== 'BUTTON') {
+        setTimeout(maintainFocus, 10);
+      }
+    };
+
+    document.addEventListener('click', handleClick);
+    return () => document.removeEventListener('click', handleClick);
+  }, [activeTab]);
 
   // Increment product counter (updates localStorage, ironer page will read it)
   const incrementProductCounter = (count: number) => {
@@ -65,22 +231,33 @@ export function PackagingPage() {
     mutationFn: (barcode: string) => deliveriesApi.getByBarcode(barcode),
     onSuccess: (delivery) => {
       if (delivery.status === 'label_printed') {
+        // Doğru paket - horoz sesi çal
+        playSuccessSound();
         // Otomatik olarak paketle ve irsaliye'ye geç
         toast.success('Teslimat bulundu, paketleniyor...');
         setPackagingDelivery(delivery);
         packageMutation.mutate(delivery.id);
       } else if (delivery.status === 'packaged') {
+        // Yanlış durum - can sesi çal
+        playErrorSound();
         toast.warning('Bu teslimat zaten paketlendi');
       } else {
+        // Yanlış durum - can sesi çal
+        playErrorSound();
         toast.warning(`Teslimat durumu "${delivery.status}" - paketlenemez`);
       }
       setBarcodeInput('');
     },
     onError: (err) => {
+      // Hata - can sesi çal
+      playErrorSound();
       toast.error('Teslimat bulunamadı', getErrorMessage(err));
       setBarcodeInput('');
     },
   });
+
+  // Update ref so global keydown handler can call mutation
+  doScanRef.current = (barcode: string) => scanMutation.mutate(barcode);
 
   // Track delivery being packaged for counter calculation
   const [packagingDelivery, setPackagingDelivery] = useState<Delivery | null>(null);
@@ -218,10 +395,17 @@ export function PackagingPage() {
                 </h2>
                 <div className="flex gap-3">
                   <input
+                    ref={barcodeInputRef}
                     type="text"
                     value={barcodeInput}
                     onChange={(e) => setBarcodeInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleScan()}
+                    onKeyDown={(e) => {
+                      // Enter veya Tab ile barcode'u işle
+                      if (e.key === 'Enter' || e.key === 'Tab') {
+                        e.preventDefault();
+                        handleScan();
+                      }
+                    }}
                     placeholder="Barkod tarayın veya girin..."
                     className="flex-1 px-4 py-3 text-lg border rounded-lg focus:ring-2 focus:ring-indigo-500 font-mono bg-white"
                     autoFocus

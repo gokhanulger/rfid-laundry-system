@@ -49,16 +49,11 @@ const updateTenantSchema = z.object({
   qrCode: z.string().optional(),
 });
 
-// Get all tenants - PUBLIC but with minimal data (no auth required for station apps)
-// Only returns id and name to avoid exposing sensitive information
+// Get all tenants - returns full data for admin use
 tenantsRouter.get('/', async (req, res) => {
   try {
     const allTenants = await db.query.tenants.findMany({
       orderBy: (tenants, { asc }) => [asc(tenants.name)],
-      columns: {
-        id: true,
-        name: true,
-      },
     });
     res.json(allTenants);
   } catch (error) {

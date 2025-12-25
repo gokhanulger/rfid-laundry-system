@@ -35,7 +35,71 @@ interface Bag {
   createdAt: Date;
 }
 
-type TabType = 'create' | 'history';
+type TabType = 'create' | 'history' | 'bags';
+
+// Horoz sesi için Audio element
+let roosterAudio: HTMLAudioElement | null = null;
+
+// Play success sound (rooster crow MP3)
+function playSuccessSound() {
+  try {
+    if (!roosterAudio) {
+      roosterAudio = new Audio('/rooster.mp3');
+      roosterAudio.volume = 0.5;
+    }
+    roosterAudio.currentTime = 0;
+    roosterAudio.play();
+    console.log('[Audio] Horoz sesi calindi (MP3)');
+  } catch (e) {
+    console.warn('[Audio] Could not play success sound:', e);
+  }
+}
+
+// Error sound için AudioContext
+let errorAudioContext: AudioContext | null = null;
+
+// Play error sound (sert çan sesi - harsh bell)
+function playErrorSound() {
+  try {
+    if (!errorAudioContext) {
+      errorAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    const ctx = errorAudioContext;
+    const now = ctx.currentTime;
+
+    // Sert çan sesi - daha yüksek frekanslı ve keskin
+    for (let i = 0; i < 4; i++) {
+      const oscillator = ctx.createOscillator();
+      const oscillator2 = ctx.createOscillator();
+      const gainNode = ctx.createGain();
+
+      oscillator.connect(gainNode);
+      oscillator2.connect(gainNode);
+      gainNode.connect(ctx.destination);
+
+      // Ana ton - keskin metalik ses
+      oscillator.type = 'square';
+      oscillator.frequency.setValueAtTime(800, now + i * 0.15);
+      oscillator.frequency.setValueAtTime(600, now + i * 0.15 + 0.05);
+
+      // Harmonik - çan tınısı için
+      oscillator2.type = 'triangle';
+      oscillator2.frequency.setValueAtTime(1600, now + i * 0.15);
+      oscillator2.frequency.setValueAtTime(1200, now + i * 0.15 + 0.05);
+
+      gainNode.gain.setValueAtTime(0.4, now + i * 0.15);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, now + i * 0.15 + 0.12);
+
+      oscillator.start(now + i * 0.15);
+      oscillator.stop(now + i * 0.15 + 0.15);
+      oscillator2.start(now + i * 0.15);
+      oscillator2.stop(now + i * 0.15 + 0.15);
+    }
+    console.log('[Audio] Error sound played (sert çan)');
+  } catch (e) {
+    console.warn('[Audio] Could not play error sound:', e);
+  }
+}
 
 export function IrsaliyePage() {
   const [activeTab, setActiveTab] = useState<TabType>('create');
@@ -46,6 +110,11 @@ export function IrsaliyePage() {
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
   const queryClient = useQueryClient();
   const toast = useToast();
+
+  // Global barcode scanner buffer
+  const scanBufferRef = useRef('');
+  const scanTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const doScanRef = useRef<(barcode: string) => void>(() => {});
 
   // Bags state - holds created bags for current hotel session
   const [bags, setBags] = useState<Bag[]>([]);
@@ -63,12 +132,92 @@ export function IrsaliyePage() {
   const [printerTab, setPrinterTab] = useState<'irsaliye' | 'bag'>('irsaliye');
   const [isCreatingWaybill, setIsCreatingWaybill] = useState(false);
 
+  // Wrong hotel warning modal
+  const [wrongHotelWarning, setWrongHotelWarning] = useState<{
+    show: boolean;
+    scannedHotelName: string;
+    selectedHotelName: string;
+  } | null>(null);
+
   // Load printers on mount
   useEffect(() => {
     if (isElectron()) {
       getPrinters().then(setPrinters);
     }
   }, []);
+
+  // Global barcode scanner listener for irsaliye create tab
+  useEffect(() => {
+    if (activeTab !== 'create') return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isOurInput = target === inputRef.current;
+      const isOtherInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+
+      if (isOtherInput && !isOurInput) return;
+
+      // Enter or Tab = submit barcode
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        const barcode = scanBufferRef.current.trim();
+        scanBufferRef.current = '';
+
+        if (barcode.length > 0) {
+          setBarcodeInput(barcode.toUpperCase());
+          doScanRef.current(barcode.toUpperCase());
+        }
+        return;
+      }
+
+      // Capture printable characters
+      if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
+        scanBufferRef.current += e.key;
+        if (inputRef.current && document.activeElement !== inputRef.current) {
+          inputRef.current.focus();
+        }
+        scanTimeoutRef.current = setTimeout(() => {
+          if (scanBufferRef.current.length > 0) {
+            setBarcodeInput(scanBufferRef.current.toUpperCase());
+            scanBufferRef.current = '';
+          }
+        }, 100);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
+    };
+  }, [activeTab]);
+
+  // Keep focus on barcode input
+  useEffect(() => {
+    if (activeTab !== 'create') return;
+
+    const maintainFocus = () => {
+      if (inputRef.current && document.activeElement !== inputRef.current) {
+        const active = document.activeElement as HTMLElement;
+        if (!active || (active.tagName !== 'INPUT' && active.tagName !== 'TEXTAREA' && !active.isContentEditable)) {
+          inputRef.current.focus();
+        }
+      }
+    };
+
+    setTimeout(maintainFocus, 100);
+
+    const handleClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA' && target.tagName !== 'BUTTON' && target.tagName !== 'SELECT') {
+        setTimeout(maintainFocus, 10);
+      }
+    };
+
+    document.addEventListener('click', handleClick);
+    return () => document.removeEventListener('click', handleClick);
+  }, [activeTab]);
 
   // Save printer selection
   const handlePrinterChange = (printerName: string) => {
@@ -111,13 +260,23 @@ export function IrsaliyePage() {
     },
     onSuccess: ({ delivery, barcode }) => {
       if (delivery.status !== 'packaged') {
+        playErrorSound(); // Yanlış durum - can sesi
         toast.warning(`Bu teslimat henuz paketlenmedi (durum: ${delivery.status})`);
         setBarcodeInput('');
         return;
       }
 
-      if (selectedHotelId && delivery.tenantId !== selectedHotelId) {
-        toast.error('Bu paket farkli bir otele ait!');
+      // Yanlış otel kontrolü - scannedPackages üzerinden kontrol et (stale state önleme)
+      const currentHotelId = selectedHotelId || (scannedPackages.length > 0 ? scannedPackages[0].delivery.tenantId : null);
+      if (currentHotelId && delivery.tenantId !== currentHotelId) {
+        playErrorSound(); // Yanlış otel - can sesi
+        const scannedHotel = tenants?.find(t => t.id === delivery.tenantId);
+        const selectedHotel = tenants?.find(t => t.id === currentHotelId);
+        setWrongHotelWarning({
+          show: true,
+          scannedHotelName: scannedHotel?.name || 'Bilinmeyen Otel',
+          selectedHotelName: selectedHotel?.name || 'Bilinmeyen Otel',
+        });
         setBarcodeInput('');
         return;
       }
@@ -147,6 +306,7 @@ export function IrsaliyePage() {
         sp => sp.pkg.packageBarcode === pkg!.packageBarcode
       );
       if (alreadyScanned) {
+        playErrorSound(); // Zaten taranmış - can sesi
         toast.warning('Bu paket zaten taranmis!');
         setBarcodeInput('');
         return;
@@ -156,16 +316,21 @@ export function IrsaliyePage() {
         setSelectedHotelId(delivery.tenantId);
       }
 
+      playSuccessSound(); // Doğru paket - horoz sesi
       setScannedPackages(prev => [...prev, { delivery, pkg: pkg! }]);
       toast.success(`Paket eklendi: ${pkg!.packageBarcode}`);
       setBarcodeInput('');
       inputRef.current?.focus();
     },
     onError: (err) => {
+      playErrorSound(); // Hata - can sesi
       toast.error('Paket bulunamadi', getErrorMessage(err));
       setBarcodeInput('');
     },
   });
+
+  // Update ref so global keydown handler can call mutation
+  doScanRef.current = (barcode: string) => scanMutation.mutate(barcode);
 
   const handleScan = useCallback(() => {
     if (!barcodeInput.trim()) return;
@@ -226,34 +391,40 @@ export function IrsaliyePage() {
     const totals: Record<string, { name: string; count: number }> = {};
 
     scannedPackages.forEach(({ delivery }) => {
+      let hasNotesData = false;
+
       // First try to get from notes (labelExtraData from ironer)
       if (delivery.notes) {
         try {
           const labelData = JSON.parse(delivery.notes);
-          if (Array.isArray(labelData)) {
+          if (Array.isArray(labelData) && labelData.length > 0) {
             labelData.forEach((item: any) => {
               const typeName = item.typeName || 'Bilinmeyen';
               const count = item.count || 0;
-              if (!totals[typeName]) {
-                totals[typeName] = { name: typeName, count: 0 };
+              if (count > 0) {
+                if (!totals[typeName]) {
+                  totals[typeName] = { name: typeName, count: 0 };
+                }
+                totals[typeName].count += count;
+                hasNotesData = true;
               }
-              totals[typeName].count += count;
             });
-            return; // Skip deliveryItems if we got data from notes
           }
         } catch {}
       }
 
-      // Fallback to deliveryItems
-      delivery.deliveryItems?.forEach((di: any) => {
-        const typeName = di.item?.itemType?.name || 'Bilinmeyen';
-        const typeId = di.item?.itemTypeId || 'unknown';
+      // Fallback to deliveryItems if notes didn't have data
+      if (!hasNotesData && delivery.deliveryItems && delivery.deliveryItems.length > 0) {
+        delivery.deliveryItems.forEach((di: any) => {
+          const typeName = di.item?.itemType?.name || 'Bilinmeyen';
+          const typeId = di.item?.itemTypeId || typeName;
 
-        if (!totals[typeId]) {
-          totals[typeId] = { name: typeName, count: 0 };
-        }
-        totals[typeId].count++;
-      });
+          if (!totals[typeId]) {
+            totals[typeId] = { name: typeName, count: 0 };
+          }
+          totals[typeId].count++;
+        });
+      }
     });
 
     return Object.values(totals);
@@ -267,31 +438,41 @@ export function IrsaliyePage() {
     const allPackages = [...packagesInBags, ...scannedPackages];
 
     allPackages.forEach(({ delivery }) => {
+      let hasNotesData = false;
+
+      // Önce notes'tan veri almayı dene
       if (delivery.notes) {
         try {
           const labelData = JSON.parse(delivery.notes);
-          if (Array.isArray(labelData)) {
+          if (Array.isArray(labelData) && labelData.length > 0) {
             labelData.forEach((item: any) => {
               const typeName = item.typeName || 'Bilinmeyen';
               const count = item.count || 0;
-              if (!totals[typeName]) {
-                totals[typeName] = { name: typeName, count: 0 };
+              if (count > 0) {
+                if (!totals[typeName]) {
+                  totals[typeName] = { name: typeName, count: 0 };
+                }
+                totals[typeName].count += count;
+                hasNotesData = true;
               }
-              totals[typeName].count += count;
             });
-            return;
           }
-        } catch {}
+        } catch (e) {
+          console.warn('Notes parse hatasi:', e);
+        }
       }
 
-      delivery.deliveryItems?.forEach((di: any) => {
-        const typeName = di.item?.itemType?.name || 'Bilinmeyen';
-        const typeId = di.item?.itemTypeId || 'unknown';
-        if (!totals[typeId]) {
-          totals[typeId] = { name: typeName, count: 0 };
-        }
-        totals[typeId].count++;
-      });
+      // Eğer notes'tan veri alınamadıysa, deliveryItems'tan al
+      if (!hasNotesData && delivery.deliveryItems && delivery.deliveryItems.length > 0) {
+        delivery.deliveryItems.forEach((di: any) => {
+          const typeName = di.item?.itemType?.name || 'Bilinmeyen';
+          const typeId = di.item?.itemTypeId || typeName;
+          if (!totals[typeId]) {
+            totals[typeId] = { name: typeName, count: 0 };
+          }
+          totals[typeId].count++;
+        });
+      }
     });
 
     return Object.values(totals);
@@ -308,6 +489,14 @@ export function IrsaliyePage() {
     const allPackages = [...packagesInBags, ...scannedPackages];
     if (allPackages.length === 0) {
       toast.error('Lutfen once paketleri secin');
+      return;
+    }
+
+    // İrsaliye yazıcısı seçilmemiş ise uyarı ver
+    if (isElectron() && !selectedPrinter) {
+      toast.warning('Irsaliye yazicisi secilmedi! Lutfen ayarlardan yazici secin.');
+      setShowPrinterSettings(true);
+      setPrinterTab('irsaliye');
       return;
     }
 
@@ -335,6 +524,18 @@ export function IrsaliyePage() {
     const documentNo = waybill.waybillNumber;
     const today = new Date().toLocaleDateString('tr-TR');
     const totalPackageCount = allPackages.length;
+
+    // Ürün bilgisi yoksa uyarı ver
+    if (totals.length === 0) {
+      console.warn('generateIrsaliyePDF: Urun bilgisi bulunamadi!', {
+        allPackages: allPackages.map(p => ({
+          id: p.delivery.id,
+          notes: p.delivery.notes,
+          deliveryItemsCount: p.delivery.deliveryItems?.length
+        }))
+      });
+      toast.warning('Urun bilgisi bulunamadi! Irsaliye paket sayilari ile yazdirilacak.');
+    }
 
     const doc = new jsPDF({
       orientation: 'portrait',
@@ -441,7 +642,42 @@ export function IrsaliyePage() {
     doc.setFontSize(8);
     doc.text('RFID Camasirhane Sistemi', pageWidth / 2, yPos, { align: 'center' });
 
-    // Generate HTML for printing (pure HTML, no PDF embedding)
+    // Generate HTML for printing - 2 adet yan yana (tek sayfada)
+    // Matbu kağıda uygun: Sayın, Temiz İrsaliyesi, Teslim Eden/Alan yok
+    // Otel adresi (varsa)
+    const hotelAddress = hotel?.address || '';
+
+    const singleIrsaliye = `
+      <div class="irsaliye">
+        <div class="header-row">
+          <div class="hotel-info">
+            <div class="hotel-name">${hotel?.name || 'Bilinmeyen Otel'}</div>
+            <div class="hotel-address">${hotelAddress}</div>
+          </div>
+          <div class="doc-info">
+            <div>A - ${documentNo}</div>
+            <div>${today}</div>
+          </div>
+        </div>
+
+        <div class="products">
+          ${totals.map(item => `
+            <div class="product-row">
+              <span class="product-name">${item.name.toUpperCase()}</span>
+              <span class="product-qty">${item.count}</span>
+            </div>
+          `).join('')}
+        </div>
+
+        <div class="footer">
+          <div class="footer-row">
+            <span class="footer-label">PAKET SAYISI :</span>
+            <span class="footer-value">${totalPackageCount}</span>
+          </div>
+        </div>
+      </div>
+    `;
+
     const printHtml = `
       <!DOCTYPE html>
       <html>
@@ -449,89 +685,110 @@ export function IrsaliyePage() {
         <meta charset="UTF-8">
         <style>
           @page {
-            size: 205mm 217.5mm;
-            margin: 5mm;
+            size: A4;
+            margin: 0;
           }
           * { margin: 0; padding: 0; box-sizing: border-box; }
           body {
             font-family: Arial, sans-serif;
-            font-size: 12pt;
-            padding: 10mm;
+            font-size: 10pt;
+            width: 297mm;
+            height: 210mm;
+            transform: rotate(90deg) translateY(-210mm);
+            transform-origin: top left;
           }
-          .header-row { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5mm; }
-          .header-title { font-size: 18pt; font-weight: bold; }
-          .doc-info { text-align: right; font-size: 10pt; }
-          .customer { margin-bottom: 8mm; }
-          .customer-label { font-size: 10pt; font-weight: bold; }
-          .customer-name { font-size: 14pt; font-weight: bold; }
-          .customer-address { font-size: 9pt; color: #333; }
-          .divider { border-top: 1px solid #000; margin: 5mm 0; }
-          .table-header { display: flex; justify-content: space-between; font-weight: bold; font-size: 10pt; padding: 2mm 0; border-bottom: 1px solid #333; }
-          .table-row { display: flex; justify-content: space-between; font-size: 11pt; padding: 2mm 0; }
-          .totals { margin-top: 10mm; font-size: 14pt; font-weight: bold; }
-          .totals-row { display: flex; justify-content: space-between; padding: 2mm 0; }
-          .signature-section { margin-top: 15mm; display: flex; justify-content: space-around; text-align: center; }
-          .signature-box { width: 40%; }
-          .signature-label { font-size: 10pt; margin-bottom: 15mm; }
-          .signature-line { border-top: 1px solid #000; width: 80%; margin: 0 auto; }
-          .footer { text-align: center; font-size: 8pt; color: #666; margin-top: 10mm; }
+          .container {
+            display: flex;
+            width: 297mm;
+            height: 210mm;
+            padding-top: 3mm;
+            padding-left: 6mm;
+            padding-right: 2mm;
+          }
+          .irsaliye {
+            width: 50%;
+            height: 100%;
+            padding: 3mm;
+            position: relative;
+          }
+
+          /* Header: Otel bilgisi (sol) + Belge no/Tarih (sağ) */
+          .header-row {
+            display: flex;
+            justify-content: space-between;
+            padding-top: 2mm;
+            margin-bottom: 5mm;
+          }
+          .hotel-info {
+            flex: 1;
+            padding-right: 5mm;
+          }
+          .hotel-name {
+            font-size: 14pt;              /* 10pt + 4pt */
+            font-weight: bold;
+            margin-bottom: 1mm;
+          }
+          .hotel-address {
+            font-size: 12pt;              /* 8pt + 4pt */
+            line-height: 1.4;
+            white-space: pre-line;
+          }
+          .doc-info {
+            text-align: right;
+            font-size: 13pt;              /* 9pt + 4pt */
+            min-width: 30mm;
+          }
+          .doc-info div {
+            margin-bottom: 1mm;
+          }
+
+          /* Ürün listesi */
+          .products {
+            margin-top: 2mm;
+          }
+          .product-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13pt;              /* 9pt + 4pt */
+            line-height: 1.5;
+            padding: 0.5mm 0;
+          }
+          .product-name {
+            flex: 1;
+          }
+          .product-qty {
+            text-align: right;
+            min-width: 15mm;
+            padding-right: 15mm;          /* Sola kaydır - yırtma çizgisinden uzak */
+          }
+
+          /* Alt kısım: Paket sayısı */
+          .footer {
+            position: absolute;
+            bottom: 45mm;
+            left: 3mm;
+            right: 3mm;
+            font-size: 18pt;              /* 14pt + 4pt */
+            font-weight: bold;
+          }
+          .footer-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+          }
+          .footer-label {
+            /* Matbu kağıtta yazıyor ama biz de yazalım */
+          }
+          .footer-value {
+            padding-right: 15mm;          /* Sola kaydır - yırtma çizgisinden uzak */
+          }
         </style>
       </head>
       <body>
-        <div class="header-row">
-          <div class="customer">
-            <div class="customer-label">Sayin:</div>
-            <div class="customer-name">${hotel?.name || 'Bilinmeyen Otel'}</div>
-            ${hotel?.address ? `<div class="customer-address">${hotel.address.replace(/\n/g, '<br>')}</div>` : ''}
-          </div>
-          <div>
-            <div class="header-title">TEMIZ IRSALIYESI</div>
-            <div class="doc-info">
-              <div><strong>Belge No:</strong> ${documentNo}</div>
-              <div><strong>Tarih:</strong> ${today}</div>
-            </div>
-          </div>
+        <div class="container">
+          ${singleIrsaliye}
+          ${singleIrsaliye}
         </div>
-
-        <div class="divider"></div>
-
-        <div class="table-header">
-          <span>CINSI</span>
-          <span>MIKTARI</span>
-        </div>
-
-        ${totals.map(item => `
-          <div class="table-row">
-            <span>${item.name.toUpperCase()}</span>
-            <span>${item.count} adet</span>
-          </div>
-        `).join('')}
-
-        <div class="divider"></div>
-
-        <div class="totals">
-          <div class="totals-row">
-            <span>CUVAL SAYISI:</span>
-            <span>${bags.length}</span>
-          </div>
-          <div class="totals-row">
-            <span>PAKET SAYISI:</span>
-            <span>${totalPackageCount}</span>
-          </div>
-        </div>
-
-        <div class="signature-section">
-          <div class="signature-box">
-            <div class="signature-label">Teslim Eden</div>
-            <div class="signature-line"></div>
-          </div>
-          <div class="signature-box">
-            <div class="signature-label">Teslim Alan</div>
-            <div class="signature-line"></div>
-          </div>
-        </div>
-
-        <div class="footer">RFID Camasirhane Sistemi</div>
       </body>
       </html>
     `;
@@ -587,38 +844,59 @@ export function IrsaliyePage() {
 
   // Generate bag label for driver scanning
   const generateBagLabel = async () => {
+    console.log('[BagLabel] Starting generateBagLabel, packages:', scannedPackages.length);
+
     if (scannedPackages.length === 0) {
       toast.error('Lütfen önce paketleri tarayın');
+      return;
+    }
+
+    // Çuval yazıcısı seçilmemiş ise uyarı ver
+    if (isElectron() && !selectedBagPrinter) {
+      toast.warning('Çuval etiketi yazıcısı seçilmedi! Lütfen ayarlardan yazıcı seçin.');
+      setShowPrinterSettings(true);
+      setPrinterTab('bag');
       return;
     }
 
     try {
       // Get unique delivery IDs
       const uniqueDeliveryIds = [...new Set(scannedPackages.map(({ delivery }) => delivery.id))];
+      console.log('[BagLabel] Creating bag for deliveries:', uniqueDeliveryIds);
 
       // Create bag via API
-      const bagResult = await deliveriesApi.createBag(uniqueDeliveryIds);
-      const bagCode = bagResult.bagCode;
+      let bagCode: string;
+      try {
+        const bagResult = await deliveriesApi.createBag(uniqueDeliveryIds);
+        bagCode = bagResult.bagCode;
+        console.log('[BagLabel] Bag created:', bagCode);
+      } catch (apiError) {
+        console.error('[BagLabel] API error, using fallback code:', apiError);
+        // Fallback: generate local bag code if API fails
+        bagCode = `BAG-${Date.now().toString(36).toUpperCase()}`;
+        toast.warning('API hatası, yerel kod kullanılıyor: ' + bagCode);
+      }
 
       const hotel = tenants?.find(t => t.id === selectedHotelId);
       const totals = calculateTotals();
       const today = new Date().toLocaleDateString('tr-TR');
 
-      // Generate barcode as image
+      // Generate barcode as image - full width for 80mm label
       const canvas = document.createElement('canvas');
       JsBarcode(canvas, bagCode, {
         format: 'CODE128',
-        width: 2,
-        height: 40,
+        width: 4,
+        height: 50,
         displayValue: true,
-        fontSize: 14,
-        margin: 5,
+        fontSize: 16,
+        margin: 0,
+        textMargin: 2,
       });
       const barcodeDataUrl = canvas.toDataURL('image/png');
 
-      // Create HTML label (60mm x 80mm) with Turkish character support
+      // Create HTML label (80mm width x 60mm height) with Turkish character support
       const hotelName = hotel?.name || 'Bilinmeyen Otel';
-      const truncatedName = hotelName.length > 25 ? hotelName.substring(0, 23) + '...' : hotelName;
+      const truncatedName = hotelName.length > 30 ? hotelName.substring(0, 28) + '...' : hotelName;
 
       const printHtml = `
         <!DOCTYPE html>
@@ -627,101 +905,118 @@ export function IrsaliyePage() {
           <meta charset="UTF-8">
           <style>
             @page {
-              size: 60mm 80mm;
+              size: 80mm 60mm;
               margin: 0;
+            }
+            @media print {
+              html, body {
+                width: 80mm;
+                height: 60mm;
+                margin: 0;
+                padding: 0;
+              }
             }
             * { margin: 0; padding: 0; box-sizing: border-box; }
             body {
               font-family: Arial, sans-serif;
-              width: 60mm;
-              height: 80mm;
+              width: 80mm;
+              height: 60mm;
               padding: 2mm;
               display: flex;
               flex-direction: column;
+              overflow: hidden;
             }
             .header {
               text-align: center;
-              font-size: 12pt;
+              font-size: 19pt;
               font-weight: bold;
-              margin-bottom: 2mm;
+              margin-bottom: 1mm;
             }
             .hotel {
               text-align: center;
-              font-size: 9pt;
+              font-size: 17pt;
               font-weight: bold;
               margin-bottom: 1mm;
             }
             .info {
               text-align: center;
-              font-size: 8pt;
+              font-size: 15pt;
               color: #333;
-              margin-bottom: 2mm;
+              margin-bottom: 1mm;
             }
             .divider {
               border-top: 1px solid #000;
               margin: 1mm 0;
             }
             .items {
-              font-size: 7pt;
-              flex: 1;
+              font-size: 15pt;
+              display: flex;
+              flex-wrap: wrap;
+              gap: 1mm 3mm;
             }
             .item-row {
               display: flex;
-              justify-content: space-between;
-              padding: 0.5mm 0;
+              gap: 1mm;
             }
-            .barcode-container {
-              text-align: center;
-              margin-top: auto;
+            .barcode-section {
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              margin-top: 2mm;
+              padding-top: 2mm;
+              padding-left: 1mm;
+              padding-right: 1mm;
+              border-top: 1px dashed #999;
             }
-            .barcode-container img {
-              max-width: 100%;
+            .barcode-section img {
+              width: calc(100% - 2mm);
+              max-width: calc(100% - 2mm);
               height: auto;
             }
             .footer {
               text-align: center;
-              font-size: 6pt;
+              font-size: 13pt;
               color: #666;
               margin-top: 1mm;
             }
           </style>
         </head>
         <body>
-          <div class="header">ÇUVAL</div>
-          <div class="hotel">${truncatedName}</div>
-          <div class="info">${today} - ${scannedPackages.length} Paket</div>
-
+          <div class="header">ÇUVAL - ${truncatedName}</div>
+          <div class="info">${today} | ${scannedPackages.length} Paket</div>
           <div class="divider"></div>
-
           <div class="items">
-            ${totals.slice(0, 5).map(item => `
+            ${totals.slice(0, 8).map(item => `
               <div class="item-row">
-                <span>${item.name.length > 15 ? item.name.substring(0, 13) + '..' : item.name}</span>
-                <span>${item.count}</span>
+                <span>${item.name.length > 12 ? item.name.substring(0, 10) + '..' : item.name}:</span>
+                <span><strong>${item.count}</strong></span>
               </div>
             `).join('')}
-            ${totals.length > 5 ? `<div class="item-row"><span>+${totals.length - 5} tür daha</span><span></span></div>` : ''}
+            ${totals.length > 8 ? `<div class="item-row"><span>+${totals.length - 8} tür</span></div>` : ''}
           </div>
-
-          <div class="divider"></div>
-
-          <div class="barcode-container">
+          <div class="barcode-section">
             <img src="${barcodeDataUrl}" alt="${bagCode}">
           </div>
-
           <div class="footer">El terminalinden okutun</div>
         </body>
         </html>
       `;
 
       // Print to selected bag printer or show print dialog
+      console.log('[BagLabel] Print section - isElectron:', isElectron(), 'selectedBagPrinter:', selectedBagPrinter);
+      console.log('[BagLabel] HTML length:', printHtml.length);
+
       if (isElectron() && selectedBagPrinter) {
+        console.log('[BagLabel] Sending to Electron printLabel...');
         try {
           const result = await printLabel(printHtml, { printerName: selectedBagPrinter });
+          console.log('[BagLabel] Print result:', result);
           if (result?.success) {
             toast.success(`Çuval etiketi yazıcıya gönderildi!`);
           } else {
-            toast.warning('Yazıcı hatası, tarayıcıda açılıyor...');
+            console.log('[BagLabel] Print failed, opening browser fallback');
+            toast.warning('Yazıcı hatası: ' + (result?.error || 'Bilinmeyen'), 'Tarayıcıda açılıyor...');
             const printWindow = window.open('', '_blank');
             if (printWindow) {
               printWindow.document.write(printHtml);
@@ -729,10 +1024,12 @@ export function IrsaliyePage() {
               setTimeout(() => { printWindow.focus(); printWindow.print(); }, 500);
             }
           }
-        } catch {
+        } catch (printError) {
+          console.error('[BagLabel] Print exception:', printError);
           toast.warning('Yazıcı hatası');
         }
       } else {
+        console.log('[BagLabel] Opening browser print dialog');
         // Browser or no printer selected: Open print dialog
         const printWindow = window.open('', '_blank');
         if (printWindow) {
@@ -906,6 +1203,35 @@ export function IrsaliyePage() {
         </div>
       </div>
 
+      {/* Wrong Hotel Warning Modal */}
+      {wrongHotelWarning?.show && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md mx-4">
+            <div className="flex flex-col items-center text-center">
+              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
+                <X className="w-10 h-10 text-red-600" />
+              </div>
+              <h2 className="text-xl font-bold text-red-600 mb-2">YANLIS OTEL!</h2>
+              <p className="text-gray-700 mb-4">
+                Bu paket <strong className="text-red-600">{wrongHotelWarning.scannedHotelName}</strong> oteline ait.
+              </p>
+              <p className="text-gray-600 mb-6">
+                Secili otel: <strong className="text-teal-600">{wrongHotelWarning.selectedHotelName}</strong>
+              </p>
+              <button
+                onClick={() => {
+                  setWrongHotelWarning(null);
+                  inputRef.current?.focus();
+                }}
+                className="w-full py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 font-bold text-lg transition-colors"
+              >
+                ANLADIM
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Printer Settings Modal */}
       {showPrinterSettings && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -1036,6 +1362,22 @@ export function IrsaliyePage() {
           >
             <QrCode className="w-5 h-5" />
             Yeni Irsaliye
+          </button>
+          <button
+            onClick={() => setActiveTab('bags')}
+            className={`flex-1 px-6 py-4 text-center font-medium transition-colors flex items-center justify-center gap-2 ${
+              activeTab === 'bags'
+                ? 'bg-teal-50 text-teal-700 border-b-2 border-teal-600'
+                : 'text-gray-500 hover:bg-gray-50'
+            }`}
+          >
+            <ShoppingBag className="w-5 h-5" />
+            Çuvallar
+            {bags.length > 0 && (
+              <span className="px-2 py-0.5 bg-teal-100 text-teal-700 rounded-full text-xs font-bold">
+                {bags.length}
+              </span>
+            )}
           </button>
           <button
             onClick={() => setActiveTab('history')}
@@ -1193,9 +1535,10 @@ export function IrsaliyePage() {
                             value={barcodeInput}
                             onChange={(e) => setBarcodeInput(e.target.value.toUpperCase())}
                             onKeyDown={(e) => e.key === 'Enter' && handleScan()}
-                            placeholder="Barkod okutun..."
-                            className="w-full px-3 py-2 text-sm border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 font-mono"
+                            placeholder={wrongHotelWarning?.show ? "Uyariyi onaylayin..." : "Barkod okutun..."}
+                            className={`w-full px-3 py-2 text-sm border-2 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 font-mono ${wrongHotelWarning?.show ? 'border-red-300 bg-red-50' : 'border-gray-300'}`}
                             autoFocus
+                            disabled={wrongHotelWarning?.show}
                           />
                           {scanMutation.isPending && (
                             <p className="text-xs text-teal-600 mt-1">Ekleniyor...</p>
@@ -1454,6 +1797,217 @@ export function IrsaliyePage() {
                   </div>
                 </div>
               )}
+            </div>
+          ) : activeTab === 'bags' ? (
+            /* BAGS TAB - Çuval Etiketlerini Tekrar Yazdırma */
+            <div className="space-y-6">
+              {/* Header */}
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                  <ShoppingBag className="w-5 h-5 text-orange-600" />
+                  Oluşturulan Çuvallar
+                </h2>
+                <p className="text-sm text-gray-500">
+                  Bu oturumda oluşturulan çuval etiketlerini tekrar yazdırabilirsiniz
+                </p>
+              </div>
+
+              {/* Bags Grid */}
+              {bags.length === 0 ? (
+                <div className="p-16 text-center bg-gray-50 rounded-xl">
+                  <ShoppingBag className="w-20 h-20 mx-auto text-gray-300 mb-4" />
+                  <p className="text-2xl font-semibold text-gray-500">Henüz çuval oluşturulmadı</p>
+                  <p className="text-lg text-gray-400 mt-2">Yeni İrsaliye sekmesinden paketleri tarayarak çuval oluşturabilirsiniz</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {bags.map((bag, idx) => {
+                    // Calculate bag item totals
+                    const bagTotals: Record<string, { name: string; count: number }> = {};
+                    bag.packages.forEach(({ delivery }) => {
+                      if (delivery.notes) {
+                        try {
+                          const labelData = JSON.parse(delivery.notes);
+                          if (Array.isArray(labelData)) {
+                            labelData.forEach((item: any) => {
+                              const typeName = item.typeName || 'Bilinmeyen';
+                              const count = item.count || 0;
+                              if (count > 0) {
+                                if (!bagTotals[typeName]) {
+                                  bagTotals[typeName] = { name: typeName, count: 0 };
+                                }
+                                bagTotals[typeName].count += count;
+                              }
+                            });
+                          }
+                        } catch {}
+                      }
+                    });
+                    const bagItems = Object.values(bagTotals);
+
+                    return (
+                      <div key={bag.id} className="bg-white rounded-xl border-2 border-orange-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                        {/* Bag Header */}
+                        <div className="bg-gradient-to-r from-orange-500 to-orange-400 p-4 text-white">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <ShoppingBag className="w-6 h-6" />
+                              <span className="font-bold text-lg">Çuval {idx + 1}</span>
+                            </div>
+                            <span className="bg-white/20 px-3 py-1 rounded-full text-sm font-medium">
+                              {bag.packages.length} paket
+                            </span>
+                          </div>
+                          <p className="font-mono text-sm mt-1 opacity-90">{bag.bagCode}</p>
+                        </div>
+
+                        {/* Bag Content */}
+                        <div className="p-4 space-y-3">
+                          {/* Hotel Info */}
+                          {bag.packages[0] && (
+                            <div className="flex items-center gap-2 text-sm text-gray-600">
+                              <Building2 className="w-4 h-4" />
+                              <span>{tenants?.find(t => t.id === bag.packages[0].delivery.tenantId)?.name || 'Bilinmeyen Otel'}</span>
+                            </div>
+                          )}
+
+                          {/* Created Time */}
+                          <div className="text-xs text-gray-500">
+                            Oluşturulma: {bag.createdAt.toLocaleString('tr-TR')}
+                          </div>
+
+                          {/* Item Summary */}
+                          {bagItems.length > 0 && (
+                            <div className="bg-orange-50 rounded-lg p-3 space-y-1">
+                              {bagItems.slice(0, 4).map((item, itemIdx) => (
+                                <div key={itemIdx} className="flex justify-between text-sm">
+                                  <span className="text-orange-800">{item.name}</span>
+                                  <span className="font-bold text-orange-700">{item.count}</span>
+                                </div>
+                              ))}
+                              {bagItems.length > 4 && (
+                                <p className="text-xs text-orange-600">+{bagItems.length - 4} tür daha...</p>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Reprint Button */}
+                          <button
+                            onClick={async () => {
+                              if (!selectedBagPrinter && isElectron()) {
+                                toast.warning('Çuval yazıcısı seçilmedi! Ayarlardan seçin.');
+                                setShowPrinterSettings(true);
+                                setPrinterTab('bag');
+                                return;
+                              }
+
+                              try {
+                                const hotel = tenants?.find(t => t.id === bag.packages[0]?.delivery.tenantId);
+                                const today = new Date().toLocaleDateString('tr-TR');
+
+                                // Generate barcode - full width for 80mm label
+                                const canvas = document.createElement('canvas');
+                                JsBarcode(canvas, bag.bagCode, {
+                                  format: 'CODE128',
+                                  width: 4,
+                                  height: 50,
+                                  displayValue: true,
+                                  fontSize: 16,
+                                  margin: 0,
+                                  textMargin: 2,
+                                });
+                                const barcodeDataUrl = canvas.toDataURL('image/png');
+
+                                const hotelName = hotel?.name || 'Bilinmeyen Otel';
+                                const truncatedName = hotelName.length > 30 ? hotelName.substring(0, 28) + '...' : hotelName;
+
+                                const printHtml = `
+                                  <!DOCTYPE html>
+                                  <html>
+                                  <head>
+                                    <meta charset="UTF-8">
+                                    <style>
+                                      @page { size: 80mm 60mm; margin: 0; }
+                                      @media print {
+                                        html, body { width: 80mm; height: 60mm; margin: 0; padding: 0; }
+                                      }
+                                      * { margin: 0; padding: 0; box-sizing: border-box; }
+                                      body { font-family: Arial, sans-serif; width: 80mm; height: 60mm; padding: 2mm; display: flex; flex-direction: column; overflow: hidden; }
+                                      .header { text-align: center; font-size: 11pt; font-weight: bold; border-bottom: 1px solid #000; padding-bottom: 1mm; margin-bottom: 1mm; }
+                                      .info { text-align: center; font-size: 8pt; font-weight: bold; margin-bottom: 1mm; }
+                                      .items { font-size: 7pt; display: flex; flex-wrap: wrap; gap: 1mm 3mm; }
+                                      .item-row { display: flex; gap: 1mm; }
+                                      .barcode-section { display: flex; flex-direction: column; align-items: center; justify-content: center; margin-top: 2mm; padding-top: 2mm; border-top: 1px dashed #999; }
+                                      .barcode-section img { width: 100%; max-width: 100%; height: auto; }
+                                      .footer { text-align: center; font-size: 5pt; color: #666; margin-top: 1mm; }
+                                    </style>
+                                  </head>
+                                  <body>
+                                    <div class="header">ÇUVAL - ${truncatedName}</div>
+                                    <div class="info">${today} | ${bag.packages.length} Paket</div>
+                                    <div class="items">
+                                      ${bagItems.slice(0, 8).map(item => `
+                                        <div class="item-row">
+                                          <span>${item.name.length > 12 ? item.name.substring(0, 10) + '..' : item.name}:</span>
+                                          <span><strong>${item.count}</strong></span>
+                                        </div>
+                                      `).join('')}
+                                      ${bagItems.length > 8 ? `<div class="item-row"><span>+${bagItems.length - 8} tür</span></div>` : ''}
+                                    </div>
+                                    <div class="barcode-section">
+                                      <img src="${barcodeDataUrl}" alt="${bag.bagCode}">
+                                    </div>
+                                    <div class="footer">El terminalinden okutun</div>
+                                  </body>
+                                  </html>
+                                `;
+
+                                if (isElectron() && selectedBagPrinter) {
+                                  const result = await printLabel(printHtml, { printerName: selectedBagPrinter });
+                                  if (result?.success) {
+                                    toast.success(`Çuval ${idx + 1} etiketi yazıcıya gönderildi!`);
+                                  } else {
+                                    toast.error('Yazıcı hatası: ' + (result?.error || 'Bilinmeyen hata'));
+                                  }
+                                } else {
+                                  const printWindow = window.open('', '_blank');
+                                  if (printWindow) {
+                                    printWindow.document.write(printHtml);
+                                    printWindow.document.close();
+                                    setTimeout(() => { printWindow.focus(); printWindow.print(); }, 500);
+                                  }
+                                }
+                              } catch (error) {
+                                toast.error('Etiket yazdırılamadı');
+                                console.error('Bag label reprint error:', error);
+                              }
+                            }}
+                            className="w-full py-3 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-medium flex items-center justify-center gap-2 transition-colors"
+                          >
+                            <Printer className="w-5 h-5" />
+                            Etiketi Tekrar Yazdır
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Info Box */}
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                <div className="flex items-start gap-3">
+                  <div className="p-2 bg-blue-100 rounded-lg">
+                    <FileText className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-medium text-blue-800">Çuval Etiketi Hakkında</h3>
+                    <p className="text-sm text-blue-600 mt-1">
+                      Çuval etiketleri 60mm x 80mm boyutunda yazdırılır. Etiket üzerindeki barkod, şoför tarafından el terminali ile okutularak teslimat takibi yapılır.
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
           ) : (
             /* HISTORY TAB */
