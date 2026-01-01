@@ -640,7 +640,7 @@ itemsRouter.post('/bulk', requireRole('driver', 'operator', 'laundry_manager', '
 });
 
 // Delete item
-itemsRouter.delete('/:id', requireRole('laundry_manager', 'system_admin'), async (req: AuthRequest, res) => {
+itemsRouter.delete('/:id', requireRole('laundry_manager', 'system_admin', 'admin'), async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const user = req.user!;
