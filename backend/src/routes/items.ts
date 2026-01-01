@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db } from '../db';
-import { items, itemTypes, tenants } from '../db/schema';
+import { items, itemTypes, tenants, pickupItems, deliveryItems, alerts, scanEvents } from '../db/schema';
 import { eq, and, inArray, desc, sql, like, gt, gte } from 'drizzle-orm';
 import { requireAuth, AuthRequest, requireRole } from '../middleware/auth';
 import { z } from 'zod';
@@ -657,7 +657,19 @@ itemsRouter.delete('/:id', requireRole('laundry_manager', 'system_admin', 'admin
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    await db.delete(items).where(eq(items.id, id));
+    // Delete related records first (foreign key constraints)
+    await db.transaction(async (tx) => {
+      // Delete from pickup_items
+      await tx.delete(pickupItems).where(eq(pickupItems.itemId, id));
+      // Delete from delivery_items
+      await tx.delete(deliveryItems).where(eq(deliveryItems.itemId, id));
+      // Delete from alerts
+      await tx.delete(alerts).where(eq(alerts.itemId, id));
+      // Delete from scan_events
+      await tx.delete(scanEvents).where(eq(scanEvents.itemId, id));
+      // Finally delete the item
+      await tx.delete(items).where(eq(items.id, id));
+    });
 
     res.json({ message: 'Item deleted' });
   } catch (error) {
