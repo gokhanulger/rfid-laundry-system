@@ -20,6 +20,40 @@ import { z } from 'zod';
 export const scanRouter = Router();
 scanRouter.use(requireAuth);
 
+// Helper function to find item by partial RFID match
+// Searches for database rfidTag within the scanned tag (e.g., "903425" found in "E2000000903425...")
+async function findItemByPartialRfidMatch(scannedTag: string, tenantId?: string) {
+  // Get all items (optionally filtered by tenant)
+  const conditions = tenantId ? eq(items.tenantId, tenantId) : undefined;
+  const allItems = await db.query.items.findMany({
+    where: conditions,
+  });
+
+  // Find item whose rfidTag is contained within the scanned tag
+  return allItems.find(item => scannedTag.includes(item.rfidTag));
+}
+
+// Helper function to match multiple scanned tags to items
+async function matchScannedTagsToItems(scannedTags: string[], tenantId?: string): Promise<Map<string, string>> {
+  // Get all items (optionally filtered by tenant)
+  const conditions = tenantId ? eq(items.tenantId, tenantId) : undefined;
+  const allItems = await db.query.items.findMany({
+    where: conditions,
+  });
+
+  // Create a map of scannedTag -> itemId
+  const matchMap = new Map<string, string>();
+
+  for (const scannedTag of scannedTags) {
+    const matchedItem = allItems.find(item => scannedTag.includes(item.rfidTag));
+    if (matchedItem) {
+      matchMap.set(scannedTag, matchedItem.id);
+    }
+  }
+
+  return matchMap;
+}
+
 // Validation schemas
 const sessionTypeEnum = z.enum(['pickup', 'receive', 'process', 'clean', 'package', 'deliver']);
 
@@ -255,12 +289,10 @@ scanRouter.post('/bulk', async (req: AuthRequest, res) => {
 
     // Insert new scans
     if (newScans.length > 0) {
-      // Look up item IDs for the RFID tags
+      // Look up item IDs for the RFID tags using partial match
+      // This allows matching when scanned tag contains the database tag (e.g., "E2000090342512101401321502F338..." contains "90342512101401321502F338")
       const rfidTags = newScans.map(s => s.rfidTag);
-      const matchedItems = await db.query.items.findMany({
-        where: inArray(items.rfidTag, rfidTags),
-      });
-      const itemMap = new Map(matchedItems.map(i => [i.rfidTag, i.id]));
+      const itemMap = await matchScannedTagsToItems(rfidTags, session.tenantId);
 
       await db.insert(scanEvents).values(
         newScans.map(scan => ({
@@ -357,12 +389,10 @@ scanRouter.post('/sync', async (req: AuthRequest, res) => {
         const conflicts: string[] = [];
 
         if (offlineSession.scans.length > 0) {
-          // Look up item IDs
+          // Look up item IDs using partial match
+          // This allows matching when scanned tag contains the database tag
           const rfidTags = offlineSession.scans.map(s => s.rfidTag);
-          const matchedItems = await db.query.items.findMany({
-            where: inArray(items.rfidTag, rfidTags),
-          });
-          const itemMap = new Map(matchedItems.map(i => [i.rfidTag, i.id]));
+          const itemMap = await matchScannedTagsToItems(rfidTags, user.tenantId || undefined);
 
           // Check for same tags scanned in same session type recently (potential conflict)
           for (const scan of offlineSession.scans) {
@@ -680,7 +710,7 @@ scanRouter.post('/conflicts/:id/resolve', requireRole('system_admin', 'laundry_m
 });
 
 // Helper function to process scanned items based on session type
-async function processSessionItems(session: typeof scanSessions.$inferSelect, userId: string) {
+async function processSessionItems(session: typeof scanSessions.$inferSelect, _userId: string) {
   // Get all scan events for this session
   const events = await db.query.scanEvents.findMany({
     where: eq(scanEvents.sessionId, session.id),
@@ -690,14 +720,14 @@ async function processSessionItems(session: typeof scanSessions.$inferSelect, us
 
   const rfidTags = events.map(e => e.rfidTag);
 
-  // Find matching items
-  const matchedItems = await db.query.items.findMany({
-    where: inArray(items.rfidTag, rfidTags),
-  });
+  // Find matching items using partial match
+  // This allows matching when scanned tag contains the database tag
+  const itemMap = await matchScannedTagsToItems(rfidTags, session.tenantId);
 
-  if (matchedItems.length === 0) return;
+  // Get unique item IDs that matched
+  const itemIds = [...new Set(itemMap.values())];
 
-  const itemIds = matchedItems.map(i => i.id);
+  if (itemIds.length === 0) return;
 
   // Update item status based on session type
   switch (session.sessionType) {
@@ -790,12 +820,12 @@ async function processSessionItems(session: typeof scanSessions.$inferSelect, us
       break;
   }
 
-  // Update scan events with item IDs
+  // Update scan events with item IDs (using partial match results)
   for (const event of events) {
-    const item = matchedItems.find(i => i.rfidTag === event.rfidTag);
-    if (item && !event.itemId) {
+    const itemId = itemMap.get(event.rfidTag);
+    if (itemId && !event.itemId) {
       await db.update(scanEvents)
-        .set({ itemId: item.id, syncStatus: 'synced' })
+        .set({ itemId, syncStatus: 'synced' })
         .where(eq(scanEvents.id, event.id));
     }
   }
