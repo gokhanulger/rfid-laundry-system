@@ -53,10 +53,12 @@ itemsRouter.get('/', async (req: AuthRequest, res) => {
     // Build where conditions
     const conditions = [];
 
-    // Tenant isolation
-    if (user.role !== 'system_admin' && user.tenantId) {
+    // Tenant isolation - ironer and laundry_manager can see ALL items (they work with all hotels)
+    const rolesWithFullAccess = ['system_admin', 'ironer', 'laundry_manager', 'packager', 'operator'];
+    if (!rolesWithFullAccess.includes(user.role) && user.tenantId) {
       conditions.push(eq(items.tenantId, user.tenantId));
     } else if (tenantId) {
+      // Optional filter by specific tenant
       conditions.push(eq(items.tenantId, tenantId as string));
     }
 
