@@ -32,6 +32,7 @@ sealed class Screen(val route: String) {
     }
     object Delivery : Screen("delivery")
     object TagAssign : Screen("tag-assign")
+    object TagAssignQRScan : Screen("tag-assign-qr-scan")
     object History : Screen("history")
     object Settings : Screen("settings")
 }
@@ -99,10 +100,34 @@ fun LaundryRFIDApp() {
             )
         }
 
-        composable(Screen.TagAssign.route) {
+        composable(Screen.TagAssign.route) { backStackEntry ->
+            val tagAssignViewModel: TagAssignViewModel = hiltViewModel()
+
+            // Get QR code from savedStateHandle if it was passed back from QR scan screen
+            val qrCode = backStackEntry.savedStateHandle.get<String>("qrCode")
+            if (qrCode != null) {
+                tagAssignViewModel.selectTenantByQrCode(qrCode)
+                backStackEntry.savedStateHandle.remove<String>("qrCode")
+            }
+
             TagAssignScreen(
-                viewModel = hiltViewModel(),
-                onBack = { navController.popBackStack() }
+                viewModel = tagAssignViewModel,
+                onBack = { navController.popBackStack() },
+                onScanQR = { callback ->
+                    navController.navigate(Screen.TagAssignQRScan.route)
+                }
+            )
+        }
+
+        composable(Screen.TagAssignQRScan.route) {
+            QRScanScreen(
+                onBack = { navController.popBackStack() },
+                onQRScanned = { qrCode ->
+                    // Navigate back to tag assign screen and pass the QR code
+                    navController.previousBackStackEntry?.savedStateHandle?.set("qrCode", qrCode)
+                    navController.popBackStack()
+                },
+                title = "Otel QR Kodu Tara"
             )
         }
 

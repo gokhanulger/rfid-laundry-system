@@ -5,6 +5,7 @@ import { eq, and, inArray, desc } from 'drizzle-orm';
 import { requireAuth, AuthRequest, requireRole } from '../middleware/auth';
 import { z } from 'zod';
 import { sendDeliveryNotification } from '../services/email';
+import { emitDeliveryCreated, emitDeliveryUpdated, emitDashboardUpdate } from '../services/realtime';
 
 export const deliveriesRouter = Router();
 deliveriesRouter.use(requireAuth);
@@ -140,6 +141,18 @@ deliveriesRouter.post('/', requireRole('operator', 'laundry_manager', 'system_ad
         deliveryPackages: true,
       },
     });
+
+    // Emit real-time event
+    if (deliveryWithRelations) {
+      emitDeliveryCreated({
+        id: deliveryWithRelations.id,
+        barcode: deliveryWithRelations.barcode,
+        tenantId: deliveryWithRelations.tenantId,
+        status: deliveryWithRelations.status,
+        itemCount: deliveryWithRelations.deliveryItems?.length || 0,
+      });
+      emitDashboardUpdate(deliveryWithRelations.tenantId);
+    }
 
     res.status(201).json(deliveryWithRelations);
   } catch (error) {

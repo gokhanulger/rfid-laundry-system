@@ -25,8 +25,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "axios": "^0.27.2",
-    "mssql": "^8.1.4"
+    "axios": "0.21.4",
+    "tedious": "1.14.0"
   },
   "devDependencies": {
     "pkg": "^5.8.1"

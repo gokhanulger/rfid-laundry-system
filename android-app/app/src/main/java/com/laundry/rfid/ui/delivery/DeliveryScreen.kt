@@ -199,19 +199,6 @@ fun DeliveryScreen(
         }
     }
 
-    // Success dialog
-    if (uiState.showSuccessDialog) {
-        AlertDialog(
-            onDismissRequest = { viewModel.dismissSuccessDialog() },
-            title = { Text("✓ Teslim Edildi") },
-            text = { Text("Paket başarıyla teslim edildi.") },
-            confirmButton = {
-                TextButton(onClick = { viewModel.dismissSuccessDialog() }) {
-                    Text("Tamam")
-                }
-            }
-        )
-    }
 }
 
 @Composable

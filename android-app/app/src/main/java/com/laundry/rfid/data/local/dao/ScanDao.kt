@@ -5,6 +5,8 @@ import com.laundry.rfid.data.local.entity.ScanEventEntity
 import com.laundry.rfid.data.local.entity.ScanSessionEntity
 import com.laundry.rfid.data.local.entity.SyncQueueEntity
 import com.laundry.rfid.data.local.entity.CachedItemEntity
+import com.laundry.rfid.data.local.entity.CachedTenantEntity
+import com.laundry.rfid.data.local.entity.CachedItemTypeEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -75,20 +77,41 @@ interface ScanEventDao {
 
 @Dao
 interface SyncQueueDao {
-    @Query("SELECT * FROM sync_queue WHERE status = 'pending' ORDER BY createdAt ASC")
+    @Query("SELECT * FROM sync_queue WHERE status = 'pending' ORDER BY priority ASC, createdAt ASC")
     suspend fun getPendingItems(): List<SyncQueueEntity>
+
+    @Query("SELECT * FROM sync_queue WHERE status = 'pending' AND retryCount < :maxRetries ORDER BY priority ASC, createdAt ASC")
+    suspend fun getPendingItemsWithRetryLimit(maxRetries: Int): List<SyncQueueEntity>
 
     @Query("SELECT COUNT(*) FROM sync_queue WHERE status = 'pending'")
     fun getPendingCount(): Flow<Int>
 
+    @Query("SELECT COUNT(*) FROM sync_queue WHERE status = 'failed'")
+    fun getFailedCount(): Flow<Int>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(item: SyncQueueEntity)
 
-    @Query("UPDATE sync_queue SET status = :status, processedAt = :processedAt, errorMessage = :errorMessage, retryCount = retryCount + 1 WHERE id = :id")
+    @Query("UPDATE sync_queue SET status = :status WHERE id = :id")
+    suspend fun updateStatusOnly(id: String, status: String)
+
+    @Query("UPDATE sync_queue SET status = :status, processedAt = :processedAt, errorMessage = :errorMessage WHERE id = :id")
     suspend fun updateStatus(id: String, status: String, processedAt: Long?, errorMessage: String?)
+
+    @Query("UPDATE sync_queue SET status = :status, retryCount = :retryCount, errorMessage = :errorMessage WHERE id = :id")
+    suspend fun updateStatusWithRetry(id: String, status: String, retryCount: Int, errorMessage: String?)
+
+    @Query("UPDATE sync_queue SET status = 'pending', retryCount = 0 WHERE status = 'failed'")
+    suspend fun resetFailedItems()
 
     @Query("DELETE FROM sync_queue WHERE status = 'completed'")
     suspend fun deleteCompleted()
+
+    @Query("DELETE FROM sync_queue WHERE status = 'failed'")
+    suspend fun deleteFailed()
+
+    @Query("DELETE FROM sync_queue WHERE id = :id")
+    suspend fun deleteById(id: String)
 }
 
 @Dao
@@ -107,4 +130,40 @@ interface CachedItemDao {
 
     @Query("DELETE FROM cached_items WHERE cachedAt < :beforeTime")
     suspend fun deleteOldCache(beforeTime: Long)
+}
+
+@Dao
+interface CachedTenantDao {
+    @Query("SELECT * FROM cached_tenants WHERE isActive = 1 ORDER BY name ASC")
+    suspend fun getAllTenants(): List<CachedTenantEntity>
+
+    @Query("SELECT * FROM cached_tenants WHERE id = :id")
+    suspend fun getTenantById(id: String): CachedTenantEntity?
+
+    @Query("SELECT * FROM cached_tenants WHERE qrCode = :qrCode LIMIT 1")
+    suspend fun getTenantByQrCode(qrCode: String): CachedTenantEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertTenants(tenants: List<CachedTenantEntity>)
+
+    @Query("DELETE FROM cached_tenants")
+    suspend fun deleteAll()
+
+    @Query("SELECT COUNT(*) FROM cached_tenants")
+    suspend fun getCount(): Int
+}
+
+@Dao
+interface CachedItemTypeDao {
+    @Query("SELECT * FROM cached_item_types ORDER BY sortOrder ASC")
+    suspend fun getAllItemTypes(): List<CachedItemTypeEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertItemTypes(itemTypes: List<CachedItemTypeEntity>)
+
+    @Query("DELETE FROM cached_item_types")
+    suspend fun deleteAll()
+
+    @Query("SELECT COUNT(*) FROM cached_item_types")
+    suspend fun getCount(): Int
 }

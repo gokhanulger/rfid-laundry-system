@@ -73,7 +73,7 @@ ipcMain.handle('print-document', async (event, options) => {
   return { success: false, error: 'Window not available' };
 });
 
-// Handle silent print with specific printer
+// Handle silent print with specific printer (for labels - 60mm x 80mm)
 ipcMain.handle('print-label', async (event, { html, printerName, copies }) => {
   return new Promise((resolve) => {
     // Create a hidden window for printing
@@ -102,6 +102,50 @@ ipcMain.handle('print-label', async (event, { html, printerName, copies }) => {
             copies: copies || 1,
             margins: { marginType: 'none' },
             pageSize: { width: 60000, height: 80000 } // 60mm x 80mm in microns
+          },
+          (success, failureReason) => {
+            printWindow.close();
+            if (success) {
+              resolve({ success: true });
+            } else {
+              resolve({ success: false, error: failureReason });
+            }
+          }
+        );
+      }, 500); // Wait 500ms for content to fully render
+    });
+  });
+});
+
+// Handle irsaliye printing (205mm x 217.5mm - special paper size)
+ipcMain.handle('print-irsaliye', async (event, { html, printerName, copies }) => {
+  return new Promise((resolve) => {
+    // Create a hidden window for printing
+    const printWindow = new BrowserWindow({
+      show: false,
+      width: 800,
+      height: 900,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true
+      }
+    });
+
+    // Use base64 encoding to avoid URL encoding issues
+    const base64Html = Buffer.from(html || '<html><body>No content</body></html>').toString('base64');
+    printWindow.loadURL(`data:text/html;base64,${base64Html}`);
+
+    printWindow.webContents.on('did-finish-load', () => {
+      // Wait a bit for content to fully render
+      setTimeout(() => {
+        printWindow.webContents.print(
+          {
+            silent: true,
+            printBackground: true,
+            deviceName: printerName || '',
+            copies: copies || 1,
+            margins: { marginType: 'none' },
+            pageSize: { width: 205000, height: 217500 } // 205mm x 217.5mm in microns
           },
           (success, failureReason) => {
             printWindow.close();

@@ -1,7 +1,17 @@
-const { app, BrowserWindow, ipcMain, globalShortcut } = require('electron');
+const { app, BrowserWindow, ipcMain, globalShortcut, shell } = require('electron');
 const path = require('path');
 const net = require('net');
 const os = require('os');
+const fs = require('fs');
+const { exec } = require('child_process');
+
+// PDF to Printer for silent printing
+let pdfToPrinter = null;
+try {
+  pdfToPrinter = require('pdf-to-printer');
+} catch (e) {
+  console.log('[Print] pdf-to-printer not available, will use fallback');
+}
 
 // Database and Sync Service
 const db = require('./database.cjs');
@@ -330,7 +340,14 @@ function parseUhfResponse(buffer) {
 
     results.push({ cmd, readerId, data: [...data] });
 
+    // Move to next frame - but also check for another CM header right after
     offset += frameLen;
+
+    // Skip any padding bytes (0x00) between frames
+    while (offset < buffer.length && buffer[offset] === 0x00 &&
+           (offset + 1 >= buffer.length || buffer[offset + 1] !== 0x4D)) {
+      offset++;
+    }
   }
 
   // Return remaining buffer
@@ -340,76 +357,194 @@ function parseUhfResponse(buffer) {
 // Extract EPC from inventory response
 function extractEpcFromInventory(data) {
   // BOHANG CM protocol inventory response format:
-  // The format varies but typically:
-  // [Antenna(1)] + PC(2) + EPC(12 bytes) + [RSSI(1)]
-  // We need to find where the EPC starts
+  // [Antenna(1)] [PC(2)] [EPC(12)] [RSSI(1)] [extra...]
+  // or [PC(2)] [EPC(12)] [RSSI(1)] [extra...]
 
-  if (data.length < 14) return null; // Need at least PC(2) + EPC(12)
+  if (data.length < 12) return null; // Need at least EPC(12)
 
   try {
-    // Try to find EPC by looking for common EPC prefixes (E280, E200, etc.)
-    // Most UHF tags start with E280 or E200
-    let epcStartOffset = -1;
+    // Convert to hex string for pattern matching
+    const rawHex = Buffer.from(data).toString('hex').toUpperCase();
+    console.log('[UHF] Raw inventory data:', rawHex, `(${data.length} bytes)`);
 
-    for (let i = 0; i < data.length - 12; i++) {
-      // Check for common EPC manufacturer prefixes
-      if ((data[i] === 0xE2 && (data[i+1] === 0x80 || data[i+1] === 0x00)) ||
-          (data[i] === 0x30 && data[i+1] === 0x00 && data[i+2] === 0xE2)) {
-        // Found potential EPC start
-        if (data[i] === 0x30 && data[i+1] === 0x00) {
-          // PC word found (0x3000), EPC starts after it
-          epcStartOffset = i + 2;
-        } else {
-          epcStartOffset = i;
+    let epcHex = '';
+    let rssi = 0;
+    let antenna = 0;
+
+    // Method 1: Find known EPC prefixes and extract 24 chars (12 bytes)
+    // Support multiple prefixes: 903425 (our tags), E200 (common), 3000 (common), etc.
+    const knownPrefixes = ['903425', '9034', 'E200', 'E280', '3000', '3400', 'AD00'];
+    let foundByPrefix = false;
+
+    for (const prefix of knownPrefixes) {
+      const prefixIndex = rawHex.indexOf(prefix);
+      if (prefixIndex !== -1 && rawHex.length >= prefixIndex + 24) {
+        epcHex = rawHex.substring(prefixIndex, prefixIndex + 24);
+        console.log('[UHF] Found EPC by prefix', prefix, 'at position', prefixIndex, ':', epcHex);
+
+        // Try to extract RSSI from remaining data
+        const epcEndByteIndex = (prefixIndex + 24) / 2; // Convert hex position to byte position
+        if (data.length > epcEndByteIndex) {
+          rssi = data[epcEndByteIndex];
+          if (rssi > 127) rssi = rssi - 256;
         }
+        foundByPrefix = true;
         break;
       }
     }
 
-    // If no common prefix found, try standard format:
-    // Offset 0: Antenna, Offset 1-2: PC, Offset 3+: EPC
-    // OR Offset 0-1: PC, Offset 2+: EPC
-    if (epcStartOffset === -1) {
-      // Check if first two bytes look like PC word (0x3000 = 96-bit EPC)
-      const possiblePc = (data[0] << 8) | data[1];
-      if ((possiblePc & 0xF800) === 0x3000) {
-        // PC word at offset 0, EPC at offset 2
-        epcStartOffset = 2;
-      } else {
-        // Try offset 1 for PC
-        const possiblePc2 = (data[1] << 8) | data[2];
-        if ((possiblePc2 & 0xF800) === 0x3000) {
-          // Antenna at 0, PC at 1-2, EPC at 3
+    // Method 2: Fallback to offset-based extraction if no known prefix found
+    if (!epcHex) {
+      let epcStartOffset = 0;
+
+      // Check for antenna + PC format (most common)
+      if (data.length >= 16) {
+        const pc = (data[1] << 8) | data[2];
+        // PC word: bits 15-11 indicate EPC length (0x3000 = 96-bit EPC)
+        // Accept various PC values that indicate valid EPC
+        if ((pc & 0xF800) >= 0x1000 && (pc & 0xF800) <= 0x7800) {
           epcStartOffset = 3;
-        } else {
-          // Default: assume antenna(1) + PC(2) format
-          epcStartOffset = 3;
+          antenna = data[0];
+          rssi = data.length > 15 ? data[15] : data[data.length - 1];
+          console.log('[UHF] Format: Antenna+PC+EPC, offset=3, PC=0x' + pc.toString(16));
+        }
+      }
+
+      // Check for PC-only format
+      if (epcStartOffset === 0 && data.length >= 14) {
+        const pc = (data[0] << 8) | data[1];
+        if ((pc & 0xF800) >= 0x1000 && (pc & 0xF800) <= 0x7800) {
+          epcStartOffset = 2;
+          rssi = data[data.length - 1];
+          console.log('[UHF] Format: PC+EPC, offset=2, PC=0x' + pc.toString(16));
+        }
+      }
+
+      // Raw EPC fallback - just take first 12 bytes
+      if (epcStartOffset === 0) {
+        epcStartOffset = 0;
+        rssi = data.length > 12 ? data[12] : 0;
+        console.log('[UHF] Format: Raw EPC, offset=0');
+      }
+
+      if (data.length - epcStartOffset >= 12) {
+        const epc = data.slice(epcStartOffset, epcStartOffset + 12);
+        epcHex = Buffer.from(epc).toString('hex').toUpperCase();
+        console.log('[UHF] Extracted EPC by offset:', epcHex, 'from offset', epcStartOffset);
+      }
+    }
+
+    // Method 3: If still no valid EPC, try to extract any 24-char hex sequence that looks like an EPC
+    if (!epcHex && rawHex.length >= 24) {
+      // Skip first 2-6 bytes (header/antenna/PC) and take next 12 bytes as EPC
+      for (let startPos = 2; startPos <= 6 && startPos + 24 <= rawHex.length; startPos += 2) {
+        const candidate = rawHex.substring(startPos, startPos + 24);
+        // Check if it looks like a valid EPC (not all zeros or all FFs)
+        if (candidate !== '000000000000000000000000' &&
+            candidate !== 'FFFFFFFFFFFFFFFFFFFFFFFF' &&
+            !/^0+$/.test(candidate)) {
+          epcHex = candidate;
+          console.log('[UHF] Extracted EPC by scanning:', epcHex, 'from position', startPos);
+          rssi = data.length > (startPos / 2) + 12 ? data[(startPos / 2) + 12] : 0;
+          if (rssi > 127) rssi = rssi - 256;
+          break;
         }
       }
     }
 
-    // Extract 12 bytes (96-bit) EPC
-    const epcLen = Math.min(12, data.length - epcStartOffset);
-    if (epcLen < 12) return null;
-
-    const epc = data.slice(epcStartOffset, epcStartOffset + 12);
-
-    // Get antenna (usually first byte) and RSSI (usually last byte)
-    const antenna = data[0];
-    const rssi = data[data.length - 1];
+    if (!epcHex) {
+      console.log('[UHF] Could not extract EPC from data');
+      return null;
+    }
 
     return {
       antenna,
       pc: 0x3000,
-      epc: Buffer.from(epc).toString('hex').toUpperCase(),
+      epc: epcHex,
       rssi: rssi > 127 ? rssi - 256 : rssi
     };
   } catch (e) {
+    console.error('[UHF] Error extracting EPC:', e);
     return null;
   }
 }
 
-// Connect to UHF Reader
+// Handle UHF data from reader
+function handleUhfData(data) {
+  lastDataReceived = Date.now();
+
+  const foundInPacket = new Set(); // Dedupe EPCs in this packet
+
+  // ============ CM EXTRACTION (Wireshark method) ============
+  // This parses the CM protocol frames and extracts EPCs
+  uhfDataBuffer = Buffer.concat([uhfDataBuffer, data]);
+
+  // Limit buffer size
+  if (uhfDataBuffer.length > 8192) {
+    uhfDataBuffer = uhfDataBuffer.slice(-4096);
+  }
+
+  const { results, remaining } = parseUhfResponse(uhfDataBuffer);
+  uhfDataBuffer = remaining;
+
+  for (const result of results) {
+    if (result.readerId) {
+      uhfReaderId = result.readerId;
+    }
+
+    // Handle heartbeat (0x10)
+    if (result.cmd === UHF_CMD.HEARTBEAT) {
+      try {
+        if (uhfSocket && !uhfSocket.destroyed) {
+          uhfSocket.write(buildUhfCommand(UHF_CMD.HEARTBEAT));
+        }
+      } catch (e) {
+        // Silently handle error
+      }
+    }
+
+    // CM extraction - search for EPC in CM protocol data
+    // SINGLE MATCH: Try prefixes in order, stop at first match
+    if (result.data && result.data.length >= 12) {
+      const dataHex = Buffer.from(result.data).toString('hex').toUpperCase();
+
+      // Try prefixes in priority order - 9034 first
+      const cmPrefixes = ['9034', 'E200', 'E280', '3000', '3400', 'AD00'];
+      let epc = null;
+      let rssi = -50;
+
+      for (const cmPrefix of cmPrefixes) {
+        const cmPattern = new RegExp(cmPrefix + '[0-9A-F]{' + (24 - cmPrefix.length) + '}');
+        const cmMatch = cmPattern.exec(dataHex);
+
+        if (cmMatch && cmMatch[0].length === 24) {
+          epc = cmMatch[0];
+          break; // STOP at first match - tek eşleştirme
+        }
+      }
+
+      // Send EPC if found and not duplicate
+      if (epc && !foundInPacket.has(epc)) {
+        foundInPacket.add(epc);
+        console.log('[UHF] SENDING EPC (CM):', epc);
+
+        scannedTags.set(epc, {
+          epc,
+          count: (scannedTags.get(epc)?.count || 0) + 1,
+          lastSeen: Date.now(),
+          rssi,
+          antenna: 0
+        });
+
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('uhf-tag', { epc, rssi, antenna: 0 });
+        }
+      }
+    }
+  }
+}
+
+// Connect to UHF Reader as TCP Client
 function connectUhfReader() {
   if (uhfSocket) {
     uhfSocket.destroy();
@@ -436,80 +571,73 @@ function connectUhfReader() {
     uhfSocket.setTimeout(0);
     uhfInventoryActive = true;
 
+    console.log('[UHF] Connected to', UHF_READER_CONFIG.ip + ':' + UHF_READER_CONFIG.port);
+
     // Notify renderer - connected
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('uhf-status', { connected: true, ip: UHF_READER_CONFIG.ip, port: UHF_READER_CONFIG.port, inventoryActive: true });
     }
 
-    // Wait a moment then apply power setting and start tag scanning
+    // BOHANG initialization sequence - like demo app
+    // Step 1: Send heartbeat response to establish communication
     setTimeout(() => {
       if (uhfSocket && !uhfSocket.destroyed && uhfConnected) {
-        try {
-          // Apply RF power setting first
-          const powerData = [currentRfPower, currentRfPower, currentRfPower, currentRfPower];
-          uhfSocket.write(buildUhfCommand(UHF_CMD.SET_RF_POWER, powerData));
-
-          // Then start auto-read after a short delay
-          setTimeout(() => {
-            if (uhfSocket && !uhfSocket.destroyed && uhfConnected) {
-              uhfSocket.write(buildUhfCommand(UHF_CMD.START_AUTO_READ));
-            }
-          }, 200);
-        } catch (e) {
-          // Silently handle error
-        }
+        console.log('[UHF] Step 1: Sending HEARTBEAT');
+        uhfSocket.write(buildUhfCommand(UHF_CMD.HEARTBEAT));
       }
-    }, 1000);
+    }, 100);
+
+    // Step 2: Get device version/info
+    setTimeout(() => {
+      if (uhfSocket && !uhfSocket.destroyed && uhfConnected) {
+        console.log('[UHF] Step 2: Sending GET_VERSION');
+        uhfSocket.write(buildUhfCommand(UHF_CMD.GET_VERSION));
+      }
+    }, 300);
+
+    // Step 3: Try START_AUTO_READ first (continuous mode like demo's "Inventory Once")
+    setTimeout(() => {
+      if (uhfSocket && !uhfSocket.destroyed && uhfConnected) {
+        console.log('[UHF] Step 3: Sending START_AUTO_READ (0x2E)');
+        uhfSocket.write(buildUhfCommand(UHF_CMD.START_AUTO_READ));
+      }
+    }, 500);
+
+    // Step 4: Try START_INVENTORY with antenna mask parameter
+    setTimeout(() => {
+      if (uhfSocket && !uhfSocket.destroyed && uhfConnected) {
+        // Try with antenna 1 enabled (0x01)
+        console.log('[UHF] Step 4: Sending START_INVENTORY with antenna=0x01');
+        uhfSocket.write(buildUhfCommand(UHF_CMD.START_INVENTORY, [0x01]));
+      }
+    }, 700);
+
+    // Step 5: Try bare START_INVENTORY (like demo)
+    setTimeout(() => {
+      if (uhfSocket && !uhfSocket.destroyed && uhfConnected) {
+        console.log('[UHF] Step 5: Sending START_INVENTORY (bare)');
+        uhfSocket.write(buildUhfCommand(UHF_CMD.START_INVENTORY));
+      }
+    }, 900);
+
+    // Step 6: Try command 0x22 (alternative inventory on some BOHANG readers)
+    setTimeout(() => {
+      if (uhfSocket && !uhfSocket.destroyed && uhfConnected) {
+        console.log('[UHF] Step 6: Sending alt inventory 0x22');
+        uhfSocket.write(Buffer.from([0x43, 0x4D, 0x22, 0x00, 0x00, 0x00, 0x00]));
+      }
+    }, 1100);
+
+    // Step 7: Start polling
+    setTimeout(() => {
+      if (uhfSocket && !uhfSocket.destroyed && uhfConnected) {
+        console.log('[UHF] Step 7: Starting inventory polling');
+        startInventoryPolling();
+      }
+    }, 1300);
   });
 
-  uhfSocket.on('data', (data) => {
-    uhfDataBuffer = Buffer.concat([uhfDataBuffer, data]);
-    lastDataReceived = Date.now();
-
-    const { results, remaining } = parseUhfResponse(uhfDataBuffer);
-    uhfDataBuffer = remaining;
-
-    for (const result of results) {
-      if (result.readerId) {
-        uhfReaderId = result.readerId;
-      }
-
-      // Handle heartbeat (0x10) - respond with heartbeat to keep connection alive
-      if (result.cmd === UHF_CMD.HEARTBEAT) {
-        try {
-          uhfSocket.write(buildUhfCommand(UHF_CMD.HEARTBEAT));
-        } catch (e) {
-          // Silently handle error
-        }
-      }
-
-      // Handle inventory response commands
-      const isInventoryResponse = (result.cmd === UHF_CMD.START_INVENTORY ||
-                                   result.cmd === UHF_CMD.START_AUTO_READ ||
-                                   result.cmd === 0x22 ||
-                                   result.cmd === 0x81 ||
-                                   result.cmd === 0x29);
-
-      if (isInventoryResponse && result.data.length > 0) {
-        const tagInfo = extractEpcFromInventory(result.data);
-        if (tagInfo && tagInfo.epc && tagInfo.epc.length > 0) {
-          const existing = scannedTags.get(tagInfo.epc);
-          scannedTags.set(tagInfo.epc, {
-            epc: tagInfo.epc,
-            count: existing ? existing.count + 1 : 1,
-            lastSeen: Date.now(),
-            rssi: tagInfo.rssi,
-            antenna: tagInfo.antenna
-          });
-
-          // Notify renderer of new tag
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('uhf-tag', tagInfo);
-          }
-        }
-      }
-    }
-  });
+  uhfSocket.on('data', handleUhfData);
 
   uhfSocket.on('error', () => {
     // Error will trigger 'close' event, which will handle reconnect
@@ -549,19 +677,33 @@ function scheduleReconnect() {
   }, 500);
 }
 
-// Start polling inventory command
+// Start polling inventory command - like demo app's "Inventory" button
 function startInventoryPolling() {
   if (inventoryPollTimer) return;
 
+  let pollCount = 0;
+
+  // Send inventory command every 2000ms (2 seconds) - prevents system slowdown
   inventoryPollTimer = setInterval(() => {
     if (uhfSocket && !uhfSocket.destroyed && uhfConnected && uhfInventoryActive) {
       try {
-        uhfSocket.write(buildUhfCommand(UHF_CMD.START_INVENTORY));
+        pollCount++;
+
+        // Alternate between START_INVENTORY (0x2A) and START_AUTO_READ (0x2E)
+        if (pollCount % 2 === 0) {
+          const cmd = buildUhfCommand(UHF_CMD.START_INVENTORY);
+          uhfSocket.write(cmd);
+        } else {
+          const cmd = buildUhfCommand(UHF_CMD.START_AUTO_READ);
+          uhfSocket.write(cmd);
+        }
+        // Verbose logging disabled - uncomment for debugging:
+        // console.log('[UHF] Poll #' + pollCount);
       } catch (e) {
         // Write error - let close event handle reconnect
       }
     }
-  }, 1000);
+  }, 2000);
 }
 
 function stopInventoryPolling() {
@@ -694,9 +836,73 @@ function createWindow() {
 // Handle printer list request
 ipcMain.handle('get-printers', async () => {
   if (mainWindow) {
-    return await mainWindow.webContents.getPrintersAsync();
+    const printers = await mainWindow.webContents.getPrintersAsync();
+    console.log('[Print] Available printers:');
+    printers.forEach(p => {
+      console.log(`  - "${p.name}" (default: ${p.isDefault}, status: ${p.status})`);
+    });
+    return printers;
   }
   return [];
+});
+
+// Test printer - send a test page
+ipcMain.handle('test-printer', async (event, { printerName }) => {
+  console.log('[Print] ========== TEST PRINT ==========');
+  console.log('[Print] Testing printer:', printerName);
+
+  const testHtml = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <style>
+        body { font-family: Arial, sans-serif; padding: 20mm; }
+        h1 { color: #333; }
+        .info { margin: 10px 0; }
+        .box { border: 2px solid #000; padding: 20px; margin: 20px 0; }
+      </style>
+    </head>
+    <body>
+      <h1>Yazıcı Test Sayfası</h1>
+      <div class="info"><strong>Yazıcı:</strong> ${printerName || 'Varsayılan'}</div>
+      <div class="info"><strong>Tarih:</strong> ${new Date().toLocaleString('tr-TR')}</div>
+      <div class="box">
+        <p>Bu bir test sayfasıdır.</p>
+        <p>Türkçe karakterler: ğüşıöçĞÜŞİÖÇ</p>
+        <p>1234567890</p>
+      </div>
+      <p>RFID Çamaşırhane Sistemi - Karbeyaz & Demet</p>
+    </body>
+    </html>
+  `;
+
+  return new Promise((resolve) => {
+    const printWindow = new BrowserWindow({
+      show: false,
+      width: 800,
+      height: 600,
+      webPreferences: { nodeIntegration: false, contextIsolation: true }
+    });
+
+    const base64Html = Buffer.from(testHtml).toString('base64');
+    printWindow.loadURL('data:text/html;base64,' + base64Html);
+
+    printWindow.webContents.on('did-finish-load', () => {
+      setTimeout(() => {
+        printWindow.webContents.print({
+          silent: true,
+          printBackground: true,
+          deviceName: printerName || '',
+          pageSize: 'A4'
+        }, (success, reason) => {
+          console.log('[Print] Test print result:', success, reason);
+          setTimeout(() => { try { printWindow.close(); } catch(e) {} }, 2000);
+          resolve({ success, error: reason });
+        });
+      }, 500);
+    });
+  });
 });
 
 // Handle print request
@@ -725,97 +931,185 @@ ipcMain.handle('print-document', async (event, options) => {
   return { success: false, error: 'Window not available' };
 });
 
-// Handle silent print with specific printer (for labels - 60mm x 80mm)
+// Handle silent print with specific printer (for labels - 80mm x 60mm)
 ipcMain.handle('print-label', async (event, { html, printerName, copies }) => {
-  return new Promise((resolve) => {
-    // Create a hidden window for printing
-    const printWindow = new BrowserWindow({
-      show: false,
-      width: 800,
-      height: 600,
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true
+  console.log('[Print] ========== LABEL PRINT START ==========');
+  console.log('[Print] Requested printer:', printerName);
+  console.log('[Print] Copies:', copies);
+
+  let actualPrinterName = printerName || '';
+
+  if (mainWindow) {
+    try {
+      const printers = await mainWindow.webContents.getPrintersAsync();
+      let targetPrinter = printers.find(p => p.name === printerName);
+      if (!targetPrinter && printerName) {
+        targetPrinter = printers.find(p => p.name.toLowerCase().includes(printerName.toLowerCase()));
       }
-    });
+      if (targetPrinter) {
+        actualPrinterName = targetPrinter.name;
+      } else {
+        const defaultPrinter = printers.find(p => p.isDefault);
+        if (defaultPrinter) actualPrinterName = defaultPrinter.name;
+      }
+    } catch (e) {
+      console.log('[Print] Could not get printer list:', e.message);
+    }
+  }
 
-    // Use base64 encoding to avoid URL encoding issues
-    const base64Html = Buffer.from(html || '<html><body>No content</body></html>').toString('base64');
-    printWindow.loadURL(`data:text/html;base64,${base64Html}`);
+  return new Promise((resolve) => {
+    try {
+      const printWindow = new BrowserWindow({
+        show: false,
+        width: 400,
+        height: 300,
+        webPreferences: { nodeIntegration: false, contextIsolation: true }
+      });
 
-    printWindow.webContents.on('did-finish-load', () => {
-      // Wait a bit for any embedded content to load
-      setTimeout(() => {
-        printWindow.webContents.print(
-          {
+      let resolved = false;
+      const safeResolve = (result, delayClose = 0) => {
+        if (!resolved) {
+          resolved = true;
+          setTimeout(() => { try { printWindow.close(); } catch (e) {} }, delayClose);
+          resolve(result);
+        }
+      };
+
+      const timeout = setTimeout(() => {
+        safeResolve({ success: false, error: 'Print timeout' });
+      }, 15000);
+
+      const base64Html = Buffer.from(html || '<html><body>No content</body></html>').toString('base64');
+      printWindow.loadURL(`data:text/html;base64,${base64Html}`);
+
+      printWindow.webContents.on('did-finish-load', () => {
+        clearTimeout(timeout);
+
+        setTimeout(() => {
+          if (resolved) return;
+
+          const printOptions = {
             silent: true,
             printBackground: true,
-            deviceName: printerName || '',
+            deviceName: actualPrinterName,
             copies: copies || 1,
             margins: { marginType: 'none' },
-            pageSize: { width: 60000, height: 80000 } // 60mm x 80mm in microns
-          },
-          (success, failureReason) => {
-            printWindow.close();
-            if (success) {
-              resolve({ success: true });
-            } else {
-              resolve({ success: false, error: failureReason });
-            }
-          }
-        );
-      }, 500); // Wait 500ms for content to fully render
-    });
+            pageSize: { width: 80000, height: 60000 }
+          };
+
+          printWindow.webContents.print(printOptions, (success, failureReason) => {
+            console.log('[Print] Label result:', success, failureReason);
+            safeResolve({ success: success, error: failureReason }, 3000);
+          });
+        }, 1000);
+      });
+
+      printWindow.webContents.on('did-fail-load', () => {
+        clearTimeout(timeout);
+        safeResolve({ success: false, error: 'Load failed' });
+      });
+    } catch (error) {
+      resolve({ success: false, error: error.message });
+    }
   });
 });
 
-// Handle irsaliye printing (205mm x 217.5mm - special paper size)
+// Handle irsaliye printing (Direct Electron print - no PDF conversion)
 ipcMain.handle('print-irsaliye', async (event, { html, printerName, copies }) => {
-  console.log('[Print] Irsaliye print request:', { printerName, copies, htmlLength: html?.length || 0 });
+  const logs = [];
+  const log = (msg) => { console.log(msg); logs.push(msg); };
+
+  log('[Print] ========== IRSALIYE PRINT START ==========');
+  log(`[Print] Printer: ${printerName}`);
+  log('[Print] Mode: Direct Electron print (no PDF)');
+
+  // Yazıcı adını doğrula
+  let actualPrinterName = printerName || '';
+  if (mainWindow) {
+    try {
+      const printers = await mainWindow.webContents.getPrintersAsync();
+      log(`[Print] Available printers: ${printers.map(p => p.name).join(', ')}`);
+
+      let targetPrinter = printers.find(p => p.name === printerName);
+      if (!targetPrinter && printerName) {
+        targetPrinter = printers.find(p => p.name.toLowerCase().includes(printerName.toLowerCase()));
+      }
+      if (targetPrinter) {
+        actualPrinterName = targetPrinter.name;
+        log(`[Print] Matched printer: ${actualPrinterName}`);
+      }
+    } catch (e) {
+      log(`[Print] Could not get printer list: ${e.message}`);
+    }
+  }
 
   return new Promise((resolve) => {
-    // Create a hidden window for printing
-    const printWindow = new BrowserWindow({
-      show: false,
-      width: 800,
-      height: 900,
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true
-      }
-    });
+    try {
+      const printWindow = new BrowserWindow({
+        show: false,
+        width: 800,
+        height: 900,
+        webPreferences: { nodeIntegration: false, contextIsolation: true }
+      });
 
-    // Use base64 encoding to avoid URL encoding issues
-    const base64Html = Buffer.from(html || '<html><body>No content</body></html>').toString('base64');
-    printWindow.loadURL(`data:text/html;base64,${base64Html}`);
+      let resolved = false;
+      const safeResolve = (result) => {
+        if (!resolved) {
+          resolved = true;
+          setTimeout(() => { try { printWindow.close(); } catch (e) {} }, 1000);
+          resolve({ ...result, logs });
+        }
+      };
 
-    printWindow.webContents.on('did-finish-load', () => {
-      console.log('[Print] Irsaliye content loaded, sending to printer:', printerName);
-      // Wait a bit for content to fully render
-      setTimeout(() => {
-        printWindow.webContents.print(
-          {
-            silent: true,
-            printBackground: true,
-            deviceName: printerName || '',
-            copies: copies || 1,
-            margins: { marginType: 'none' },
-            pageSize: { width: 205000, height: 217500 } // 205mm x 217.5mm in microns
-          },
-          (success, failureReason) => {
-            printWindow.close();
-            console.log('[Print] Irsaliye print result:', { success, failureReason });
-            if (success) {
-              resolve({ success: true });
-            } else {
-              resolve({ success: false, error: failureReason });
+      const timeout = setTimeout(() => {
+        log('[Print] Timeout!');
+        safeResolve({ success: false, error: 'Timeout' });
+      }, 30000);
+
+      const base64Html = Buffer.from(html || '<html><body>No content</body></html>').toString('base64');
+      printWindow.loadURL(`data:text/html;base64,${base64Html}`);
+
+      printWindow.webContents.on('did-finish-load', () => {
+        log('[Print] HTML loaded');
+        clearTimeout(timeout);
+
+        // Wait for content to render, then print directly
+        setTimeout(() => {
+          printWindow.webContents.print(
+            {
+              silent: true,
+              printBackground: true,
+              deviceName: actualPrinterName,
+              copies: copies || 1,
+              margins: { marginType: 'none' },
+              pageSize: { width: 205000, height: 217500 } // 205mm x 217.5mm in microns
+            },
+            (success, failureReason) => {
+              if (success) {
+                log('[Print] ✓ İrsaliye yazıcıya gönderildi!');
+                safeResolve({ success: true });
+              } else {
+                log(`[Print] Error: ${failureReason}`);
+                safeResolve({ success: false, error: failureReason });
+              }
             }
-          }
-        );
-      }, 500); // Wait 500ms for content to fully render
-    });
+          );
+        }, 500);
+      });
+
+      printWindow.webContents.on('did-fail-load', (e, code, desc) => {
+        log(`[Print] Load failed: ${code} ${desc}`);
+        clearTimeout(timeout);
+        safeResolve({ success: false, error: desc });
+      });
+
+    } catch (error) {
+      log(`[Print] Exception: ${error.message}`);
+      resolve({ success: false, error: error.message, logs });
+    }
   });
 });
+
 
 // ==========================================
 // UHF RFID Reader IPC Handlers
@@ -1006,16 +1300,20 @@ ipcMain.handle('db-init', async (event, { token }) => {
 
 // Set auth token for sync
 ipcMain.handle('db-set-token', async (event, { token }) => {
+  console.log('[Main] Setting auth token:', token ? token.substring(0, 30) + '...' : 'NONE');
   syncService.setAuthToken(token);
   return { success: true };
 });
 
 // Full sync from API to SQLite
 ipcMain.handle('db-full-sync', async () => {
+  console.log('[Main] Full sync requested, token available:', !!syncService.getAuthToken());
   try {
     const result = await syncService.fullSync();
+    console.log('[Main] Full sync result:', result.success ? `${result.itemsCount} items` : result.error);
     return result;
   } catch (error) {
+    console.error('[Main] Full sync error:', error.message);
     return { success: false, error: error.message };
   }
 });
@@ -1107,6 +1405,18 @@ ipcMain.handle('db-is-online', async () => {
   return { online: syncService.isOnline() };
 });
 
+// Debug: Search items in local database
+ipcMain.handle('db-debug-search', async (event, { searchTerm }) => {
+  try {
+    const result = db.debugSearchItems(searchTerm);
+    console.log('[Main] Debug search result:', JSON.stringify(result, null, 2));
+    return { success: true, ...result };
+  } catch (error) {
+    console.error('[Main] Debug search error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 // ==========================================
 // End SQLite Database IPC Handlers
 // ==========================================
@@ -1124,9 +1434,28 @@ app.whenReady().then(async () => {
 
   // Set main window for sync service
   syncService.setMainWindow(mainWindow);
+
+  // Register global shortcut for DevTools (F12)
+  globalShortcut.register('F12', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.toggleDevTools();
+    }
+  });
+
+  // Also register Ctrl+Shift+I
+  globalShortcut.register('CommandOrControl+Shift+I', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.toggleDevTools();
+    }
+  });
+
+  console.log('[Main] DevTools shortcuts registered (F12, Ctrl+Shift+I)');
 });
 
 app.on('window-all-closed', () => {
+  // Unregister all shortcuts
+  globalShortcut.unregisterAll();
+
   // Close database on quit
   db.closeDatabase();
   syncService.stopAutoSync();

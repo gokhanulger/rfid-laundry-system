@@ -14,7 +14,20 @@ export interface PrintOptions {
 
 // Check if running in Electron
 export function isElectron(): boolean {
-  return !!(window.electronAPI?.isElectron);
+  const hasElectronAPI = typeof window !== 'undefined' && window.electronAPI !== undefined;
+  const isElectronFlag = hasElectronAPI && window.electronAPI?.isElectron === true;
+  return isElectronFlag;
+}
+
+// Debug: Log electronAPI status on load
+if (typeof window !== 'undefined') {
+  console.log('[printer.ts] Module loaded');
+  console.log('[printer.ts] window.electronAPI exists:', window.electronAPI !== undefined);
+  console.log('[printer.ts] window.electronAPI?.isElectron:', window.electronAPI?.isElectron);
+  console.log('[printer.ts] isElectron():', isElectron());
+  if (window.electronAPI) {
+    console.log('[printer.ts] electronAPI keys:', Object.keys(window.electronAPI));
+  }
 }
 
 // Get list of available printers
@@ -38,14 +51,48 @@ export async function printLabel(
   html: string,
   options: PrintOptions = {}
 ): Promise<{ success: boolean; error?: string }> {
+  console.log('[printer.ts] ========== printLabel START ==========');
+  console.log('[printer.ts] HTML length:', html?.length || 0);
+  console.log('[printer.ts] Options:', JSON.stringify(options));
+  console.log('[printer.ts] isElectron():', isElectron());
+  console.log('[printer.ts] window.electronAPI:', window.electronAPI ? 'exists' : 'undefined');
+  console.log('[printer.ts] window.electronAPI?.printLabel:', typeof window.electronAPI?.printLabel);
+
   if (isElectron() && window.electronAPI) {
-    return window.electronAPI.printLabel(
-      html,
-      options.printerName,
-      options.copies || 1
-    );
+    console.log('[printer.ts] Using Electron print path...');
+
+    if (typeof window.electronAPI.printLabel !== 'function') {
+      console.error('[printer.ts] ERROR: printLabel is not a function!');
+      return { success: false, error: 'printLabel is not available in electronAPI' };
+    }
+
+    try {
+      console.log('[printer.ts] Calling electronAPI.printLabel with:', {
+        printerName: options.printerName,
+        copies: options.copies || 1,
+        htmlLength: html?.length
+      });
+
+      const result = await window.electronAPI.printLabel(
+        html,
+        options.printerName,
+        options.copies || 1
+      );
+
+      console.log('[printer.ts] printLabel result:', JSON.stringify(result));
+      console.log('[printer.ts] ========== printLabel END (success) ==========');
+      return result;
+    } catch (err) {
+      console.error('[printer.ts] printLabel EXCEPTION:', err);
+      console.error('[printer.ts] Error type:', typeof err);
+      console.error('[printer.ts] Error message:', err instanceof Error ? err.message : String(err));
+      console.log('[printer.ts] ========== printLabel END (error) ==========');
+      return { success: false, error: String(err) };
+    }
   }
 
+  console.log('[printer.ts] Using browser fallback (not Electron)');
+  console.log('[printer.ts] ========== printLabel END (browser) ==========');
   // Browser fallback: Open print dialog
   return printInBrowser(html);
 }
@@ -129,19 +176,56 @@ export function getBagPrinter(): string | null {
   return localStorage.getItem('bagPrinter');
 }
 
-// Print irsaliye HTML silently (205mm x 217.5mm paper)
+// Print irsaliye HTML silently (205mm x 215mm paper)
 export async function printIrsaliye(
   html: string,
   options: PrintOptions = {}
 ): Promise<{ success: boolean; error?: string }> {
+  const printerName = options.printerName || getDeliveryPrinter() || undefined;
+
+  console.log('[printer.ts] ========== printIrsaliye START ==========');
+  console.log('[printer.ts] HTML length:', html?.length || 0);
+  console.log('[printer.ts] Printer name:', printerName);
+  console.log('[printer.ts] Options:', JSON.stringify(options));
+  console.log('[printer.ts] isElectron():', isElectron());
+  console.log('[printer.ts] window.electronAPI:', window.electronAPI ? 'exists' : 'undefined');
+  console.log('[printer.ts] window.electronAPI?.printIrsaliye:', typeof window.electronAPI?.printIrsaliye);
+
   if (isElectron() && window.electronAPI) {
-    return window.electronAPI.printIrsaliye(
-      html,
-      options.printerName || getDeliveryPrinter() || undefined,
-      options.copies || 1
-    );
+    console.log('[printer.ts] Using Electron print path...');
+
+    if (typeof window.electronAPI.printIrsaliye !== 'function') {
+      console.error('[printer.ts] ERROR: printIrsaliye is not a function!');
+      return { success: false, error: 'printIrsaliye is not available in electronAPI' };
+    }
+
+    try {
+      console.log('[printer.ts] Calling electronAPI.printIrsaliye with:', {
+        printerName,
+        copies: options.copies || 1,
+        htmlLength: html?.length
+      });
+
+      const result = await window.electronAPI.printIrsaliye(
+        html,
+        printerName,
+        options.copies || 1
+      );
+
+      console.log('[printer.ts] printIrsaliye result:', JSON.stringify(result));
+      console.log('[printer.ts] ========== printIrsaliye END (success) ==========');
+      return result;
+    } catch (err) {
+      console.error('[printer.ts] printIrsaliye EXCEPTION:', err);
+      console.error('[printer.ts] Error type:', typeof err);
+      console.error('[printer.ts] Error message:', err instanceof Error ? err.message : String(err));
+      console.log('[printer.ts] ========== printIrsaliye END (error) ==========');
+      return { success: false, error: String(err) };
+    }
   }
 
+  console.log('[printer.ts] Using browser fallback (not Electron)');
+  console.log('[printer.ts] ========== printIrsaliye END (browser) ==========');
   // Browser fallback: Open print dialog
   return printInBrowser(html);
 }

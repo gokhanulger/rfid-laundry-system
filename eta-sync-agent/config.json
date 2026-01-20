@@ -2,17 +2,24 @@
   "eta": {
     "server": "localhost",
     "port": 1433,
-    "database": "ETAV8",
+    "database": "ETA_DEMET_2025",
     "user": "rfid_user",
+    "password": "Admin123!",
     "trustedConnection": false,
     "options": {
-      "encrypt": true,
+      "encrypt": false,
       "trustServerCertificate": true
+    },
+    "year": 2025,
+    "databases": {
+      "official": "ETA_DEMET",
+      "unofficial": "ETA_TEKLIF"
     }
   },
   "rfid": {
     "apiUrl": "https://rfid-laundry-backend-production.up.railway.app/api",
-    "username": "admin@laundry.com"
+    "username": "admin@laundry.com",
+    "password": "admin123"
   },
   "sync": {
     "autoSync": false,

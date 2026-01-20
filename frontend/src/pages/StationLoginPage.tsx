@@ -29,7 +29,7 @@ const STATION_CREDENTIALS: Record<string, { email: string; password: string }> =
   },
   auditor: {
     email: 'admin@laundry.com', // Use admin for auditor since they need full access
-    password: 'password123',
+    password: 'admin123',
   },
 };
 
@@ -85,6 +85,20 @@ export function StationLoginPage() {
             });
             if (response.data?.token) {
               setStoredToken(response.data.token);
+              // Initialize SQLite and start sync in Electron
+              if (window.electronAPI?.dbInit) {
+                console.log('[StationLogin] Initializing SQLite database...');
+                const initResult = await window.electronAPI.dbInit(response.data.token);
+                console.log('[StationLogin] DB init result:', initResult);
+
+                // Start full sync if no items cached
+                if (initResult.success && (!initResult.stats?.itemsCount || initResult.stats.itemsCount === 0)) {
+                  console.log('[StationLogin] No cached items, starting full sync...');
+                  window.electronAPI.dbFullSync().then((syncResult: any) => {
+                    console.log('[StationLogin] Full sync result:', syncResult);
+                  });
+                }
+              }
             }
           } catch (err: any) {
             console.error('Backend re-auth failed (continuing anyway):', err);
@@ -118,6 +132,20 @@ export function StationLoginPage() {
               });
               if (response.data?.token) {
                 setStoredToken(response.data.token);
+                // Initialize SQLite and start sync in Electron
+                if (window.electronAPI?.dbInit) {
+                  console.log('[StationLogin] Initializing SQLite database...');
+                  const initResult = await window.electronAPI.dbInit(response.data.token);
+                  console.log('[StationLogin] DB init result:', initResult);
+
+                  // Start full sync if no items cached
+                  if (initResult.success && (!initResult.stats?.itemsCount || initResult.stats.itemsCount === 0)) {
+                    console.log('[StationLogin] No cached items, starting full sync...');
+                    window.electronAPI.dbFullSync().then((syncResult: any) => {
+                      console.log('[StationLogin] Full sync result:', syncResult);
+                    });
+                  }
+                }
               }
             } catch (err: any) {
               console.error('Backend auth failed (continuing anyway):', err);

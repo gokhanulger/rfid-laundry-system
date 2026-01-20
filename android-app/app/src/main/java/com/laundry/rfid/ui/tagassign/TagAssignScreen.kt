@@ -9,6 +9,8 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -16,26 +18,35 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.PopupProperties
+import kotlinx.coroutines.delay
 import com.laundry.rfid.data.remote.dto.ItemTypeDto
 import com.laundry.rfid.data.remote.dto.TenantDto
 import com.laundry.rfid.rfid.RfidState
 import com.laundry.rfid.rfid.RfidTag
+import com.laundry.rfid.ui.components.FastHotelDropdown
+import com.laundry.rfid.ui.components.FastItemTypeDropdown
 import com.laundry.rfid.ui.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TagAssignScreen(
     viewModel: TagAssignViewModel,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onScanQR: ((String) -> Unit) -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showResultDialog by remember { mutableStateOf(false) }
+    var showQRScanDialog by remember { mutableStateOf(false) }
 
     // Show result dialog when save completes
     LaunchedEffect(uiState.saveResult) {
@@ -60,6 +71,22 @@ fun TagAssignScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Geri")
+                    }
+                },
+                actions = {
+                    // Refresh button
+                    IconButton(
+                        onClick = { viewModel.refreshData() },
+                        enabled = !uiState.isLoading
+                    ) {
+                        Icon(
+                            Icons.Default.Refresh,
+                            contentDescription = "Yenile",
+                            tint = if (uiState.isLoading)
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            else
+                                MaterialTheme.colorScheme.primary
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -119,17 +146,19 @@ fun TagAssignScreen(
                     }
                 }
 
-                // Step 1: Hotel Selection
+                // Step 1: Hotel Selection with hardware QR scanner support
                 SectionHeader(
                     number = 1,
                     title = "Otel Seçin",
                     isCompleted = uiState.selectedTenantId != null
                 )
 
-                SearchableHotelDropdown(
+                // Fast hotel selector using Dialog + LazyColumn
+                FastHotelDropdown(
                     tenants = uiState.tenants,
                     selectedTenantId = uiState.selectedTenantId,
-                    onSelectTenant = { viewModel.selectTenant(it) }
+                    onSelectTenant = { viewModel.selectTenant(it) },
+                    modifier = Modifier.padding(horizontal = 12.dp)
                 )
 
                 // Step 2: Item Type Selection
@@ -139,19 +168,13 @@ fun TagAssignScreen(
                     isCompleted = uiState.selectedItemTypeId != null
                 )
 
-                LazyRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(uiState.itemTypes) { itemType ->
-                        ItemTypeChip(
-                            itemType = itemType,
-                            isSelected = itemType.id == uiState.selectedItemTypeId,
-                            onClick = { viewModel.selectItemType(itemType.id) }
-                        )
-                    }
-                }
+                // Fast item type selector using Dialog + LazyColumn
+                FastItemTypeDropdown(
+                    itemTypes = uiState.itemTypes,
+                    selectedItemTypeId = uiState.selectedItemTypeId,
+                    onSelectItemType = { viewModel.selectItemType(it) },
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
 
                 // Step 3: Scan Tags
                 SectionHeader(
@@ -224,14 +247,17 @@ fun TagAssignScreen(
                     }
                 }
 
-                // Scanned Tags List
+                // Scanned Tags List - optimized with keys
                 LazyColumn(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth(),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                 ) {
-                    items(uiState.scannedTags) { tag ->
+                    items(
+                        items = uiState.scannedTags,
+                        key = { it.epc }
+                    ) { tag ->
                         ScannedTagCard(
                             tag = tag,
                             onRemove = { viewModel.removeTag(tag.epc) }
@@ -430,15 +456,22 @@ fun SectionHeader(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+// New: Hotel dropdown with hardware QR scanner support (like Toplama screen)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
-fun SearchableHotelDropdown(
+fun SearchableHotelDropdownWithScanner(
     tenants: List<TenantDto>,
     selectedTenantId: String?,
-    onSelectTenant: (String) -> Unit
+    onSelectTenant: (String) -> Unit,
+    onQrScanned: (String) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
+    var qrInput by remember { mutableStateOf("") }
+    val focusRequester = remember { FocusRequester() }
+    val qrFocusRequester = remember { FocusRequester() }
+    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
 
     val selectedTenant = tenants.find { it.id == selectedTenantId }
     val filteredTenants = remember(tenants, searchQuery) {
@@ -449,10 +482,245 @@ fun SearchableHotelDropdown(
         }
     }
 
+    // Auto-focus hidden QR input for hardware scanner
+    LaunchedEffect(Unit) {
+        qrFocusRequester.requestFocus()
+        keyboardController?.hide()
+    }
+
+    // Auto-process QR code after input stops (debounce 300ms) - for hardware scanner
+    LaunchedEffect(qrInput) {
+        if (qrInput.isNotBlank()) {
+            delay(300)
+            // Find tenant by QR code
+            val tenant = tenants.find { it.qrCode == qrInput.trim() }
+            if (tenant != null) {
+                onSelectTenant(tenant.id)
+            } else {
+                // Try partial name match or pass to callback
+                onQrScanned(qrInput.trim())
+            }
+            qrInput = ""
+            qrFocusRequester.requestFocus()
+            keyboardController?.hide()
+        }
+    }
+
+    // Auto-focus search field when dropdown opens
+    LaunchedEffect(expanded) {
+        if (expanded) {
+            delay(100)
+            try {
+                focusRequester.requestFocus()
+            } catch (e: Exception) {
+                // Ignore focus errors
+            }
+        } else {
+            // When dropdown closes, focus back to hidden QR input
+            qrFocusRequester.requestFocus()
+            keyboardController?.hide()
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 8.dp)
+    ) {
+        // Hidden QR Scanner Input - for hardware scanner only (invisible)
+        BasicTextField(
+            value = qrInput,
+            onValueChange = { qrInput = it },
+            modifier = Modifier
+                .size(1.dp)
+                .focusRequester(qrFocusRequester),
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
+        )
+
+        ExposedDropdownMenuBox(
+            expanded = expanded,
+            onExpandedChange = { expanded = it }
+        ) {
+            OutlinedTextField(
+                value = selectedTenant?.name ?: "",
+                onValueChange = {},
+                readOnly = true,
+                placeholder = { Text("Otel seçin veya QR tarayın...") },
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.Business,
+                        contentDescription = null,
+                        tint = if (selectedTenant != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+                trailingIcon = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.QrCodeScanner,
+                            contentDescription = "QR ile tara",
+                            tint = SuccessColor,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+                    }
+                },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = if (selectedTenant != null) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outline
+                ),
+                modifier = Modifier
+                    .menuAnchor()
+                    .fillMaxWidth(),
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp)
+            )
+
+            ExposedDropdownMenu(
+                expanded = expanded,
+                onDismissRequest = {
+                    expanded = false
+                    searchQuery = ""
+                    focusManager.clearFocus()
+                    keyboardController?.hide()
+                }
+            ) {
+                // Search field inside dropdown
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Ara...", fontSize = 14.sp) },
+                    leadingIcon = {
+                        Icon(
+                            Icons.Default.Search,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(
+                                onClick = { searchQuery = "" },
+                                modifier = Modifier.size(20.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Clear,
+                                    contentDescription = "Temizle",
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .focusRequester(focusRequester),
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                )
+
+                Divider(modifier = Modifier.padding(vertical = 4.dp))
+
+                if (filteredTenants.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "Sonuç bulunamadı",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else {
+                    filteredTenants.forEach { tenant ->
+                        val isSelected = tenant.id == selectedTenantId
+                        DropdownMenuItem(
+                            text = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(
+                                        Icons.Default.Business,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp),
+                                        tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Text(
+                                        tenant.name,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            },
+                            onClick = {
+                                onSelectTenant(tenant.id)
+                                expanded = false
+                                searchQuery = ""
+                                focusManager.clearFocus()
+                                keyboardController?.hide()
+                            },
+                            leadingIcon = if (isSelected) {
+                                {
+                                    Icon(
+                                        Icons.Default.Check,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            } else null
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SearchableHotelDropdown(
+    tenants: List<TenantDto>,
+    selectedTenantId: String?,
+    onSelectTenant: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    val focusRequester = remember { FocusRequester() }
+
+    val selectedTenant = tenants.find { it.id == selectedTenantId }
+    val filteredTenants = remember(tenants, searchQuery) {
+        if (searchQuery.isBlank()) {
+            tenants
+        } else {
+            tenants.filter { it.name.contains(searchQuery, ignoreCase = true) }
+        }
+    }
+
+    // Auto-focus search field when dropdown opens
+    LaunchedEffect(expanded) {
+        if (expanded) {
+            delay(100)
+            try {
+                focusRequester.requestFocus()
+            } catch (e: Exception) {
+                // Ignore focus errors
+            }
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp)
     ) {
         ExposedDropdownMenuBox(
             expanded = expanded,
@@ -519,7 +787,8 @@ fun SearchableHotelDropdown(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .focusRequester(focusRequester),
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
@@ -576,6 +845,177 @@ fun SearchableHotelDropdown(
                                         Icons.Default.Check,
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            } else null
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SearchableItemTypeDropdown(
+    itemTypes: List<ItemTypeDto>,
+    selectedItemTypeId: String?,
+    onSelectItemType: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    val focusRequester = remember { FocusRequester() }
+
+    val selectedItemType = itemTypes.find { it.id == selectedItemTypeId }
+    val filteredItemTypes = remember(itemTypes, searchQuery) {
+        if (searchQuery.isBlank()) {
+            itemTypes
+        } else {
+            itemTypes.filter { it.name.contains(searchQuery, ignoreCase = true) }
+        }
+    }
+
+    // Auto-focus search field when dropdown opens
+    LaunchedEffect(expanded) {
+        if (expanded) {
+            delay(100)
+            try {
+                focusRequester.requestFocus()
+            } catch (e: Exception) {
+                // Ignore focus errors
+            }
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+    ) {
+        ExposedDropdownMenuBox(
+            expanded = expanded,
+            onExpandedChange = { expanded = it }
+        ) {
+            OutlinedTextField(
+                value = selectedItemType?.name ?: "",
+                onValueChange = {},
+                readOnly = true,
+                placeholder = { Text("Ürün tipi seçin...") },
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.LocalOffer,
+                        contentDescription = null,
+                        tint = if (selectedItemType != null) ProcessColor else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+                trailingIcon = {
+                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+                },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = ProcessColor,
+                    unfocusedBorderColor = if (selectedItemType != null) ProcessColor.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outline
+                ),
+                modifier = Modifier
+                    .menuAnchor()
+                    .fillMaxWidth(),
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp)
+            )
+
+            ExposedDropdownMenu(
+                expanded = expanded,
+                onDismissRequest = {
+                    expanded = false
+                    searchQuery = ""
+                }
+            ) {
+                // Search field inside dropdown
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Ara...", fontSize = 14.sp) },
+                    leadingIcon = {
+                        Icon(
+                            Icons.Default.Search,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(
+                                onClick = { searchQuery = "" },
+                                modifier = Modifier.size(20.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Clear,
+                                    contentDescription = "Temizle",
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .focusRequester(focusRequester),
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                )
+
+                Divider(modifier = Modifier.padding(vertical = 4.dp))
+
+                if (filteredItemTypes.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "Sonuç bulunamadı",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else {
+                    filteredItemTypes.forEach { itemType ->
+                        val isSelected = itemType.id == selectedItemTypeId
+                        DropdownMenuItem(
+                            text = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(
+                                        Icons.Default.LocalOffer,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp),
+                                        tint = if (isSelected) ProcessColor else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Text(
+                                        itemType.name,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isSelected) ProcessColor else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            },
+                            onClick = {
+                                onSelectItemType(itemType.id)
+                                expanded = false
+                                searchQuery = ""
+                            },
+                            leadingIcon = if (isSelected) {
+                                {
+                                    Icon(
+                                        Icons.Default.Check,
+                                        contentDescription = null,
+                                        tint = ProcessColor
                                     )
                                 }
                             } else null

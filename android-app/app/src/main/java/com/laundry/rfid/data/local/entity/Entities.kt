@@ -6,7 +6,14 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 import java.util.Date
 
-@Entity(tableName = "scan_sessions")
+@Entity(
+    tableName = "scan_sessions",
+    indices = [
+        Index("syncStatus"),  // Frequently queried for pending sync
+        Index("status"),      // For getActiveSession() query
+        Index("startedAt")    // For ordering
+    ]
+)
 data class ScanSessionEntity(
     @PrimaryKey
     val id: String,
@@ -49,7 +56,13 @@ data class ScanEventEntity(
     val createdAt: Long = System.currentTimeMillis()
 )
 
-@Entity(tableName = "cached_items")
+@Entity(
+    tableName = "cached_items",
+    indices = [
+        Index("rfidTag"),   // Frequently queried for item lookup
+        Index("cachedAt")   // For cache cleanup queries
+    ]
+)
 data class CachedItemEntity(
     @PrimaryKey
     val id: String,
@@ -60,13 +73,43 @@ data class CachedItemEntity(
     val cachedAt: Long = System.currentTimeMillis()
 )
 
-@Entity(tableName = "sync_queue")
+// Cached tenants for instant loading
+@Entity(tableName = "cached_tenants")
+data class CachedTenantEntity(
+    @PrimaryKey
+    val id: String,
+    val name: String,
+    val qrCode: String?,
+    val email: String?,
+    val phone: String?,
+    val address: String?,
+    val isActive: Boolean,
+    val cachedAt: Long = System.currentTimeMillis()
+)
+
+// Cached item types for instant loading
+@Entity(tableName = "cached_item_types")
+data class CachedItemTypeEntity(
+    @PrimaryKey
+    val id: String,
+    val name: String,
+    val description: String?,
+    val sortOrder: Int,
+    val cachedAt: Long = System.currentTimeMillis()
+)
+
+@Entity(
+    tableName = "sync_queue",
+    indices = [Index("status"), Index("priority")]
+)
 data class SyncQueueEntity(
     @PrimaryKey
     val id: String,
     val sessionId: String,
+    val operationType: String? = null, // SCAN_SESSION_SYNC, DELIVERY_CONFIRM, ITEM_CREATE, HEARTBEAT
     val payload: String, // JSON string
     val status: String, // pending, processing, completed, failed
+    val priority: Int = 5, // 1 = highest, 10 = lowest
     val retryCount: Int = 0,
     val errorMessage: String?,
     val createdAt: Long = System.currentTimeMillis(),

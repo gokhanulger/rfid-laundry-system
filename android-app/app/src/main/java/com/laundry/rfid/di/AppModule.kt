@@ -5,10 +5,17 @@ import androidx.room.Room
 import com.laundry.rfid.BuildConfig
 import com.laundry.rfid.data.local.AppDatabase
 import com.laundry.rfid.data.local.dao.CachedItemDao
+import com.laundry.rfid.data.local.dao.CachedTenantDao
+import com.laundry.rfid.data.local.dao.CachedItemTypeDao
 import com.laundry.rfid.data.local.dao.ScanEventDao
 import com.laundry.rfid.data.local.dao.ScanSessionDao
 import com.laundry.rfid.data.local.dao.SyncQueueDao
 import com.laundry.rfid.data.remote.api.ApiService
+import com.laundry.rfid.network.CircuitBreaker
+import com.laundry.rfid.network.NetworkMonitor
+import com.laundry.rfid.network.OfflineQueueManager
+import com.laundry.rfid.network.RetryInterceptor
+import com.laundry.rfid.rfid.BarcodeManager
 import com.laundry.rfid.rfid.RfidManager
 import com.laundry.rfid.util.PreferencesManager
 import dagger.Module
@@ -35,8 +42,25 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideCircuitBreaker(): CircuitBreaker = CircuitBreaker()
+
+    @Provides
+    @Singleton
+    fun provideNetworkMonitor(
+        @ApplicationContext context: Context
+    ): NetworkMonitor = NetworkMonitor(context)
+
+    @Provides
+    @Singleton
+    fun provideRetryInterceptor(
+        circuitBreaker: CircuitBreaker
+    ): RetryInterceptor = RetryInterceptor(circuitBreaker)
+
+    @Provides
+    @Singleton
     fun provideOkHttpClient(
-        preferencesManager: PreferencesManager
+        preferencesManager: PreferencesManager,
+        retryInterceptor: RetryInterceptor
     ): OkHttpClient {
         val logging = HttpLoggingInterceptor().apply {
             level = if (BuildConfig.DEBUG) {
@@ -59,6 +83,7 @@ object AppModule {
                 }
                 chain.proceed(request)
             }
+            .addInterceptor(retryInterceptor) // Add retry interceptor
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
@@ -115,9 +140,28 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideCachedTenantDao(database: AppDatabase): CachedTenantDao {
+        return database.cachedTenantDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideCachedItemTypeDao(database: AppDatabase): CachedItemTypeDao {
+        return database.cachedItemTypeDao()
+    }
+
+    @Provides
+    @Singleton
     fun provideSyncQueueDao(database: AppDatabase): SyncQueueDao {
         return database.syncQueueDao()
     }
+
+    @Provides
+    @Singleton
+    fun provideOfflineQueueManager(
+        syncQueueDao: SyncQueueDao,
+        networkMonitor: NetworkMonitor
+    ): OfflineQueueManager = OfflineQueueManager(syncQueueDao, networkMonitor)
 
     @Provides
     @Singleton
@@ -125,5 +169,13 @@ object AppModule {
         @ApplicationContext context: Context
     ): RfidManager {
         return RfidManager(context)
+    }
+
+    @Provides
+    @Singleton
+    fun provideBarcodeManager(
+        @ApplicationContext context: Context
+    ): BarcodeManager {
+        return BarcodeManager(context)
     }
 }

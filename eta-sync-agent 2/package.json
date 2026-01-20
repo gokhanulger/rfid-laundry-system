@@ -1,0 +1,34 @@
+{
+  "name": "eta-sync-agent",
+  "version": "1.0.0",
+  "description": "ETA V.8 SQL ile RFID Camasirhane sistemi arasinda senkronizasyon",
+  "main": "index.js",
+  "bin": {
+    "eta-sync": "./index.js"
+  },
+  "engines": {
+    "node": ">=12.0.0"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "build:win": "pkg . --targets node12-win-x64 --output dist/EtaSyncAgent.exe",
+    "build": "pkg . --targets node12-win-x64 --output dist/EtaSyncAgent.exe"
+  },
+  "pkg": {
+    "assets": [
+      "config.json",
+      "src/**/*"
+    ],
+    "outputPath": "dist"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "0.21.4",
+    "tedious": "1.14.0"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
+  }
+}

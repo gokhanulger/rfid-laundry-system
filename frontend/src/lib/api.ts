@@ -503,4 +503,329 @@ export const reportsApi = {
   },
 };
 
+// Portal API Types
+export interface PortalSummary {
+  hotel: {
+    id: string;
+    name: string;
+    address: string | null;
+    phone: string | null;
+  } | null;
+  items: {
+    total: number;
+    atHotel: number;
+    atLaundry: number;
+    inTransit: number;
+    avgWashCount: number;
+    damaged: number;
+    stained: number;
+  };
+  deliveries: {
+    today: number;
+    thisWeek: number;
+    thisMonth: number;
+    total: number;
+    pending: Array<{
+      id: string;
+      barcode: string;
+      status: string;
+      createdAt: string;
+      driver?: { firstName: string; lastName: string } | null;
+    }>;
+  };
+  pickups: {
+    today: number;
+    thisWeek: number;
+    thisMonth: number;
+    total: number;
+  };
+  attentionItems: Array<{
+    id: string;
+    rfidTag: string;
+    itemType: string | undefined;
+    status: string;
+    washCount: number;
+    isDamaged: boolean;
+    isStained: boolean;
+  }>;
+}
+
+export interface PortalDelivery {
+  id: string;
+  barcode: string;
+  status: string;
+  packageCount: number;
+  itemCount: number;
+  createdAt: string;
+  pickedUpAt: string | null;
+  deliveredAt: string | null;
+  driver: { id: string; name: string } | null;
+  items: Array<{
+    id: string;
+    rfidTag: string;
+    itemType: string | undefined;
+    status: string;
+  }>;
+}
+
+export interface PortalPickup {
+  id: string;
+  bagCode: string;
+  sealNumber: string | null;
+  status: string;
+  itemCount: number;
+  createdAt: string;
+  receivedAt: string | null;
+  driver: { id: string; name: string } | null;
+  items: Array<{
+    id: string;
+    rfidTag: string;
+    itemType: string | undefined;
+  }>;
+}
+
+export interface PortalWaybill {
+  id: string;
+  waybillNumber: string;
+  status: string;
+  packageCount: number;
+  bagCount: number;
+  totalItems: number;
+  itemSummary: Record<string, number> | null;
+  etaSynced: boolean;
+  etaRefNo: string | null;
+  createdAt: string;
+  printedAt: string | null;
+  deliveredAt: string | null;
+  deliveryCount: number;
+}
+
+export interface PortalItemStatus {
+  total: number;
+  byStatus: {
+    atHotel: number;
+    atLaundry: number;
+    readyForDelivery: number;
+    packaged: number;
+    inTransit: number;
+    delivered: number;
+  };
+  byType: Record<string, { total: number; atHotel: number; atLaundry: number; inTransit: number }>;
+  lastUpdated: string;
+}
+
+export interface PortalActivity {
+  type: 'pickup' | 'delivery';
+  id: string;
+  date: string;
+  title: string;
+  description: string;
+  status: string;
+  driver: string | null;
+}
+
+// Portal API (for hotel owners)
+export const portalApi = {
+  getSummary: async (): Promise<PortalSummary> => {
+    const { data } = await api.get<PortalSummary>('/portal/summary');
+    return data;
+  },
+
+  getDeliveries: async (params?: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    startDate?: string;
+    endDate?: string;
+    search?: string;
+  }): Promise<PaginatedResponse<PortalDelivery>> => {
+    const { data } = await api.get<PaginatedResponse<PortalDelivery>>('/portal/deliveries', { params });
+    return data;
+  },
+
+  getPickups: async (params?: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    startDate?: string;
+    endDate?: string;
+  }): Promise<PaginatedResponse<PortalPickup>> => {
+    const { data } = await api.get<PaginatedResponse<PortalPickup>>('/portal/pickups', { params });
+    return data;
+  },
+
+  getWaybills: async (params?: {
+    page?: number;
+    limit?: number;
+    startDate?: string;
+    endDate?: string;
+    search?: string;
+  }): Promise<PaginatedResponse<PortalWaybill>> => {
+    const { data } = await api.get<PaginatedResponse<PortalWaybill>>('/portal/waybills', { params });
+    return data;
+  },
+
+  getWaybillById: async (id: string): Promise<any> => {
+    const { data } = await api.get(`/portal/waybills/${id}`);
+    return data;
+  },
+
+  getItemStatus: async (): Promise<PortalItemStatus> => {
+    const { data } = await api.get<PortalItemStatus>('/portal/items/status');
+    return data;
+  },
+
+  getActivity: async (limit?: number): Promise<PortalActivity[]> => {
+    const { data } = await api.get<PortalActivity[]>('/portal/activity', { params: { limit } });
+    return data;
+  },
+};
+
+// ============================================
+// NOTIFICATION API TYPES
+// ============================================
+
+export type NotificationChannel = 'whatsapp' | 'sms' | 'email' | 'webhook';
+export type NotificationEvent =
+  | 'delivery_created'
+  | 'delivery_packaged'
+  | 'delivery_picked_up'
+  | 'delivery_delivered'
+  | 'pickup_created'
+  | 'pickup_received'
+  | 'daily_summary'
+  | 'alert_new';
+export type NotificationStatus = 'pending' | 'sent' | 'failed' | 'delivered';
+
+export interface NotificationSetting {
+  id: string;
+  tenantId: string;
+  channel: NotificationChannel;
+  isEnabled: boolean;
+  whatsappPhoneId?: string;
+  whatsappAccessToken?: string;
+  whatsappRecipient?: string;
+  webhookUrl?: string;
+  webhookSecret?: string;
+  events: NotificationEvent[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NotificationTemplate {
+  id: string;
+  name: string;
+  event: NotificationEvent;
+  channel: NotificationChannel;
+  subject?: string;
+  content: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NotificationLog {
+  id: string;
+  tenantId?: string;
+  channel: NotificationChannel;
+  event: NotificationEvent;
+  recipient: string;
+  subject?: string;
+  content: string;
+  status: NotificationStatus;
+  externalId?: string;
+  errorMessage?: string;
+  sentAt?: string;
+  deliveredAt?: string;
+  createdAt: string;
+}
+
+export interface NotificationStats {
+  byStatus: { status: NotificationStatus; count: number }[];
+  byChannel: { channel: NotificationChannel; count: number }[];
+  recentFailures: NotificationLog[];
+}
+
+// Notification API
+export const notificationApi = {
+  // Settings
+  getSettings: async (tenantId: string): Promise<{
+    tenant: { notificationEnabled: boolean; notificationPhone?: string };
+    settings: NotificationSetting[];
+  }> => {
+    const { data } = await api.get(`/notifications/settings/${tenantId}`);
+    return data;
+  },
+
+  saveSettings: async (tenantId: string, settings: Partial<NotificationSetting>): Promise<NotificationSetting> => {
+    const { data } = await api.post(`/notifications/settings/${tenantId}`, settings);
+    return data;
+  },
+
+  deleteSettings: async (tenantId: string, channel: NotificationChannel): Promise<void> => {
+    await api.delete(`/notifications/settings/${tenantId}/${channel}`);
+  },
+
+  updateTenantSettings: async (tenantId: string, settings: {
+    notificationEnabled?: boolean;
+    notificationPhone?: string;
+  }): Promise<Tenant> => {
+    const { data } = await api.patch(`/notifications/tenant/${tenantId}`, settings);
+    return data;
+  },
+
+  // Templates
+  getTemplates: async (): Promise<NotificationTemplate[]> => {
+    const { data } = await api.get('/notifications/templates');
+    return data;
+  },
+
+  createTemplate: async (template: Partial<NotificationTemplate>): Promise<NotificationTemplate> => {
+    const { data } = await api.post('/notifications/templates', template);
+    return data;
+  },
+
+  updateTemplate: async (id: string, template: Partial<NotificationTemplate>): Promise<NotificationTemplate> => {
+    const { data } = await api.patch(`/notifications/templates/${id}`, template);
+    return data;
+  },
+
+  deleteTemplate: async (id: string): Promise<void> => {
+    await api.delete(`/notifications/templates/${id}`);
+  },
+
+  // Logs
+  getLogs: async (params?: {
+    tenantId?: string;
+    channel?: NotificationChannel;
+    status?: NotificationStatus;
+    limit?: number;
+    offset?: number;
+  }): Promise<{
+    logs: NotificationLog[];
+    total: number;
+    limit: number;
+    offset: number;
+  }> => {
+    const { data } = await api.get('/notifications/logs', { params });
+    return data;
+  },
+
+  // Stats
+  getStats: async (tenantId?: string): Promise<NotificationStats> => {
+    const { data } = await api.get('/notifications/stats', { params: { tenantId } });
+    return data;
+  },
+
+  // Test
+  sendTest: async (tenantId: string, channel: NotificationChannel, recipient: string): Promise<{
+    success: boolean;
+    error?: string;
+    message?: string;
+  }> => {
+    const { data } = await api.post('/notifications/test', { tenantId, channel, recipient });
+    return data;
+  },
+};
+
 export default api;

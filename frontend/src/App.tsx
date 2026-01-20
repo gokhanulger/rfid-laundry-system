@@ -1,6 +1,7 @@
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { SocketProvider } from './contexts/SocketContext';
 import { ToastProvider } from './components/Toast';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Layout } from './components/Layout';
@@ -25,6 +26,7 @@ import { IronerInterfacePage } from './pages/IronerInterfacePage';
 import { IronerLoginPage } from './pages/IronerLoginPage';
 import { PackagerLoginPage } from './pages/PackagerLoginPage';
 import { StationLoginPage } from './pages/StationLoginPage';
+import { IrsaliyeLoginPage } from './pages/IrsaliyeLoginPage';
 import { PackagingPage } from './pages/PackagingPage';
 import { HotelManagementPage } from './pages/HotelManagementPage';
 import { UserManagementPage } from './pages/UserManagementPage';
@@ -37,6 +39,13 @@ import { HotelItemHistoryPage } from './pages/HotelItemHistoryPage';
 import HotelQRCodesPage from './pages/HotelQRCodesPage';
 import { HotelStatusBoardPage } from './pages/HotelStatusBoardPage';
 import { EtaIntegrationPage } from './pages/EtaIntegrationPage';
+import NotificationSettingsPage from './pages/NotificationSettingsPage';
+
+// Customer Portal Pages
+import { CustomerPortalPage } from './pages/CustomerPortalPage';
+import { PortalDeliveryHistory } from './pages/portal/PortalDeliveryHistory';
+import { PortalPickupHistory } from './pages/portal/PortalPickupHistory';
+import { PortalWaybills } from './pages/portal/PortalWaybills';
 
 // Driver Pages
 import { DirtyPickupPage } from './pages/driver/DirtyPickupPage';
@@ -49,6 +58,9 @@ function RoleBasedRedirect() {
   const { user } = useAuth();
   if (user?.role === 'driver') {
     return <Navigate to="/driver/dirty-pickup" replace />;
+  }
+  if (user?.role === 'hotel_owner') {
+    return <Navigate to="/portal" replace />;
   }
   return <Navigate to="/dashboard" replace />;
 }
@@ -69,12 +81,14 @@ function App() {
       <QueryClientProvider client={queryClient}>
         <ToastProvider>
           <AuthProvider>
+            <SocketProvider>
             <HashRouter>
             <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route path="/ironer" element={<IronerLoginPage />} />
               <Route path="/packager" element={<PackagerLoginPage />} />
               <Route path="/station" element={<StationLoginPage />} />
+              <Route path="/irsaliye-login" element={<IrsaliyeLoginPage />} />
               <Route
                 path="/"
                 element={
@@ -118,6 +132,13 @@ function App() {
                 <Route path="items" element={<ItemManagementPage />} />
                 <Route path="bulk-tag-assignment" element={<BulkTagAssignmentPage />} />
                 <Route path="eta-integration" element={<EtaIntegrationPage />} />
+                <Route path="notifications" element={<NotificationSettingsPage />} />
+
+                {/* Customer Portal Pages */}
+                <Route path="portal" element={<CustomerPortalPage />} />
+                <Route path="portal/deliveries" element={<PortalDeliveryHistory />} />
+                <Route path="portal/pickups" element={<PortalPickupHistory />} />
+                <Route path="portal/waybills" element={<PortalWaybills />} />
 
                 {/* Driver Pages */}
                 <Route path="driver" element={<Navigate to="/driver/dirty-pickup" replace />} />
@@ -128,6 +149,7 @@ function App() {
               </Route>
             </Routes>
             </HashRouter>
+            </SocketProvider>
           </AuthProvider>
         </ToastProvider>
       </QueryClientProvider>

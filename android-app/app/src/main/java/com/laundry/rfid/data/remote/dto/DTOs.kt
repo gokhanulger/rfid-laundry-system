@@ -170,7 +170,8 @@ data class ItemDto(
 data class ItemTypeDto(
     val id: String,
     val name: String,
-    val description: String?
+    val description: String?,
+    val sortOrder: Int = 0
 )
 
 data class TenantDto(

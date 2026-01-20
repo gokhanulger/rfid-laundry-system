@@ -50,3 +50,4 @@ android-app/local.properties
 android-app/*.keystore
 frontend/release/
 frontend/release-packager/
+frontend/release-irsaliye/

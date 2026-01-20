@@ -37,6 +37,62 @@ interface Bag {
 
 type TabType = 'create' | 'history' | 'bags';
 
+// İrsaliye yazdırma ayarları - PDF ölçülerine göre (absolute positioning)
+interface IrsaliyeSettings {
+  // Nüsha pozisyonları (sol kenardan mm)
+  solNushaSol: number;    // Sol nüshanın sol kenardan mesafesi
+  sagNushaSol: number;    // Sağ nüshanın sol kenardan mesafesi (10.5cm = 105mm)
+  nushaGenislik: number;  // Her nüshanın genişliği (10.5cm = 105mm)
+
+  // Dikey pozisyonlar (üstten mm)
+  otelUst: number;        // Otel adı üstten mesafe (3.5cm = 35mm)
+  urunlerUst: number;     // Ürünler üstten mesafe (6.5cm = 65mm)
+  footerUst: number;      // Footer (paket sayısı) üstten mesafe
+
+  // Font boyutları
+  fontSize: number;       // Ürün font boyutu (pt)
+  otelFontSize: number;   // Otel adı font boyutu (pt)
+
+  // Sol nüsha - Miktar ve Tarih
+  solMiktarSol: number;   // Sol nüsha miktar sütunu (soldan mm)
+  solTarihSag: number;    // Sol nüsha tarih (sağdan mm)
+
+  // Sağ nüsha - Miktar ve Tarih
+  sagMiktarSol: number;   // Sağ nüsha miktar sütunu (soldan mm)
+  sagTarihSag: number;    // Sağ nüsha tarih (sağdan mm)
+}
+
+const defaultIrsaliyeSettings: IrsaliyeSettings = {
+  solNushaSol: 0,         // Sol nüsha en soldan başlar
+  sagNushaSol: 105,       // Sağ nüsha 10.5cm'den başlar
+  nushaGenislik: 105,     // 10.5cm
+  otelUst: 35,            // 3.5cm
+  urunlerUst: 65,         // 6.5cm
+  footerUst: 130,         // Footer pozisyonu
+  fontSize: 9,
+  otelFontSize: 11,
+  solMiktarSol: 70,       // Sol nüsha miktar
+  solTarihSag: 5,         // Sol nüsha tarih
+  sagMiktarSol: 70,       // Sağ nüsha miktar
+  sagTarihSag: 5,         // Sağ nüsha tarih
+};
+
+function getIrsaliyeSettings(): IrsaliyeSettings {
+  try {
+    const saved = localStorage.getItem('irsaliyeSettings');
+    if (saved) {
+      return { ...defaultIrsaliyeSettings, ...JSON.parse(saved) };
+    }
+  } catch (e) {
+    console.error('Error loading irsaliye settings:', e);
+  }
+  return defaultIrsaliyeSettings;
+}
+
+function saveIrsaliyeSettings(settings: IrsaliyeSettings) {
+  localStorage.setItem('irsaliyeSettings', JSON.stringify(settings));
+}
+
 // Horoz sesi için Audio element
 let roosterAudio: HTMLAudioElement | null = null;
 
@@ -177,6 +233,8 @@ export function IrsaliyePage() {
   const [selectedBagPrinter, setSelectedBagPrinter] = useState<string>(getBagPrinter() || '');
   const [showPrinterSettings, setShowPrinterSettings] = useState(false);
   const [printerTab, setPrinterTab] = useState<'irsaliye' | 'bag'>('irsaliye');
+  const [showIrsaliyeSettings, setShowIrsaliyeSettings] = useState(false);
+  const [irsaliyeSettings, setIrsaliyeSettings] = useState<IrsaliyeSettings>(getIrsaliyeSettings);
   const [isCreatingWaybill, setIsCreatingWaybill] = useState(false);
 
   // Wrong hotel warning modal
@@ -689,41 +747,9 @@ export function IrsaliyePage() {
     doc.setFontSize(8);
     doc.text('RFID Camasirhane Sistemi', pageWidth / 2, yPos, { align: 'center' });
 
-    // Generate HTML for printing - 2 adet yan yana (tek sayfada)
-    // Matbu kağıda uygun: Sayın, Temiz İrsaliyesi, Teslim Eden/Alan yok
-    // Otel adresi (varsa)
+    // Generate HTML for printing - A5 kağıt, yan yana 2 nüsha
     const hotelAddress = hotel?.address || '';
-
-    const singleIrsaliye = `
-      <div class="irsaliye">
-        <div class="header-row">
-          <div class="hotel-info">
-            <div class="hotel-name">${hotel?.name || 'Bilinmeyen Otel'}</div>
-            <div class="hotel-address">${hotelAddress}</div>
-          </div>
-          <div class="doc-info">
-            <div>A - ${documentNo}</div>
-            <div>${today}</div>
-          </div>
-        </div>
-
-        <div class="products">
-          ${totals.map(item => `
-            <div class="product-row">
-              <span class="product-name">${item.name.toUpperCase()}</span>
-              <span class="product-qty">${item.count}</span>
-            </div>
-          `).join('')}
-        </div>
-
-        <div class="footer">
-          <div class="footer-row">
-            <span class="footer-label">PAKET SAYISI :</span>
-            <span class="footer-value">${totalPackageCount}</span>
-          </div>
-        </div>
-      </div>
-    `;
+    const s = irsaliyeSettings; // kısa erişim için
 
     const printHtml = `
       <!DOCTYPE html>
@@ -732,120 +758,146 @@ export function IrsaliyePage() {
         <meta charset="UTF-8">
         <style>
           @page {
-            size: A4;
+            size: A5 portrait;
             margin: 0;
           }
           * { margin: 0; padding: 0; box-sizing: border-box; }
           body {
             font-family: Arial, sans-serif;
-            font-size: 10pt;
-            width: 297mm;
+            font-size: ${s.fontSize}pt;
+            width: 148mm;
             height: 210mm;
-            transform: rotate(90deg) translateY(-210mm);
+            /* 90 derece saat yönünde döndür */
+            transform: rotate(90deg) translateY(-148mm);
             transform-origin: top left;
-          }
-          .container {
-            display: flex;
-            width: 297mm;
-            height: 210mm;
-            padding-top: 0mm;
-            padding-left: 6mm;
-            padding-right: 2mm;
-          }
-          .irsaliye {
-            width: 50%;
-            height: 100%;
-            padding: 0mm;
-            padding-left: 3mm;
-            padding-right: 20mm;          /* 5-6 karakter sola */
             position: relative;
-            overflow: visible;
           }
+          .page {
+            position: relative;
+            width: 210mm;
+            height: 148mm;
+          }
+          /* Nüsha - absolute positioning */
+          .nusha {
+            position: absolute;
+            top: 0;
+            width: ${s.nushaGenislik}mm;
+            height: 148mm;
+          }
+          .nusha-sol { left: ${s.solNushaSol}mm; }
+          .nusha-sag { left: ${s.sagNushaSol}mm; }
 
-          /* Header: Otel bilgisi (sol) + Belge no/Tarih (sağ) */
-          .header-row {
-            display: flex;
-            justify-content: space-between;
-            margin-top: -48mm;            /* 9-10 satır YUKARI çık */
-            margin-bottom: 3mm;
-          }
-          .hotel-info {
-            flex: 1;
-            padding-right: 5mm;
+          /* Header bölümü - otel adı ve tarih */
+          .header-section {
+            position: absolute;
+            top: ${s.otelUst}mm;
+            left: 5mm;
+            right: 5mm;
           }
           .hotel-name {
-            font-size: 14pt;
+            font-size: ${s.otelFontSize}pt;
             font-weight: bold;
-            margin-bottom: 1mm;
           }
           .hotel-address {
-            font-size: 12pt;
-            line-height: 1.4;
-            white-space: pre-line;
+            font-size: ${s.fontSize - 1}pt;
+            margin-top: 1mm;
           }
           .doc-info {
+            position: absolute;
+            top: ${s.otelUst}mm;
             text-align: right;
-            font-size: 13pt;
-            min-width: 30mm;
-            padding-right: 5mm;           /* Sola kaydır */
+            font-size: ${s.fontSize}pt;
           }
-          .doc-info div {
-            margin-bottom: 1mm;
-          }
+          /* Sol nüsha tarih */
+          .nusha-sol .doc-info { right: ${s.solTarihSag}mm; }
+          /* Sağ nüsha tarih */
+          .nusha-sag .doc-info { right: ${s.sagTarihSag}mm; }
 
-          /* Ürün listesi */
-          .products {
-            margin-top: -32mm;            /* 6-7 satır YUKARI çık */
+          /* Ürünler bölümü */
+          .products-section {
+            position: absolute;
+            top: ${s.urunlerUst}mm;
+            left: 5mm;
+            right: 5mm;
           }
           .product-row {
             display: flex;
-            justify-content: space-between;
-            font-size: 13pt;
-            line-height: 1.5;
             padding: 0.5mm 0;
-          }
-          .product-name {
-            flex: 1;
+            font-size: ${s.fontSize}pt;
           }
           .product-qty {
             text-align: right;
-            min-width: 15mm;
-            padding-right: 5mm;           /* Sola kaydır */
+            padding-right: 5mm;
           }
+          /* Sol nüsha miktar */
+          .nusha-sol .product-name { width: ${s.solMiktarSol}mm; }
+          /* Sağ nüsha miktar */
+          .nusha-sag .product-name { width: ${s.sagMiktarSol}mm; }
 
-          /* Alt kısım: Paket sayısı */
-          .footer {
+          /* Footer - paket sayısı */
+          .footer-section {
             position: absolute;
-            bottom: 45mm;
-            left: 3mm;
-            right: 20mm;                  /* Sola kaydır */
-            font-size: 18pt;
+            top: ${s.footerUst}mm;
+            left: 5mm;
+            font-size: ${s.fontSize + 1}pt;
             font-weight: bold;
-          }
-          .footer-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-          }
-          .footer-label {
-            /* Matbu kağıtta yazıyor ama biz de yazalım */
-          }
-          .footer-value {
-            padding-right: 5mm;           /* Sola kaydır */
           }
         </style>
       </head>
       <body>
-        <div class="container">
-          ${singleIrsaliye}
-          ${singleIrsaliye}
+        <div class="page">
+          <!-- SOL NÜSHA -->
+          <div class="nusha nusha-sol">
+            <div class="doc-info">
+              <div>A - ${documentNo}</div>
+              <div>${today}</div>
+            </div>
+            <div class="header-section">
+              <div class="hotel-name">${hotel?.name || 'Bilinmeyen Otel'}</div>
+              <div class="hotel-address">${hotelAddress}</div>
+            </div>
+            <div class="products-section">
+              ${totals.map(item => `
+                <div class="product-row">
+                  <span class="product-name">${item.name.toUpperCase()}</span>
+                  <span class="product-qty">${item.count}</span>
+                </div>
+              `).join('')}
+            </div>
+            <div class="footer-section">
+              PAKET SAYISI: ${totalPackageCount}
+            </div>
+          </div>
+
+          <!-- SAĞ NÜSHA -->
+          <div class="nusha nusha-sag">
+            <div class="doc-info">
+              <div>A - ${documentNo}</div>
+              <div>${today}</div>
+            </div>
+            <div class="header-section">
+              <div class="hotel-name">${hotel?.name || 'Bilinmeyen Otel'}</div>
+              <div class="hotel-address">${hotelAddress}</div>
+            </div>
+            <div class="products-section">
+              ${totals.map(item => `
+                <div class="product-row">
+                  <span class="product-name">${item.name.toUpperCase()}</span>
+                  <span class="product-qty">${item.count}</span>
+                </div>
+              `).join('')}
+            </div>
+            <div class="footer-section">
+              PAKET SAYISI: ${totalPackageCount}
+            </div>
+          </div>
         </div>
       </body>
       </html>
     `;
 
     if (isElectron() && selectedPrinter) {
-      // Electron: Send HTML to irsaliye printer (205mm x 217.5mm)
+      // Electron: Send HTML to irsaliye printer (205mm x 215mm)
       try {
         const result = await printIrsaliye(printHtml, { printerName: selectedPrinter });
         if (result?.success) {
@@ -890,6 +942,202 @@ export function IrsaliyePage() {
       toast.error('Beklenmeyen bir hata olustu: ' + getErrorMessage(error));
     } finally {
       setIsCreatingWaybill(false);
+    }
+  };
+
+  // Reprint waybill from history
+  const handleReprintWaybill = async (waybill: any) => {
+    if (!waybill) return;
+
+    console.log('[Reprint] Waybill data:', waybill);
+    console.log('[Reprint] Tenant:', waybill.tenant);
+    console.log('[Reprint] WaybillNumber:', waybill.waybillNumber);
+
+    // Parse item summary
+    let itemTotals: { name: string; count: number }[] = [];
+    try {
+      const parsed = JSON.parse(waybill.itemSummary || '[]');
+      itemTotals = parsed.map((item: any) => ({
+        name: item.typeName || 'Bilinmeyen',
+        count: item.count || 0,
+      }));
+    } catch {
+      itemTotals = [];
+    }
+
+    const hotelName = waybill.tenant?.name || 'Bilinmeyen Otel';
+    const hotelAddress = waybill.tenant?.address || '';
+    const documentNo = waybill.waybillNumber || '';
+    const printDate = new Date(waybill.printedAt || waybill.createdAt).toLocaleDateString('tr-TR');
+    const totalPackageCount = waybill.packageCount || 0;
+    const s = irsaliyeSettings;
+
+    const printHtml = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <style>
+          @page {
+            size: A5 portrait;
+            margin: 0;
+          }
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body {
+            font-family: Arial, sans-serif;
+            font-size: ${s.fontSize}pt;
+            width: 148mm;
+            height: 210mm;
+            /* 90 derece saat yönünde döndür */
+            transform: rotate(90deg) translateY(-148mm);
+            transform-origin: top left;
+            position: relative;
+          }
+          .page {
+            position: relative;
+            width: 210mm;
+            height: 148mm;
+          }
+          /* Nüsha - absolute positioning */
+          .nusha {
+            position: absolute;
+            top: 0;
+            width: ${s.nushaGenislik}mm;
+            height: 148mm;
+          }
+          .nusha-sol { left: ${s.solNushaSol}mm; }
+          .nusha-sag { left: ${s.sagNushaSol}mm; }
+
+          /* Header bölümü - otel adı ve tarih */
+          .header-section {
+            position: absolute;
+            top: ${s.otelUst}mm;
+            left: 5mm;
+            right: 5mm;
+          }
+          .hotel-name {
+            font-size: ${s.otelFontSize}pt;
+            font-weight: bold;
+          }
+          .hotel-address {
+            font-size: ${s.fontSize - 1}pt;
+            margin-top: 1mm;
+          }
+          .doc-info {
+            position: absolute;
+            top: ${s.otelUst}mm;
+            text-align: right;
+            font-size: ${s.fontSize}pt;
+          }
+          /* Sol nüsha tarih */
+          .nusha-sol .doc-info { right: ${s.solTarihSag}mm; }
+          /* Sağ nüsha tarih */
+          .nusha-sag .doc-info { right: ${s.sagTarihSag}mm; }
+
+          /* Ürünler bölümü */
+          .products-section {
+            position: absolute;
+            top: ${s.urunlerUst}mm;
+            left: 5mm;
+            right: 5mm;
+          }
+          .product-row {
+            display: flex;
+            padding: 0.5mm 0;
+            font-size: ${s.fontSize}pt;
+          }
+          .product-qty {
+            text-align: right;
+            padding-right: 5mm;
+          }
+          /* Sol nüsha miktar */
+          .nusha-sol .product-name { width: ${s.solMiktarSol}mm; }
+          /* Sağ nüsha miktar */
+          .nusha-sag .product-name { width: ${s.sagMiktarSol}mm; }
+
+          /* Footer - paket sayısı */
+          .footer-section {
+            position: absolute;
+            top: ${s.footerUst}mm;
+            left: 5mm;
+            font-size: ${s.fontSize + 1}pt;
+            font-weight: bold;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="page">
+          <!-- SOL NÜSHA -->
+          <div class="nusha nusha-sol">
+            <div class="doc-info">
+              <div>A - ${documentNo}</div>
+              <div>${printDate}</div>
+            </div>
+            <div class="header-section">
+              <div class="hotel-name">${hotelName}</div>
+              <div class="hotel-address">${hotelAddress}</div>
+            </div>
+            <div class="products-section">
+              ${itemTotals.map(item => `
+                <div class="product-row">
+                  <span class="product-name">${item.name.toUpperCase()}</span>
+                  <span class="product-qty">${item.count}</span>
+                </div>
+              `).join('')}
+            </div>
+            <div class="footer-section">
+              PAKET SAYISI: ${totalPackageCount}
+            </div>
+          </div>
+
+          <!-- SAĞ NÜSHA -->
+          <div class="nusha nusha-sag">
+            <div class="doc-info">
+              <div>A - ${documentNo}</div>
+              <div>${printDate}</div>
+            </div>
+            <div class="header-section">
+              <div class="hotel-name">${hotelName}</div>
+              <div class="hotel-address">${hotelAddress}</div>
+            </div>
+            <div class="products-section">
+              ${itemTotals.map(item => `
+                <div class="product-row">
+                  <span class="product-name">${item.name.toUpperCase()}</span>
+                  <span class="product-qty">${item.count}</span>
+                </div>
+              `).join('')}
+            </div>
+            <div class="footer-section">
+              PAKET SAYISI: ${totalPackageCount}
+            </div>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    if (isElectron() && selectedPrinter) {
+      try {
+        const result = await printIrsaliye(printHtml, { printerName: selectedPrinter });
+        if (result?.success) {
+          toast.success('Irsaliye yaziciya gonderildi!');
+        } else {
+          toast.error('Yazici hatasi');
+        }
+      } catch {
+        toast.error('Yazici hatasi');
+      }
+    } else {
+      const printWindow = window.open('', '_blank');
+      if (printWindow) {
+        printWindow.document.write(printHtml);
+        printWindow.document.close();
+        setTimeout(() => {
+          printWindow.focus();
+          printWindow.print();
+        }, 500);
+      }
     }
   };
 
@@ -1235,6 +1483,13 @@ export function IrsaliyePage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowIrsaliyeSettings(true)}
+            className="flex items-center gap-2 px-4 py-2 text-purple-600 hover:bg-purple-50 rounded-lg border border-purple-200"
+          >
+            <FileText className="w-4 h-4" />
+            Irsaliye Ayarlari
+          </button>
           {isElectron() && (
             <button
               onClick={() => setShowPrinterSettings(true)}
@@ -1394,6 +1649,196 @@ export function IrsaliyePage() {
                 className="w-full py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium"
               >
                 Kapat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Irsaliye Print Settings Modal */}
+      {showIrsaliyeSettings && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-lg mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                <FileText className="w-6 h-6 text-purple-600" />
+                Irsaliye Yazdirma Ayarlari
+              </h2>
+              <button
+                onClick={() => setShowIrsaliyeSettings(false)}
+                className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-gray-600 text-sm mb-4">
+              Irsaliye ciktisinin konumlandirma ayarlari (mm cinsinden)
+            </p>
+
+            <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
+              {/* Yatay Pozisyonlar */}
+              <div className="bg-blue-50 p-3 rounded-lg">
+                <h3 className="text-sm font-semibold text-blue-800 mb-2">Yatay Pozisyonlar (soldan mm)</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Sol Nusha</label>
+                    <input
+                      type="number"
+                      value={irsaliyeSettings.solNushaSol}
+                      onChange={(e) => setIrsaliyeSettings(prev => ({ ...prev, solNushaSol: Number(e.target.value) }))}
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Sag Nusha (105=10.5cm)</label>
+                    <input
+                      type="number"
+                      value={irsaliyeSettings.sagNushaSol}
+                      onChange={(e) => setIrsaliyeSettings(prev => ({ ...prev, sagNushaSol: Number(e.target.value) }))}
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+                </div>
+                <div className="mt-2">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Nusha Genisligi (10.5cm=105)</label>
+                  <input
+                    type="number"
+                    value={irsaliyeSettings.nushaGenislik}
+                    onChange={(e) => setIrsaliyeSettings(prev => ({ ...prev, nushaGenislik: Number(e.target.value) }))}
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+              </div>
+
+              {/* Dikey Pozisyonlar */}
+              <div className="bg-green-50 p-3 rounded-lg">
+                <h3 className="text-sm font-semibold text-green-800 mb-2">Dikey Pozisyonlar (ustten mm)</h3>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Otel Adi (3.5cm=35)</label>
+                    <input
+                      type="number"
+                      value={irsaliyeSettings.otelUst}
+                      onChange={(e) => setIrsaliyeSettings(prev => ({ ...prev, otelUst: Number(e.target.value) }))}
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Urunler (6.5cm=65)</label>
+                    <input
+                      type="number"
+                      value={irsaliyeSettings.urunlerUst}
+                      onChange={(e) => setIrsaliyeSettings(prev => ({ ...prev, urunlerUst: Number(e.target.value) }))}
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Footer</label>
+                    <input
+                      type="number"
+                      value={irsaliyeSettings.footerUst}
+                      onChange={(e) => setIrsaliyeSettings(prev => ({ ...prev, footerUst: Number(e.target.value) }))}
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Font Ayarları */}
+              <div className="bg-purple-50 p-3 rounded-lg">
+                <h3 className="text-sm font-semibold text-purple-800 mb-2">Font Ayarlari (pt)</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Urun Font</label>
+                    <input
+                      type="number"
+                      value={irsaliyeSettings.fontSize}
+                      onChange={(e) => setIrsaliyeSettings(prev => ({ ...prev, fontSize: Number(e.target.value) }))}
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Otel Adi Font</label>
+                    <input
+                      type="number"
+                      value={irsaliyeSettings.otelFontSize}
+                      onChange={(e) => setIrsaliyeSettings(prev => ({ ...prev, otelFontSize: Number(e.target.value) }))}
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Sol Nüsha - Miktar ve Tarih */}
+              <div className="bg-orange-50 p-3 rounded-lg">
+                <h3 className="text-sm font-semibold text-orange-800 mb-2">Sol Nusha - Miktar/Tarih</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Miktar (soldan)</label>
+                    <input
+                      type="number"
+                      value={irsaliyeSettings.solMiktarSol}
+                      onChange={(e) => setIrsaliyeSettings(prev => ({ ...prev, solMiktarSol: Number(e.target.value) }))}
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Tarih (sagdan)</label>
+                    <input
+                      type="number"
+                      value={irsaliyeSettings.solTarihSag}
+                      onChange={(e) => setIrsaliyeSettings(prev => ({ ...prev, solTarihSag: Number(e.target.value) }))}
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Sağ Nüsha - Miktar ve Tarih */}
+              <div className="bg-red-50 p-3 rounded-lg">
+                <h3 className="text-sm font-semibold text-red-800 mb-2">Sag Nusha - Miktar/Tarih</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Miktar (soldan)</label>
+                    <input
+                      type="number"
+                      value={irsaliyeSettings.sagMiktarSol}
+                      onChange={(e) => setIrsaliyeSettings(prev => ({ ...prev, sagMiktarSol: Number(e.target.value) }))}
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Tarih (sagdan)</label>
+                    <input
+                      type="number"
+                      value={irsaliyeSettings.sagTarihSag}
+                      onChange={(e) => setIrsaliyeSettings(prev => ({ ...prev, sagTarihSag: Number(e.target.value) }))}
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 pt-4 border-t flex gap-2">
+              <button
+                onClick={() => {
+                  setIrsaliyeSettings(defaultIrsaliyeSettings);
+                }}
+                className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium"
+              >
+                Varsayilana Don
+              </button>
+              <button
+                onClick={() => {
+                  saveIrsaliyeSettings(irsaliyeSettings);
+                  setShowIrsaliyeSettings(false);
+                  toast.success('Irsaliye ayarlari kaydedildi');
+                }}
+                className="flex-1 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium"
+              >
+                Kaydet
               </button>
             </div>
           </div>
@@ -2267,8 +2712,7 @@ export function IrsaliyePage() {
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                // TODO: Implement waybill reprint
-                                toast.info('Yeniden yazdirma ozelligi yakinda eklenecek');
+                                handleReprintWaybill(selectedWaybill);
                               }}
                               className="px-6 py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-medium flex items-center gap-2 shadow"
                             >

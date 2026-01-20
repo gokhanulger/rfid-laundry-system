@@ -7,11 +7,14 @@ import com.laundry.rfid.data.remote.dto.BulkItemCreateRequest
 import com.laundry.rfid.data.remote.dto.CreateItemRequest
 import com.laundry.rfid.data.remote.dto.ItemTypeDto
 import com.laundry.rfid.data.remote.dto.TenantDto
+import com.laundry.rfid.data.repository.DataCacheRepository
+import com.laundry.rfid.rfid.BarcodeManager
 import com.laundry.rfid.rfid.RfidCallback
 import com.laundry.rfid.rfid.RfidManager
 import com.laundry.rfid.rfid.RfidState
 import com.laundry.rfid.rfid.RfidTag
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -28,7 +31,8 @@ data class TagAssignUiState(
     val rfidState: RfidState = RfidState.Disconnected,
     val error: String? = null,
     val successMessage: String? = null,
-    val saveResult: SaveResult? = null
+    val saveResult: SaveResult? = null,
+    val isBarcodeScanningForHotel: Boolean = false
 )
 
 data class SaveResult(
@@ -40,7 +44,9 @@ data class SaveResult(
 @HiltViewModel
 class TagAssignViewModel @Inject constructor(
     private val rfidManager: RfidManager,
-    private val apiService: ApiService
+    private val apiService: ApiService,
+    private val barcodeManager: BarcodeManager,
+    private val dataCacheRepository: DataCacheRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TagAssignUiState())
@@ -75,31 +81,71 @@ class TagAssignViewModel @Inject constructor(
                 _uiState.update { it.copy(rfidState = state) }
             }
         }
+
+        // Listen for barcode scans
+        viewModelScope.launch {
+            barcodeManager.barcodeFlow.collect { barcode ->
+                if (_uiState.value.isBarcodeScanningForHotel) {
+                    selectTenantByQrCode(barcode)
+                    stopBarcodeScanForHotel()
+                }
+            }
+        }
     }
 
     private fun loadSettings() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true) }
             try {
-                // Load item types
-                val itemTypesResponse = apiService.getItemTypes()
-                if (itemTypesResponse.isSuccessful) {
-                    _uiState.update { it.copy(itemTypes = itemTypesResponse.body() ?: emptyList()) }
-                } else {
-                    val errorBody = itemTypesResponse.errorBody()?.string() ?: "Unknown error"
-                    _uiState.update { it.copy(error = "Ürün tipleri yüklenemedi: ${itemTypesResponse.code()} - $errorBody") }
-                }
+                // Load from cache ONLY - no auto refresh
+                val cachedItemTypes = dataCacheRepository.getCachedItemTypes()
+                val cachedTenants = dataCacheRepository.getCachedTenants()
 
-                // Load tenants (hotels)
-                val tenantsResponse = apiService.getTenants()
-                if (tenantsResponse.isSuccessful) {
-                    _uiState.update { it.copy(tenants = tenantsResponse.body() ?: emptyList()) }
+                if (cachedItemTypes.isNotEmpty() || cachedTenants.isNotEmpty()) {
+                    // Use cached data instantly
+                    _uiState.update {
+                        it.copy(
+                            itemTypes = cachedItemTypes.sortedBy { type -> type.sortOrder },
+                            tenants = cachedTenants,
+                            isLoading = false
+                        )
+                    }
                 } else {
-                    val errorBody = tenantsResponse.errorBody()?.string() ?: "Unknown error"
-                    _uiState.update { it.copy(error = "Oteller yüklenemedi: ${tenantsResponse.code()} - $errorBody") }
+                    // No cache - must fetch from API
+                    refreshData()
                 }
             } catch (e: Exception) {
-                _uiState.update { it.copy(error = "Ayarlar yüklenemedi: ${e.message}") }
+                _uiState.update { it.copy(isLoading = false, error = "Veriler yüklenemedi: ${e.message}") }
+            }
+        }
+    }
+
+    /**
+     * Manual refresh - call when user presses refresh button
+     */
+    fun refreshData() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, error = null) }
+            try {
+                // Fetch fresh data from API
+                var hasError = false
+
+                dataCacheRepository.refreshItemTypes()
+                    .onSuccess { itemTypes ->
+                        _uiState.update { it.copy(itemTypes = itemTypes.sortedBy { type -> type.sortOrder }) }
+                    }
+                    .onFailure { hasError = true }
+
+                dataCacheRepository.refreshTenants()
+                    .onSuccess { tenants ->
+                        _uiState.update { it.copy(tenants = tenants) }
+                    }
+                    .onFailure { hasError = true }
+
+                if (hasError && _uiState.value.tenants.isEmpty()) {
+                    _uiState.update { it.copy(error = "Veriler yüklenemedi") }
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(error = "Yenileme başarısız: ${e.message}") }
             } finally {
                 _uiState.update { it.copy(isLoading = false) }
             }
@@ -130,6 +176,25 @@ class TagAssignViewModel @Inject constructor(
 
     fun selectTenant(tenantId: String) {
         _uiState.update { it.copy(selectedTenantId = tenantId) }
+    }
+
+    fun selectTenantByQrCode(qrCode: String) {
+        val tenant = _uiState.value.tenants.find { it.qrCode == qrCode }
+        if (tenant != null) {
+            _uiState.update { it.copy(selectedTenantId = tenant.id) }
+        } else {
+            _uiState.update { it.copy(error = "Bu QR kod için otel bulunamadı: $qrCode") }
+        }
+    }
+
+    fun startBarcodeScanForHotel() {
+        barcodeManager.startListening()
+        _uiState.update { it.copy(isBarcodeScanningForHotel = true) }
+    }
+
+    fun stopBarcodeScanForHotel() {
+        barcodeManager.stopListening()
+        _uiState.update { it.copy(isBarcodeScanningForHotel = false) }
     }
 
     fun clearTags() {
@@ -255,5 +320,6 @@ class TagAssignViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         rfidManager.stopScanning()
+        barcodeManager.stopListening()
     }
 }

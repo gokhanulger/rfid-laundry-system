@@ -356,12 +356,23 @@ SyncService.prototype.syncIrsaliyeler = function() {
                   };
 
                   // Otel bazli veritabani secimi
-                  // API'den etaDatabaseType ve etaDatabaseYear geliyor
-                  var dbType = tenant.etaDatabaseType || 'official';
+                  // API'den etaDatabaseType veya etaDatabaseName geliyor
+                  console.log('  DEBUG DB - etaDatabaseType:', tenant.etaDatabaseType);
+                  console.log('  DEBUG DB - etaDatabaseName:', tenant.etaDatabaseName);
+                  var dbType = tenant.etaDatabaseType || tenant.etaDatabaseName || 'official';
+                  console.log('  DEBUG DB - dbType (before split):', dbType);
+                  // etaDatabaseName "unofficial_2025" formatinda olabilir
+                  if (dbType.indexOf('_') !== -1) {
+                    dbType = dbType.split('_')[0];
+                  }
+                  console.log('  DEBUG DB - dbType (after split):', dbType);
                   var year = tenant.etaDatabaseYear || self.config.eta.year || new Date().getFullYear();
-                  var dbPrefix = dbType === 'unofficial' ? 'TEKLIF' : 'DEMET';
+                  var databases = self.config.eta.databases || { official: 'ETA_DEMET', unofficial: 'ETA_TEKLIF' };
+                  console.log('  DEBUG DB - databases config:', JSON.stringify(databases));
+                  var dbPrefix = dbType === 'unofficial' ? databases.unofficial : databases.official;
+                  console.log('  DEBUG DB - dbPrefix:', dbPrefix);
                   var targetDatabase = dbPrefix + '_' + year;
-                  console.log('  Otel: ' + tenant.name + ' -> ' + targetDatabase);
+                  console.log('  Otel: ' + tenant.name + ' -> ' + targetDatabase + ' (dbType=' + dbType + ')');
 
                   // Veritabani degistir (gerekirse)
                   return self.etaClient.switchDatabase(targetDatabase)

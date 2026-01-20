@@ -13,6 +13,7 @@ import com.laundry.rfid.data.remote.api.ApiService
 import com.laundry.rfid.data.remote.dto.CreatePickupRequest
 import com.laundry.rfid.data.remote.dto.ItemLookupRequest
 import com.laundry.rfid.data.remote.dto.TenantDto
+import com.laundry.rfid.data.repository.DataCacheRepository
 import com.laundry.rfid.data.repository.ScanRepository
 import com.laundry.rfid.domain.model.ScanSession
 import com.laundry.rfid.domain.model.ScannedTag
@@ -23,8 +24,12 @@ import com.laundry.rfid.rfid.RfidState
 import com.laundry.rfid.rfid.RfidTag
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 // Item info from API lookup
@@ -58,6 +63,8 @@ data class ScanUiState(
     val matchedCount: Int = 0,
     val unmatchedCount: Int = 0,
     val otherHotelCount: Int = 0, // Items from other hotels (registered but wrong hotel)
+    val otherHotelNames: List<String> = emptyList(), // Names of other hotels with item counts
+    val deviceType: String = "", // RFID device type for debugging
     val isScanning: Boolean = false,
     val rfidState: RfidState = RfidState.Disconnected,
     val isCompleting: Boolean = false,
@@ -76,8 +83,14 @@ class ScanViewModel @Inject constructor(
     private val scanRepository: ScanRepository,
     private val rfidManager: RfidManager,
     private val apiService: ApiService,
+    private val dataCacheRepository: DataCacheRepository,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
+
+    companion object {
+        private const val LOOKUP_DEBOUNCE_MS = 200L  // Wait 200ms to batch lookups
+        private const val MAX_BATCH_SIZE = 50        // Maximum tags per API call
+    }
 
     private val _uiState = MutableStateFlow(ScanUiState())
     val uiState: StateFlow<ScanUiState> = _uiState.asStateFlow()
@@ -91,6 +104,10 @@ class ScanViewModel @Inject constructor(
         @Suppress("DEPRECATION")
         context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
     }
+
+    // Batched lookup queue
+    private val pendingLookupTags = mutableSetOf<String>()
+    private var lookupJob: Job? = null
 
     init {
         // Observe RFID state
@@ -129,23 +146,31 @@ class ScanViewModel @Inject constructor(
         }
     }
 
-    // Load hotels for driver selection
+    // Load hotels for driver selection - CACHE ONLY (no auto refresh)
     fun loadTenants() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoadingTenants = true) }
-            try {
-                val response = apiService.getTenants()
-                if (response.isSuccessful) {
-                    _uiState.update {
-                        it.copy(
-                            tenants = response.body() ?: emptyList(),
-                            isLoadingTenants = false
-                        )
-                    }
-                }
-            } catch (e: Exception) {
-                _uiState.update { it.copy(isLoadingTenants = false, error = "Oteller yüklenemedi: ${e.message}") }
+            // Load from cache ONLY - no auto refresh
+            val cached = dataCacheRepository.getCachedTenants()
+            if (cached.isNotEmpty()) {
+                _uiState.update { it.copy(tenants = cached, isLoadingTenants = false) }
+            } else {
+                // No cache - must fetch from API
+                refreshTenants()
             }
+        }
+    }
+
+    // Manual refresh - call when user presses refresh button
+    fun refreshTenants() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoadingTenants = true) }
+            dataCacheRepository.refreshTenants()
+                .onSuccess { tenants ->
+                    _uiState.update { it.copy(tenants = tenants, isLoadingTenants = false) }
+                }
+                .onFailure { e ->
+                    _uiState.update { it.copy(isLoadingTenants = false, error = "Oteller yüklenemedi: ${e.message}") }
+                }
         }
     }
 
@@ -203,8 +228,9 @@ class ScanViewModel @Inject constructor(
         val currentItems = _uiState.value.scannedItemsInfo.toMutableMap()
 
         currentItems.forEach { (tag, info) ->
+            // Compare by tenantId to avoid Turkish character encoding issues
             currentItems[tag] = info.copy(
-                belongsToSelectedHotel = info.tenantId == selectedTenantId
+                belongsToSelectedHotel = info.tenantId != null && info.tenantId == selectedTenantId
             )
         }
 
@@ -212,7 +238,12 @@ class ScanViewModel @Inject constructor(
         val groupedItems = calculateGroupedItems(currentItems)
         val unregisteredCount = currentItems.values.count { !it.isRegistered }
         // Count registered items from other hotels
-        val otherHotelCount = currentItems.values.count { it.isRegistered && !it.belongsToSelectedHotel }
+        val otherHotelItems = currentItems.values.filter { it.isRegistered && !it.belongsToSelectedHotel }
+        val otherHotelCount = otherHotelItems.size
+        // Get unique hotel names with counts
+        val otherHotelNames = otherHotelItems
+            .groupBy { it.tenantName ?: "Bilinmeyen" }
+            .map { "${it.key}: ${it.value.size}" }
 
         _uiState.update {
             it.copy(
@@ -221,7 +252,8 @@ class ScanViewModel @Inject constructor(
                 unregisteredCount = unregisteredCount,
                 matchedCount = matchedCount,
                 unmatchedCount = _uiState.value.scannedTags.size - matchedCount,
-                otherHotelCount = otherHotelCount
+                otherHotelCount = otherHotelCount,
+                otherHotelNames = otherHotelNames
             )
         }
     }
@@ -245,65 +277,108 @@ class ScanViewModel @Inject constructor(
             .sortedWith(compareByDescending<GroupedItem> { it.belongsToSelectedHotel }.thenByDescending { it.count })
     }
 
-    // Lookup items from API
-    private fun lookupItems(tags: List<String>) {
+    /**
+     * Queue a tag for batched lookup - debounces API calls
+     */
+    private fun queueLookup(tag: String) {
+        // Skip if already known
+        if (_uiState.value.scannedItemsInfo.containsKey(tag)) return
+
+        synchronized(pendingLookupTags) {
+            pendingLookupTags.add(tag)
+        }
+
+        // Cancel existing debounce job and start new one
+        lookupJob?.cancel()
+        lookupJob = viewModelScope.launch {
+            delay(LOOKUP_DEBOUNCE_MS)
+            flushPendingLookups()
+        }
+    }
+
+    /**
+     * Flush all pending lookups in a single batched API call
+     */
+    private suspend fun flushPendingLookups() {
+        val tagsToLookup: List<String>
+        synchronized(pendingLookupTags) {
+            if (pendingLookupTags.isEmpty()) return
+            tagsToLookup = pendingLookupTags.toList()
+            pendingLookupTags.clear()
+        }
+
+        // Process in batches if too many tags
+        tagsToLookup.chunked(MAX_BATCH_SIZE).forEach { batch ->
+            lookupItems(batch)
+        }
+    }
+
+    // Lookup items from API - called with batched tags
+    private suspend fun lookupItems(tags: List<String>) {
         if (tags.isEmpty()) return
 
-        viewModelScope.launch {
-            try {
-                val response = apiService.lookupItems(ItemLookupRequest(tags))
-                if (response.isSuccessful) {
-                    val result = response.body()
-                    val selectedTenantId = _uiState.value.selectedTenantId
-                    val newItemsInfo = mutableMapOf<String, ScannedItemInfo>()
-
-                    // Add registered items from API response
-                    result?.items?.forEach { item ->
-                        newItemsInfo[item.rfidTag] = ScannedItemInfo(
-                            rfidTag = item.rfidTag,
-                            itemTypeName = item.itemType?.name,
-                            tenantId = item.tenantId,
-                            tenantName = item.tenant?.name,
-                            status = item.status,
-                            isRegistered = true,
-                            belongsToSelectedHotel = item.tenantId == selectedTenantId
-                        )
-                    }
-
-                    // Add unregistered items (not found in API)
-                    result?.notFoundTags?.forEach { tag ->
-                        newItemsInfo[tag] = ScannedItemInfo(
-                            rfidTag = tag,
-                            itemTypeName = null,
-                            tenantId = null,
-                            tenantName = null,
-                            status = null,
-                            isRegistered = false,
-                            belongsToSelectedHotel = false
-                        )
-                    }
-
-                    // Merge with existing items info
-                    val mergedItemsInfo = _uiState.value.scannedItemsInfo + newItemsInfo
-                    val matchedCount = mergedItemsInfo.values.count { it.belongsToSelectedHotel }
-                    val groupedItems = calculateGroupedItems(mergedItemsInfo)
-                    val unregisteredCount = mergedItemsInfo.values.count { !it.isRegistered }
-                    val otherHotelCount = mergedItemsInfo.values.count { it.isRegistered && !it.belongsToSelectedHotel }
-
-                    _uiState.update {
-                        it.copy(
-                            scannedItemsInfo = mergedItemsInfo,
-                            groupedItems = groupedItems,
-                            unregisteredCount = unregisteredCount,
-                            matchedCount = matchedCount,
-                            unmatchedCount = _uiState.value.scannedTags.size - matchedCount,
-                            otherHotelCount = otherHotelCount
-                        )
-                    }
-                }
-            } catch (e: Exception) {
-                // Silent fail for lookup - items will show as unregistered
+        try {
+            val response = withContext(Dispatchers.IO) {
+                apiService.lookupItems(ItemLookupRequest(tags))
             }
+
+            if (response.isSuccessful) {
+                val result = response.body()
+                val selectedTenantId = _uiState.value.selectedTenantId
+                val newItemsInfo = mutableMapOf<String, ScannedItemInfo>()
+
+                // Add registered items from API response
+                result?.items?.forEach { item ->
+                    newItemsInfo[item.rfidTag] = ScannedItemInfo(
+                        rfidTag = item.rfidTag,
+                        itemTypeName = item.itemType?.name,
+                        tenantId = item.tenantId,
+                        tenantName = item.tenant?.name,
+                        status = item.status,
+                        isRegistered = true,
+                        // Compare by tenantId to avoid Turkish character encoding issues
+                        belongsToSelectedHotel = item.tenantId == selectedTenantId
+                    )
+                }
+
+                // Add unregistered items (not found in API)
+                result?.notFoundTags?.forEach { tag ->
+                    newItemsInfo[tag] = ScannedItemInfo(
+                        rfidTag = tag,
+                        itemTypeName = null,
+                        tenantId = null,
+                        tenantName = null,
+                        status = null,
+                        isRegistered = false,
+                        belongsToSelectedHotel = false
+                    )
+                }
+
+                // Merge with existing items info
+                val mergedItemsInfo = _uiState.value.scannedItemsInfo + newItemsInfo
+                val matchedCount = mergedItemsInfo.values.count { it.belongsToSelectedHotel }
+                val groupedItems = calculateGroupedItems(mergedItemsInfo)
+                val unregisteredCount = mergedItemsInfo.values.count { !it.isRegistered }
+                val otherHotelItems = mergedItemsInfo.values.filter { it.isRegistered && !it.belongsToSelectedHotel }
+                val otherHotelCount = otherHotelItems.size
+                val otherHotelNames = otherHotelItems
+                    .groupBy { it.tenantName ?: "Bilinmeyen" }
+                    .map { "${it.key}: ${it.value.size}" }
+
+                _uiState.update {
+                    it.copy(
+                        scannedItemsInfo = mergedItemsInfo,
+                        groupedItems = groupedItems,
+                        unregisteredCount = unregisteredCount,
+                        matchedCount = matchedCount,
+                        unmatchedCount = _uiState.value.scannedTags.size - matchedCount,
+                        otherHotelCount = otherHotelCount,
+                        otherHotelNames = otherHotelNames
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            // Silent fail for lookup - items will show as unregistered
         }
     }
 
@@ -317,7 +392,10 @@ class ScanViewModel @Inject constructor(
             try {
                 val session = scanRepository.createSession(sessionType = sessionType)
                 currentSessionId = session.id
-                _uiState.update { it.copy(session = session) }
+
+                // Get device type for debugging
+                val deviceType = rfidManager.getDeviceType().name
+                _uiState.update { it.copy(session = session, deviceType = deviceType) }
 
                 // Initialize RFID reader
                 rfidManager.initialize()
@@ -338,14 +416,12 @@ class ScanViewModel @Inject constructor(
                 // Play beep and vibrate on new tag
                 playFeedback()
 
-                // Lookup item info from API if not already known
-                if (!_uiState.value.scannedItemsInfo.containsKey(tag.epc)) {
-                    lookupItems(listOf(tag.epc))
-                }
+                // Queue item lookup - will be batched with debouncing
+                queueLookup(tag.epc)
 
-                // Save to local database
+                // Save to local database with IO dispatcher
                 currentSessionId?.let { sessionId ->
-                    viewModelScope.launch {
+                    viewModelScope.launch(Dispatchers.IO) {
                         scanRepository.addScanEvent(
                             sessionId = sessionId,
                             rfidTag = tag.epc,

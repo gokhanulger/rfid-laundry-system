@@ -107,6 +107,8 @@ export const tenants = pgTable('tenants', {
   longitude: text('longitude'), // Hotel GPS longitude
   qrCode: text('qr_code').unique(), // Unique QR code for quick hotel identification
   etaDatabaseName: text('eta_database_name'), // 'official' or 'unofficial' - determines DEMET vs TEKLIF
+  notificationEnabled: boolean('notification_enabled').default(false),
+  notificationPhone: text('notification_phone'), // Default phone for notifications
   isActive: boolean('is_active').default(true).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -559,6 +561,96 @@ export const scanConflictsRelations = relations(scanConflicts, ({ one }) => ({
   resolvedByUser: one(users, {
     fields: [scanConflicts.resolvedBy],
     references: [users.id],
+  }),
+}));
+
+// Notification Enums
+export const notificationChannelEnum = pgEnum('notification_channel', [
+  'whatsapp',
+  'sms',
+  'email',
+  'webhook'
+]);
+
+export const notificationEventEnum = pgEnum('notification_event', [
+  'delivery_created',
+  'delivery_packaged',
+  'delivery_picked_up',
+  'delivery_delivered',
+  'pickup_created',
+  'pickup_received',
+  'daily_summary',
+  'alert_new'
+]);
+
+export const notificationStatusEnum = pgEnum('notification_status', [
+  'pending',
+  'sent',
+  'failed',
+  'delivered'
+]);
+
+// Notification Settings per tenant
+export const notificationSettings = pgTable('notification_settings', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  channel: notificationChannelEnum('channel').notNull(),
+  isEnabled: boolean('is_enabled').default(true),
+  // WhatsApp Business API settings
+  whatsappPhoneId: text('whatsapp_phone_id'),
+  whatsappAccessToken: text('whatsapp_access_token'),
+  whatsappRecipient: text('whatsapp_recipient'),
+  // Webhook settings
+  webhookUrl: text('webhook_url'),
+  webhookSecret: text('webhook_secret'),
+  // Events to notify
+  events: text('events'), // JSON array of notification_event values
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// Notification Templates
+export const notificationTemplates = pgTable('notification_templates', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  name: text('name').notNull(),
+  event: notificationEventEnum('event').notNull(),
+  channel: notificationChannelEnum('channel').notNull(),
+  subject: text('subject'),
+  content: text('content').notNull(),
+  isActive: boolean('is_active').default(true),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// Notification Logs
+export const notificationLogs = pgTable('notification_logs', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  tenantId: uuid('tenant_id').references(() => tenants.id),
+  channel: notificationChannelEnum('channel').notNull(),
+  event: notificationEventEnum('event').notNull(),
+  recipient: text('recipient').notNull(),
+  subject: text('subject'),
+  content: text('content').notNull(),
+  status: notificationStatusEnum('status').default('pending'),
+  externalId: text('external_id'),
+  errorMessage: text('error_message'),
+  sentAt: timestamp('sent_at'),
+  deliveredAt: timestamp('delivered_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// Notification Relations
+export const notificationSettingsRelations = relations(notificationSettings, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [notificationSettings.tenantId],
+    references: [tenants.id],
+  }),
+}));
+
+export const notificationLogsRelations = relations(notificationLogs, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [notificationLogs.tenantId],
+    references: [tenants.id],
   }),
 }));
 

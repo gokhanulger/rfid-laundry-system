@@ -259,6 +259,7 @@ export function ItemManagementPage() {
           status: formData.status as any,
           location: formData.location || undefined,
           notes: formData.notes || undefined,
+          itemTypeId: formData.itemTypeId !== editingItem.itemTypeId ? formData.itemTypeId : undefined,
         },
       });
     } else {
@@ -853,6 +854,75 @@ export function ItemManagementPage() {
                     )}
                   </div>
                 </>
+              )}
+
+              {/* Show item type selector when editing (for re-tagging) */}
+              {editingItem && (
+                <div className="relative">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Ürün Tipi (Değiştir)
+                  </label>
+                  <div className="text-xs text-gray-500 mb-1">
+                    Mevcut: {itemTypes?.find((t: ItemType) => t.id === editingItem.itemTypeId)?.name || 'Bilinmiyor'}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const opening = !itemTypeDropdownOpen;
+                      setItemTypeDropdownOpen(opening);
+                      if (opening) {
+                        setTimeout(() => itemTypeInputRef.current?.focus(), 100);
+                      }
+                    }}
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 text-left bg-white flex items-center justify-between"
+                  >
+                    <span className={formData.itemTypeId !== editingItem.itemTypeId ? 'text-orange-600 font-medium' : 'text-gray-900'}>
+                      {itemTypes?.find((t: ItemType) => t.id === formData.itemTypeId)?.name || 'Ürün tipi seçin...'}
+                      {formData.itemTypeId !== editingItem.itemTypeId && ' (Değiştirilecek)'}
+                    </span>
+                    <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${itemTypeDropdownOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  {itemTypeDropdownOpen && (
+                    <div className="absolute z-50 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-60 overflow-hidden">
+                      <div className="p-2 border-b sticky top-0 bg-white">
+                        <input
+                          ref={itemTypeInputRef}
+                          type="text"
+                          value={itemTypeSearch}
+                          onChange={(e) => setItemTypeSearch(e.target.value)}
+                          placeholder="Ürün tipi ara..."
+                          className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 text-sm"
+                          inputMode="search"
+                          enterKeyHint="search"
+                          autoComplete="off"
+                        />
+                      </div>
+                      <div className="max-h-48 overflow-y-auto">
+                        {filteredItemTypes.length === 0 ? (
+                          <div className="px-3 py-2 text-gray-500 text-sm">Sonuç bulunamadı</div>
+                        ) : (
+                          filteredItemTypes.map((type: ItemType) => (
+                            <button
+                              key={type.id}
+                              type="button"
+                              onClick={() => {
+                                itemTypeInputRef.current?.blur();
+                                setFormData({ ...formData, itemTypeId: type.id });
+                                setItemTypeDropdownOpen(false);
+                                setItemTypeSearch('');
+                              }}
+                              className={`w-full px-3 py-2 text-left hover:bg-teal-50 text-sm ${
+                                formData.itemTypeId === type.id ? 'bg-teal-100 text-teal-700' : ''
+                              }`}
+                            >
+                              {type.name}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
 
               <div>

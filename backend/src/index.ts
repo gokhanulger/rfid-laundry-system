@@ -1,8 +1,10 @@
 import express, { Request, Response, NextFunction } from 'express';
+import { createServer } from 'http';
 import cors from 'cors';
 import session from 'express-session';
 import dotenv from 'dotenv';
 import logger from './utils/logger';
+import { initializeSocket } from './services/socket';
 import { authRouter } from './routes/auth';
 import { itemsRouter } from './routes/items';
 import { pickupsRouter } from './routes/pickups';
@@ -19,6 +21,8 @@ import { devicesRouter } from './routes/devices';
 import { scanRouter } from './routes/scan';
 import etaRouter from './routes/eta';
 import { waybillsRouter } from './routes/waybills';
+import { portalRouter } from './routes/portal';
+import { notificationsRouter } from './routes/notifications';
 
 dotenv.config();
 
@@ -222,6 +226,8 @@ app.use('/api/devices', devicesRouter);
 app.use('/api/scan', scanRouter);
 app.use('/api/eta', etaRouter);
 app.use('/api/waybills', waybillsRouter);
+app.use('/api/portal', portalRouter);
+app.use('/api/notifications', notificationsRouter);
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -252,7 +258,12 @@ process.on('SIGINT', () => {
   process.exit(0);
 });
 
-app.listen(PORT, () => {
+// Create HTTP server and initialize Socket.io
+const server = createServer(app);
+initializeSocket(server);
+
+server.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`WebSocket server initialized`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 });

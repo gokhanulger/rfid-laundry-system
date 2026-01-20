@@ -75,10 +75,12 @@ export function Layout() {
 
   // Navigation for hotel owners
   const hotelNavigation = [
-    { name: 'Kontrol Paneli', href: '/dashboard', icon: LayoutDashboard },
+    { name: 'Portal', href: '/portal', icon: LayoutDashboard },
+    { name: 'Teslimat Gecmisi', href: '/portal/deliveries', icon: Truck },
+    { name: 'Toplama Gecmisi', href: '/portal/pickups', icon: ArrowUp },
+    { name: 'Irsaliyeler', href: '/portal/waybills', icon: FileText },
     { name: 'Urunlerim', href: '/items', icon: Tag },
     { name: 'Urun Gecmisi', href: '/hotel-item-history', icon: RotateCcw },
-    { name: 'Irsaliyelerim', href: '/hotel-irsaliye', icon: FileText },
     { name: 'Mutabakat', href: '/reconciliation', icon: FileText },
     { name: 'Discard Urunler', href: '/alerts', icon: Bell },
   ];
@@ -104,6 +106,7 @@ export function Layout() {
     { name: 'Urun Yonetimi', href: '/items', icon: Tag },
     { name: 'Toplu Tag Eslestirme', href: '/bulk-tag-assignment', icon: Tags },
     { name: 'ETA Entegrasyonu', href: '/eta-integration', icon: Database },
+    { name: 'Bildirim Ayarlari', href: '/notifications', icon: Bell },
     { name: 'Ayarlar', href: '/settings', icon: Settings },
   ];
 

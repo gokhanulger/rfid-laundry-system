@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Printer, Sparkles, Building2, X, Plus, Search, Delete, Trash2, Sun, Moon, Settings, Wifi, WifiOff, Radio, AlertTriangle, CheckCircle, HelpCircle, XCircle, RefreshCw, Loader2 } from 'lucide-react';
-import { itemsApi, deliveriesApi, settingsApi, getErrorMessage } from '../lib/api';
+import { itemsApi, deliveriesApi, settingsApi, getErrorMessage, getStoredToken } from '../lib/api';
 import { useToast } from '../components/Toast';
 import { generateDeliveryLabel } from '../lib/pdfGenerator';
 import { isElectron, getPrinters, savePreferredPrinter, getPreferredPrinter, type Printer as PrinterType } from '../lib/printer';
@@ -32,8 +32,7 @@ interface ScannedTagInfo {
   rssi?: number;
 }
 
-// Tag timeout - consider tag "left" after 3 seconds of no reads
-const TAG_TIMEOUT_MS = 3000;
+// Tags persist on screen until print or "Yeniden Oku" button
 
 // Get current shift based on Turkey time (UTC+3)
 // Day: 08:00 - 18:00, Night: 18:00 - 08:00
@@ -88,8 +87,17 @@ export function IronerInterfacePage() {
   const [uhfConnected, setUhfConnected] = useState(false);
   const [uhfInventoryActive, setUhfInventoryActive] = useState(false);
   const [scannedTags, setScannedTags] = useState<Map<string, ScannedTagInfo>>(new Map());
+  const seenEpcsRef = useRef<Set<string>>(new Set()); // Track seen EPCs to prevent duplicates
   // Confirmed scanned items - persists until label is printed
   const [confirmedScannedItems, setConfirmedScannedItems] = useState<Map<string, ScannedTagInfo>>(new Map());
+  // Reading paused state - true after print, resumes after configured delay
+  const [isReadingPaused, setIsReadingPaused] = useState(false);
+  const isReadingPausedRef = useRef(false); // Ref for use in callbacks
+  // Print display delay - how long to show printed items before clearing (in seconds)
+  const [printDisplayDelay, setPrintDisplayDelay] = useState<number>(() => {
+    const saved = localStorage.getItem('print_display_delay');
+    return saved ? parseInt(saved) : 2;
+  });
   const [showPrintConfirmModal, setShowPrintConfirmModal] = useState(false);
   const [pendingPrintAction, setPendingPrintAction] = useState<(() => void) | null>(null);
 
@@ -105,17 +113,17 @@ export function IronerInterfacePage() {
   const [rssiThreshold, setRssiThreshold] = useState(-70); // RSSI threshold: -30 (very close) to -90 (far)
   const rssiThresholdRef = useRef(rssiThreshold); // Ref for use in callbacks
 
-  // Local cache of all items by RFID tag for fast offline lookup
-  const [itemsCache, setItemsCache] = useState<Map<string, {
-    id: string;
-    rfidTag: string;
-    tenantId: string;
-    itemTypeId: string;
-    status: string;
-  }>>(new Map());
-  const itemsCacheLoadingRef = useRef(false); // Ref to prevent infinite loop
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [_itemsCacheLastUpdate, setItemsCacheLastUpdate] = useState<Date | null>(null);
+  // SQLite database stats and sync status
+  const [dbStats, setDbStats] = useState<{ itemsCount: number; lastSyncTime: string | null } | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<string>('');
+  const [isOffline, setIsOffline] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
+
+  // Legacy cache state (for backward compatibility, will be populated from SQLite)
+  const itemsCacheLoadingRef = useRef(false);
+  const [itemsCacheLastUpdate, setItemsCacheLastUpdate] = useState<Date | null>(null);
+  const [isCacheLoading, setIsCacheLoading] = useState(false);
 
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -289,105 +297,208 @@ export function IronerInterfacePage() {
     queryFn: settingsApi.getItemTypes,
   });
 
-  // Load all items into local cache for fast RFID lookup
-  const loadItemsCache = useCallback(async () => {
+  // Load database stats and trigger sync if needed (SQLite-based)
+  const loadDbStats = useCallback(async (showToast = false) => {
     // Use ref to prevent multiple concurrent calls
     if (itemsCacheLoadingRef.current) return;
 
     itemsCacheLoadingRef.current = true;
+    setIsCacheLoading(true);
+
     try {
-      // Fetch all items (paginated, get all pages)
-      const newCache = new Map<string, {
-        id: string;
-        rfidTag: string;
-        tenantId: string;
-        itemTypeId: string;
-        status: string;
-      }>();
+      // Check if running in Electron with SQLite support
+      if (window.electronAPI?.dbGetStats) {
+        console.log('[SQLite] Getting database stats...');
+        const result = await window.electronAPI.dbGetStats();
 
-      let page = 1;
-      let hasMore = true;
-      const limit = 100;
+        if (result.success && result.stats) {
+          setDbStats({
+            itemsCount: result.stats.itemsCount,
+            lastSyncTime: result.stats.lastSyncTime
+          });
+          setPendingCount(result.stats.pendingOperationsCount || 0);
+          setItemsCacheLastUpdate(result.stats.lastSyncTime ? new Date(result.stats.lastSyncTime) : null);
 
-      while (hasMore) {
-        const response = await itemsApi.getAll({ page, limit });
-        const items = response.data || [];
+          console.log('[SQLite] Database stats:', result.stats);
 
-        items.forEach(item => {
-          if (item.rfidTag) {
-            // Store with uppercase RFID tag for consistent matching
-            newCache.set(item.rfidTag.toUpperCase(), {
-              id: item.id,
-              rfidTag: item.rfidTag,
-              tenantId: item.tenantId,
-              itemTypeId: item.itemTypeId,
-              status: item.status,
-            });
+          // If no items, trigger full sync
+          if (result.stats.itemsCount === 0) {
+            console.log('[SQLite] No items in cache, starting full sync...');
+
+            // Ensure token is set before syncing
+            const token = getStoredToken();
+            if (token && window.electronAPI?.dbSetToken) {
+              await window.electronAPI.dbSetToken(token);
+            }
+
+            if (!token) {
+              console.warn('[SQLite] No token available for sync');
+              if (showToast) {
+                toast.error('Oturum bulunamadı. Lütfen yeniden giriş yapın.');
+              }
+            } else {
+              setIsSyncing(true);
+              setSyncStatus('Veritabanı senkronize ediliyor...');
+
+              const syncResult = await window.electronAPI.dbFullSync();
+              console.log('[SQLite] Full sync result:', syncResult);
+
+              if (syncResult.success) {
+                setDbStats({
+                  itemsCount: syncResult.stats?.itemsCount || syncResult.itemsCount || 0,
+                  lastSyncTime: new Date().toISOString()
+                });
+                setItemsCacheLastUpdate(new Date());
+                if (showToast) {
+                  toast.success(`Veritabanı senkronize edildi (${syncResult.itemsCount || 0} ürün)`);
+                }
+              } else if (showToast) {
+                toast.error(`Senkronizasyon hatası: ${syncResult.error || 'Bilinmeyen hata'}`);
+              }
+              setIsSyncing(false);
+              setSyncStatus('');
+            }
+          } else if (showToast) {
+            toast.success(`Veritabanında ${result.stats.itemsCount} ürün mevcut`);
           }
-        });
+        }
 
-        hasMore = items.length === limit;
-        page++;
-
-        // Safety limit - don't fetch more than 50 pages (5000 items)
-        if (page > 50) break;
+        // Check online status
+        const onlineResult = await window.electronAPI.dbIsOnline();
+        setIsOffline(!onlineResult.online);
+      } else {
+        // Fallback: Not in Electron, show warning
+        console.warn('[SQLite] Not running in Electron, SQLite not available');
+        if (showToast) {
+          toast.error('SQLite sadece masaüstü uygulamasında çalışır');
+        }
       }
-
-      setItemsCache(newCache);
-      setItemsCacheLastUpdate(new Date());
     } catch (error) {
-      // Silently fail - will retry on next interval
+      console.error('[SQLite] Error loading stats:', error);
+      if (showToast) {
+        toast.error('Veritabanı durumu alınamadı');
+      }
     } finally {
       itemsCacheLoadingRef.current = false;
+      setIsCacheLoading(false);
     }
-  }, []);
+  }, [toast]);
 
-  // Load items cache when hotels are selected and periodically refresh
+  // Manual sync trigger
+  const triggerSync = useCallback(async () => {
+    if (!window.electronAPI?.dbFullSync) return;
+
+    setIsSyncing(true);
+    setSyncStatus('Senkronizasyon başlatılıyor...');
+
+    try {
+      // Ensure token is set in sync-service before syncing
+      const token = getStoredToken();
+      if (token && window.electronAPI?.dbSetToken) {
+        await window.electronAPI.dbSetToken(token);
+      } else if (!token) {
+        toast.error('Oturum bulunamadı. Lütfen yeniden giriş yapın.');
+        setIsSyncing(false);
+        setSyncStatus('');
+        return;
+      }
+
+      const result = await window.electronAPI.dbFullSync();
+      if (result.success) {
+        setDbStats({
+          itemsCount: result.stats?.itemsCount || result.itemsCount || 0,
+          lastSyncTime: new Date().toISOString()
+        });
+        setItemsCacheLastUpdate(new Date());
+        toast.success(`Senkronizasyon tamamlandı (${result.itemsCount || 0} ürün)`);
+      } else {
+        toast.error(`Senkronizasyon hatası: ${result.error || 'Bilinmeyen hata'}`);
+      }
+    } catch (error: any) {
+      toast.error(`Senkronizasyon hatası: ${error.message}`);
+    } finally {
+      setIsSyncing(false);
+      setSyncStatus('');
+    }
+  }, [toast]);
+
+  // Load database stats on mount and periodically check
   useEffect(() => {
-    if (isWorking && selectedHotelIds.length > 0) {
-      // Load cache immediately
-      loadItemsCache();
+    // Load stats immediately on mount
+    loadDbStats();
 
-      // Refresh cache every 5 minutes
-      const interval = setInterval(loadItemsCache, 5 * 60 * 1000);
-      return () => clearInterval(interval);
+    // Check stats and sync status every 30 seconds
+    const interval = setInterval(() => {
+      loadDbStats();
+    }, 30 * 1000);
+
+    // Listen for sync status updates from Electron
+    let unsubscribe: (() => void) | undefined;
+    if (window.electronAPI?.onSyncStatus) {
+      unsubscribe = window.electronAPI.onSyncStatus((status: { status: string; message?: string }) => {
+        setSyncStatus(status.message || '');
+        setIsSyncing(status.status === 'syncing');
+        if (status.status === 'completed' || status.status === 'error') {
+          loadDbStats();
+        }
+      });
     }
-  }, [isWorking, selectedHotelIds.length, loadItemsCache]);
 
-  // Validate scanned tag against LOCAL CACHE (no API calls)
-  const validateTag = useCallback((epc: string): ScannedTagInfo => {
-    // Normalize EPC to uppercase for matching
+    return () => {
+      clearInterval(interval);
+      if (unsubscribe) unsubscribe();
+    };
+  }, [loadDbStats]);
+
+  // Validate scanned tag against SQLite database (fast local lookup <1ms)
+  const validateTagAsync = useCallback(async (epc: string): Promise<ScannedTagInfo> => {
+    // Normalize EPC to uppercase for matching - DB stores same 24-char format
     const normalizedEpc = epc.toUpperCase();
+    console.log('[SQLite] Looking up RFID:', normalizedEpc);
 
-    // Look up in local cache
-    const item = itemsCache.get(normalizedEpc);
+    // Look up in SQLite database (via Electron IPC)
+    if (window.electronAPI?.dbGetItemByRfid) {
+      try {
+        const result = await window.electronAPI.dbGetItemByRfid(normalizedEpc);
 
-    if (!item) {
-      // Not found in cache - unregistered
-      return {
-        epc,
-        status: 'unregistered',
-        lastSeen: Date.now(),
-      };
+        if (result.success && result.item) {
+          const item = result.item;
+          console.log('[SQLite] Found item:', item);
+
+          // Find tenant and item type names from local queries
+          const hotel = tenantsArray.find((t: Tenant) => t.id === item.tenant_id);
+          const itemTypeInfo = itemTypes?.find((t: { id: string; name: string }) => t.id === item.item_type_id);
+
+          // Check if tag belongs to selected hotel
+          const isValidHotel = activeHotelId
+            ? item.tenant_id === activeHotelId
+            : selectedHotelIds.includes(item.tenant_id);
+
+          return {
+            epc,
+            status: isValidHotel ? 'valid' : 'wrong_hotel',
+            hotelId: item.tenant_id,
+            hotelName: hotel?.name || item.tenant_name || 'Bilinmeyen Otel',
+            itemType: itemTypeInfo?.name || item.item_type_name || 'Bilinmeyen Tür',
+            itemTypeId: item.item_type_id,
+            itemId: item.id,
+            lastSeen: Date.now(),
+          };
+        } else {
+          console.log('[SQLite] Item not found in database');
+        }
+      } catch (error) {
+        console.error('[SQLite] Lookup error:', error);
+      }
     }
 
-    const hotel = tenantsArray.find((t: Tenant) => t.id === item.tenantId);
-    const itemTypeInfo = itemTypes?.find((t: { id: string; name: string }) => t.id === item.itemTypeId);
-
-    // Check if tag belongs to selected hotel
-    const isValidHotel = activeHotelId ? item.tenantId === activeHotelId : selectedHotelIds.includes(item.tenantId);
-
+    // Not found in SQLite - unregistered
     return {
       epc,
-      status: isValidHotel ? 'valid' : 'wrong_hotel',
-      hotelId: item.tenantId,
-      hotelName: hotel?.name || 'Bilinmeyen Otel',
-      itemType: itemTypeInfo?.name || 'Bilinmeyen Tür',
-      itemTypeId: item.itemTypeId,
-      itemId: item.id,
+      status: 'unregistered',
       lastSeen: Date.now(),
     };
-  }, [activeHotelId, selectedHotelIds, tenantsArray, itemTypes, itemsCache]);
+  }, [activeHotelId, selectedHotelIds, tenantsArray, itemTypes]);
 
   // UHF Reader setup - connect and listen for status/tags
   useEffect(() => {
@@ -420,103 +531,97 @@ export function IronerInterfacePage() {
       }
     });
 
-    // Listen for tag reads - validation is now instant (local cache lookup)
-    const unsubTag = window.electronAPI.onUhfTag((tag: UhfTag) => {
-      // RSSI Filter: Skip tags with weak signal (too far away)
-      // rssi is negative: -30 = very close, -90 = far away
-      // rssiThreshold is negative: -50 means only accept tags with rssi >= -50 (closer)
-      const tagRssi = tag.rssi ?? -100;
-      const currentThreshold = rssiThresholdRef.current;
+    // Listen for UHF debug data - log everything to console
+    const unsubDebug = window.electronAPI.onUhfDebug?.((debug: { type: string; data?: string; cmd?: string; length?: number; dataLen?: number; bytes?: string; poll?: number }) => {
+      // Reduce debug noise - only log important events
+      if (debug.type === 'error') {
+        console.log('[UHF ERROR]', debug);
+      }
+      // Uncomment below for verbose debugging:
+      // if (debug.type === 'raw' || debug.type === 'raw_data') {
+      //   console.log('[UHF DEBUG] RAW:', debug.data, `(${debug.length} bytes)`);
+      // } else if (debug.type === 'parsed') {
+      //   console.log('[UHF DEBUG] PARSED CMD:', debug.cmd, 'DATA:', debug.data);
+      // } else if (debug.type === 'cmd_sent') {
+      //   console.log('[UHF DEBUG] SENT:', debug.cmd, 'Poll #' + debug.poll);
+      // }
+    });
 
-      if (tagRssi < currentThreshold) {
-        // Tag is too far away, ignore it
+    // Listen for tag reads - SIMPLE: Map handles duplicates automatically
+    const unsubTag = window.electronAPI.onUhfTag(async (tag: UhfTag) => {
+      // Skip if reading is paused (after print)
+      if (isReadingPausedRef.current) {
+        console.log('[FRONTEND] Reading paused, ignoring tag:', tag.epc);
         return;
       }
 
-      setScannedTags(prev => {
-        const newMap = new Map(prev);
-        const existing = newMap.get(tag.epc);
+      console.log('[FRONTEND] Received tag:', tag.epc);
 
+      // RSSI Filter
+      const tagRssi = tag.rssi ?? -100;
+      if (tagRssi < rssiThresholdRef.current) return;
+
+      // Check if already in Map
+      setScannedTags(prev => {
+        const existing = prev.get(tag.epc);
         if (existing) {
-          // Tag already seen - just update last seen time and rssi
+          // Already exists - just update lastSeen
+          console.log('[FRONTEND] Tag exists, updating lastSeen:', tag.epc);
+          const newMap = new Map(prev);
           newMap.set(tag.epc, { ...existing, lastSeen: Date.now(), rssi: tag.rssi });
           return newMap;
         }
 
-        // New tag - validate against local cache (instant, no API call)
-        const validated = validateTag(tag.epc);
-        newMap.set(tag.epc, { ...validated, rssi: tag.rssi });
-
-        // Add valid and wrong_hotel tags to confirmed items
-        if ((validated.status === 'valid' || validated.status === 'wrong_hotel') && validated.itemTypeId && validated.hotelId) {
-          setConfirmedScannedItems(prevConfirmed => {
-            if (prevConfirmed.has(tag.epc)) {
-              return prevConfirmed;
-            }
-            const newConfirmedMap = new Map(prevConfirmed);
-            newConfirmedMap.set(tag.epc, { ...validated, rssi: tag.rssi });
-            return newConfirmedMap;
-          });
-        }
-
+        // New tag - add with checking status, validate async
+        console.log('[FRONTEND] New tag, adding:', tag.epc);
+        const newMap = new Map(prev);
+        newMap.set(tag.epc, {
+          epc: tag.epc,
+          status: 'checking' as const,
+          lastSeen: Date.now(),
+          rssi: tag.rssi
+        });
         return newMap;
       });
+
+      // Async validation for new tags
+      const validated = await validateTagAsync(tag.epc);
+
+      setScannedTags(prev => {
+        if (!prev.has(tag.epc)) return prev;
+        const newMap = new Map(prev);
+        newMap.set(tag.epc, { ...validated, lastSeen: Date.now(), rssi: tag.rssi });
+        return newMap;
+      });
+
+      // Add to confirmed items if valid
+      if ((validated.status === 'valid' || validated.status === 'wrong_hotel') && validated.itemTypeId && validated.hotelId) {
+        setConfirmedScannedItems(prev => {
+          if (prev.has(tag.epc)) return prev;
+          const newMap = new Map(prev);
+          newMap.set(tag.epc, { ...validated, rssi: tag.rssi });
+          return newMap;
+        });
+      }
     });
 
     return () => {
       unsubStatus();
       unsubTag();
       unsubScanProgress();
+      if (unsubDebug) unsubDebug();
     };
-  }, [validateTag]);
+  }, [validateTagAsync]); // REMOVED scannedTags - was causing listener to re-register on every tag!
 
-  // Cleanup old tags that haven't been seen recently
-  // Also sync confirmedScannedItems - remove items that are no longer in range
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const now = Date.now();
-
-      // First, find timed out EPCs from scannedTags
-      setScannedTags(prev => {
-        const timedOutEpcs: string[] = [];
-        const newMap = new Map(prev);
-        let changed = false;
-
-        prev.forEach((tag, epc) => {
-          if (now - tag.lastSeen > TAG_TIMEOUT_MS) {
-            newMap.delete(epc);
-            timedOutEpcs.push(epc);
-            changed = true;
-          }
-        });
-
-        // Remove timed out tags from confirmedScannedItems immediately
-        if (timedOutEpcs.length > 0) {
-          setConfirmedScannedItems(prevConfirmed => {
-            const newConfirmedMap = new Map(prevConfirmed);
-            let confirmedChanged = false;
-            timedOutEpcs.forEach(epc => {
-              if (newConfirmedMap.has(epc)) {
-                newConfirmedMap.delete(epc);
-                confirmedChanged = true;
-              }
-            });
-            return confirmedChanged ? newConfirmedMap : prevConfirmed;
-          });
-        }
-
-        return changed ? newMap : prev;
-      });
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, []);
+  // Tags persist on screen until print or "Yeniden Oku" button is pressed
+  // No automatic timeout-based cleanup
 
   // Clear scanned items when hotel changes
   useEffect(() => {
     // Clear both temporary and confirmed scanned items when hotel changes
     setScannedTags(new Map());
     setConfirmedScannedItems(new Map());
+    seenEpcsRef.current.clear(); // Also clear the seen EPCs ref
   }, [activeHotelId]);
 
   // Calculate tag counts by status
@@ -615,11 +720,33 @@ export function IronerInterfacePage() {
       if (variables.hotelId) {
         clearPrintList(variables.hotelId);
       }
-      // Clear scanned items after printing
+
+      // Clear scanned items IMMEDIATELY after print
       setConfirmedScannedItems(new Map());
       setScannedTags(new Map());
-      // Refresh local cache to get updated item statuses
-      loadItemsCache();
+      seenEpcsRef.current.clear();
+
+      // Pause reading for configured delay (screen stays empty)
+      setIsReadingPaused(true);
+      isReadingPausedRef.current = true;
+
+      const delayMs = printDisplayDelay * 1000;
+      if (delayMs > 0) {
+        setTimeout(() => {
+          // Resume reading after delay
+          setIsReadingPaused(false);
+          isReadingPausedRef.current = false;
+        }, delayMs);
+      } else {
+        // No delay, resume immediately
+        setIsReadingPaused(false);
+        isReadingPausedRef.current = false;
+      }
+
+      // Trigger delta sync to get updated item statuses
+      if (window.electronAPI?.dbDeltaSync) {
+        window.electronAPI.dbDeltaSync();
+      }
     },
     onError: (err) => toast.error('Failed to process items', getErrorMessage(err)),
   });
@@ -1072,6 +1199,38 @@ export function IronerInterfacePage() {
               </div>
             )}
 
+            {/* SQLite Sync Button */}
+            <button
+              onClick={() => triggerSync()}
+              disabled={isSyncing || isCacheLoading}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 transition-all ${
+                isSyncing || isCacheLoading
+                  ? 'bg-gray-100 border-gray-300 text-gray-500 cursor-not-allowed'
+                  : isOffline
+                    ? 'bg-yellow-50 border-yellow-300 text-yellow-700 hover:bg-yellow-100'
+                    : 'bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100'
+              }`}
+              title={itemsCacheLastUpdate
+                ? `Son sync: ${itemsCacheLastUpdate.toLocaleTimeString('tr-TR')} (${dbStats?.itemsCount || 0} ürün)${isOffline ? ' - OFFLINE' : ''}`
+                : 'Henüz senkronize edilmedi'}
+            >
+              {isSyncing || isCacheLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : isOffline ? (
+                <WifiOff className="w-4 h-4" />
+              ) : (
+                <RefreshCw className="w-4 h-4" />
+              )}
+              <span className="text-xs font-medium">
+                {isSyncing ? (syncStatus || 'Sync...') : `${dbStats?.itemsCount || 0} Ürün`}
+              </span>
+              {pendingCount > 0 && (
+                <span className="bg-orange-500 text-white text-xs px-1.5 py-0.5 rounded-full">
+                  {pendingCount}
+                </span>
+              )}
+            </button>
+
             {/* Printer Selection Button */}
             {isElectron() && (
               <button
@@ -1179,8 +1338,8 @@ export function IronerInterfacePage() {
 
       {/* RFID Reader Settings Modal */}
       {showRfidSettingsModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md mx-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
                 <Radio className="w-6 h-6 text-blue-600" />
@@ -1211,6 +1370,57 @@ export function IronerInterfacePage() {
                 )}
               </div>
             </div>
+
+            {/* Action Buttons: Yeniden Oku & Senkronize Et */}
+            <div className="mb-4 flex gap-2">
+              <button
+                onClick={() => {
+                  setScannedTags(new Map());
+                  setConfirmedScannedItems(new Map());
+                  seenEpcsRef.current.clear();
+                  setIsReadingPaused(false);
+                  isReadingPausedRef.current = false;
+                  toast.success('Tag listesi temizlendi, yeniden okumaya hazır');
+                }}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-medium transition-all"
+              >
+                <RefreshCw className="w-5 h-5" />
+                Yeniden Oku
+              </button>
+              <button
+                onClick={() => triggerSync()}
+                disabled={isSyncing}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-blue-400 font-medium transition-all"
+              >
+                {isSyncing ? <Loader2 className="w-5 h-5 animate-spin" /> : <RefreshCw className="w-5 h-5" />}
+                {isSyncing ? 'Senkronize...' : `DB Senkronize (${dbStats?.itemsCount || 0})`}
+              </button>
+            </div>
+
+            {/* Scanned Tags Display */}
+            {scannedTags.size > 0 && (
+              <div className="mb-4 p-3 bg-gray-900 rounded-lg border border-gray-700">
+                <p className="text-xs text-gray-400 font-bold mb-2">
+                  Okunan EPC'ler ({scannedTags.size} adet)
+                  {isReadingPaused && <span className="ml-2 text-yellow-400">(Bekleniyor...)</span>}
+                </p>
+                <div className="space-y-1 max-h-40 overflow-y-auto">
+                  {Array.from(scannedTags.entries()).map(([epc, info]) => (
+                    <div key={epc} className="flex items-center justify-between text-xs font-mono">
+                      <span className="text-green-400 break-all">{epc}</span>
+                      <span className={`ml-2 px-1 rounded ${
+                        info.status === 'valid' ? 'bg-green-600 text-white' :
+                        info.status === 'wrong_hotel' ? 'bg-yellow-600 text-white' :
+                        info.status === 'unregistered' ? 'bg-red-600 text-white' :
+                        'bg-blue-600 text-white'
+                      }`}>
+                        {info.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Auto Scan Button */}
             <div className="mb-4">
@@ -1393,6 +1603,35 @@ export function IronerInterfacePage() {
               </div>
               <p className="text-xs text-gray-500 mt-2 text-center">
                 Yüksek değer = sadece yakın tag'ler okunur (önerilen: -50 ile -40 arası)
+              </p>
+            </div>
+
+            {/* Print Display Delay Setting */}
+            <div className="border-t pt-4 mt-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-medium text-gray-700">Yazdırma Sonrası Bekleme</p>
+                <span className="text-sm font-bold text-orange-600">{printDisplayDelay} saniye</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="60"
+                step="5"
+                value={printDisplayDelay}
+                onChange={(e) => {
+                  const newDelay = parseInt(e.target.value);
+                  setPrintDisplayDelay(newDelay);
+                  localStorage.setItem('print_display_delay', String(newDelay));
+                }}
+                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-orange-600"
+              />
+              <div className="flex justify-between text-xs text-gray-500 mt-1">
+                <span>0 (Hemen)</span>
+                <span>30 sn</span>
+                <span>60 sn</span>
+              </div>
+              <p className="text-xs text-gray-500 mt-2 text-center">
+                Etiket yazdırıldıktan sonra liste bu süre boyunca ekranda kalır
               </p>
             </div>
 
@@ -1671,6 +1910,22 @@ export function IronerInterfacePage() {
                     )}
                   </div>
                 </div>
+                {/* Yeniden Tara Button */}
+                <button
+                  onClick={() => {
+                    setScannedTags(new Map());
+                    setConfirmedScannedItems(new Map());
+                    seenEpcsRef.current.clear();
+                    setIsReadingPaused(false);
+                    isReadingPausedRef.current = false;
+                    clearPrintList(hotelId);
+                    toast.success('Liste temizlendi, yeniden taramaya hazır');
+                  }}
+                  className="w-full mt-3 flex items-center justify-center gap-2 px-4 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-medium transition-all"
+                >
+                  <RefreshCw className="w-5 h-5" />
+                  Yeniden Tara
+                </button>
               </div>
             )}
 

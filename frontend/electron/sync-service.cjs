@@ -44,13 +44,14 @@ function sendSyncStatus(status) {
 function apiRequest(endpoint, method = 'GET', body = null) {
   return new Promise((resolve, reject) => {
     if (!authToken) {
-      reject(new Error('No auth token'));
+      console.error('[Sync] No auth token available!');
+      reject(new Error('No auth token - please login again'));
       return;
     }
 
     // Build the full path correctly - endpoint should start with /
     const fullPath = '/api' + (endpoint.startsWith('/') ? endpoint : '/' + endpoint);
-    console.log('[Sync] API Request:', method, fullPath);
+    console.log('[Sync] API Request:', method, fullPath, 'Token:', authToken ? authToken.substring(0, 20) + '...' : 'NONE');
 
     const options = {
       hostname: API_HOST,
@@ -73,7 +74,8 @@ function apiRequest(endpoint, method = 'GET', body = null) {
             onlineStatus = true;
             resolve(JSON.parse(data));
           } else {
-            reject(new Error(`HTTP ${res.statusCode}: ${data}`));
+            console.error('[Sync] API Error:', res.statusCode, data.substring(0, 200));
+            reject(new Error(`HTTP ${res.statusCode}: ${data.substring(0, 100)}`));
           }
         } catch (e) {
           reject(e);
@@ -162,6 +164,12 @@ async function fullSync() {
       }
 
       if (items.length > 0) {
+        // Debug: Log first item structure to see field names
+        if (page === 1 && items.length > 0) {
+          console.log('[Sync] Sample item from API:', JSON.stringify(items[0], null, 2));
+          console.log('[Sync] Item keys:', Object.keys(items[0]));
+          console.log('[Sync] rfidTag value:', items[0].rfidTag);
+        }
         const count = db.upsertItems(items);
         totalItems += count;
         console.log(`[Sync] Page ${page}: synced ${count} items (total: ${totalItems})`);

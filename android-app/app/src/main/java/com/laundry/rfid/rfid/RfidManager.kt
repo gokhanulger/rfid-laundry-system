@@ -1,22 +1,22 @@
 package com.laundry.rfid.rfid
 
 import android.content.Context
-import android.os.Handler
-import android.os.Looper
+import android.os.Build
 import android.util.Log
-import com.rscja.deviceapi.RFIDWithUHFUART
-import com.rscja.deviceapi.entity.UHFTAGInfo
-import com.rscja.deviceapi.interfaces.IUHFInventoryCallback
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * RFID Manager for Chainway C72
+ * Multi-device RFID Manager
  *
- * Uses the Chainway DeviceAPI SDK (RFIDWithUHFUART)
+ * Supports:
+ * - Chainway C72 (uses RFIDWithUHFUART SDK)
+ * - Handheld-Wireless C6 (uses UHFRManager SDK)
  */
 
 data class RfidTag(
@@ -40,13 +40,65 @@ interface RfidCallback {
     fun onError(error: String)
 }
 
+enum class DeviceType {
+    CHAINWAY,
+    HANDHELD,
+    UNKNOWN
+}
+
 @Singleton
 class RfidManager @Inject constructor(
     private val context: Context
 ) {
     companion object {
         private const val TAG = "RfidManager"
+        private const val TAG_UPDATE_DEBOUNCE_MS = 100L  // Debounce UI updates to every 100ms
+        private const val HANDHELD_SCAN_INTERVAL_MS = 10L
+
+        /**
+         * Detect device type based on manufacturer and model
+         */
+        fun detectDeviceType(): DeviceType {
+            val manufacturer = Build.MANUFACTURER.lowercase()
+            val model = Build.MODEL.lowercase()
+
+            Log.d(TAG, "Device: manufacturer=$manufacturer, model=$model")
+
+            return when {
+                manufacturer.contains("chainway") -> DeviceType.CHAINWAY
+                manufacturer.contains("handheld") -> DeviceType.HANDHELD
+                model.contains("c72") -> DeviceType.CHAINWAY
+                model.contains("c6") && !model.contains("c60") -> DeviceType.HANDHELD
+                model.startsWith("c6") -> DeviceType.HANDHELD
+                else -> {
+                    // Try to detect by available classes
+                    if (isChainwayAvailable()) DeviceType.CHAINWAY
+                    else if (isHandheldAvailable()) DeviceType.HANDHELD
+                    else DeviceType.UNKNOWN
+                }
+            }
+        }
+
+        private fun isChainwayAvailable(): Boolean {
+            return try {
+                Class.forName("com.rscja.deviceapi.RFIDWithUHFUART")
+                true
+            } catch (e: ClassNotFoundException) {
+                false
+            }
+        }
+
+        private fun isHandheldAvailable(): Boolean {
+            return try {
+                Class.forName("com.handheld.uhfr.UHFRManager")
+                true
+            } catch (e: ClassNotFoundException) {
+                false
+            }
+        }
     }
+
+    private val deviceType = detectDeviceType()
 
     private val _state = MutableStateFlow<RfidState>(RfidState.Disconnected)
     val state: StateFlow<RfidState> = _state.asStateFlow()
@@ -55,13 +107,24 @@ class RfidManager @Inject constructor(
     val scannedTags: StateFlow<Map<String, RfidTag>> = _scannedTags.asStateFlow()
 
     private var callback: RfidCallback? = null
-    private val handler = Handler(Looper.getMainLooper())
 
-    // Chainway SDK instance
-    private var rfidReader: RFIDWithUHFUART? = null
+    // Coroutine scope for background operations
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var scanJob: Job? = null
+    private var updateJob: Job? = null
+
+    // Thread-safe pending tags buffer for batched updates
+    private val pendingTags = ConcurrentHashMap<String, RfidTag>()
+    private val tagsBuffer = ConcurrentHashMap<String, RfidTag>()
+
+    // SDK instances - only one will be used based on device type
+    private var chainwayReader: com.rscja.deviceapi.RFIDWithUHFUART? = null
+    private var handheldManager: com.handheld.uhfr.UHFRManager? = null
 
     private var isInitialized = false
     private var isScanning = false
+
+    fun getDeviceType(): DeviceType = deviceType
 
     /**
      * Initialize the RFID reader
@@ -69,29 +132,80 @@ class RfidManager @Inject constructor(
     fun initialize(): Boolean {
         if (isInitialized) return true
 
+        Log.d(TAG, "Initializing RFID reader for device type: $deviceType")
+
+        return when (deviceType) {
+            DeviceType.CHAINWAY -> initializeChainway()
+            DeviceType.HANDHELD -> initializeHandheld()
+            DeviceType.UNKNOWN -> {
+                _state.value = RfidState.Error("Unknown device type - RFID not supported")
+                false
+            }
+        }
+    }
+
+    private fun initializeChainway(): Boolean {
         try {
             _state.value = RfidState.Connecting
 
-            // Get the RFID reader instance
-            rfidReader = RFIDWithUHFUART.getInstance()
-
-            // Initialize the reader - this connects to the UHF module
-            val result = rfidReader?.init(context)
+            chainwayReader = com.rscja.deviceapi.RFIDWithUHFUART.getInstance()
+            val result = chainwayReader?.init(context)
 
             if (result == true) {
                 isInitialized = true
                 _state.value = RfidState.Connected
-                Log.d(TAG, "RFID reader initialized successfully")
+
+                // Gücü maksimuma ayarla (30 dBm) - bazı etiketler düşük güçte okunamıyor
+                chainwayReader?.setPower(30)
+
+                // Session ve Target ayarları - SDK bu metodları desteklemiyor olabilir
+                // Varsayılan değerler kullanılacak
+
+                Log.d(TAG, "Chainway RFID reader initialized successfully with power=30dBm")
                 return true
             } else {
-                _state.value = RfidState.Error("Failed to initialize RFID reader")
-                Log.e(TAG, "Failed to initialize RFID reader")
+                _state.value = RfidState.Error("Failed to initialize Chainway RFID reader")
+                Log.e(TAG, "Failed to initialize Chainway RFID reader")
                 return false
             }
 
         } catch (e: Exception) {
             _state.value = RfidState.Error(e.message ?: "Unknown error")
-            Log.e(TAG, "Error initializing RFID reader", e)
+            Log.e(TAG, "Error initializing Chainway RFID reader", e)
+            return false
+        }
+    }
+
+    private fun initializeHandheld(): Boolean {
+        try {
+            _state.value = RfidState.Connecting
+
+            // New SDK uses getInstance() (typo fixed)
+            handheldManager = com.handheld.uhfr.UHFRManager.getInstance()
+
+            if (handheldManager != null) {
+                isInitialized = true
+                _state.value = RfidState.Connected
+
+                // Gücü maksimuma ayarla (30 dBm) - daha geniş okuma alanı için
+                try {
+                    handheldManager?.setPower(30, 30) // ant1=30, ant2=30
+                    Log.d(TAG, "Handheld power set to 30 dBm")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to set Handheld power", e)
+                }
+
+                Log.d(TAG, "Handheld RFID reader initialized successfully with power=30dBm")
+                return true
+            } else {
+                _state.value = RfidState.Error("Failed to initialize Handheld RFID reader")
+                Log.e(TAG, "Failed to initialize Handheld RFID reader")
+                return false
+            }
+
+        } catch (e: Exception) {
+            _state.value = RfidState.Error(e.message ?: "Unknown error")
+            Log.e(TAG, "Error initializing Handheld RFID reader", e)
             return false
         }
     }
@@ -112,10 +226,18 @@ class RfidManager @Inject constructor(
         this.callback = callback
         _scannedTags.value = emptyMap()
 
+        when (deviceType) {
+            DeviceType.CHAINWAY -> startChainwayScanning(callback)
+            DeviceType.HANDHELD -> startHandheldScanning(callback)
+            DeviceType.UNKNOWN -> callback?.onError("Unknown device type")
+        }
+    }
+
+    private fun startChainwayScanning(callback: RfidCallback?) {
         try {
             // Set up inventory callback
-            rfidReader?.setInventoryCallback(object : IUHFInventoryCallback {
-                override fun callback(tagInfo: UHFTAGInfo?) {
+            chainwayReader?.setInventoryCallback(object : com.rscja.deviceapi.interfaces.IUHFInventoryCallback {
+                override fun callback(tagInfo: com.rscja.deviceapi.entity.UHFTAGInfo?) {
                     tagInfo?.let {
                         val epc = it.epc ?: return
                         val rssi = it.rssi?.toIntOrNull() ?: -50
@@ -125,13 +247,17 @@ class RfidManager @Inject constructor(
             })
 
             // Start continuous inventory
-            val success = rfidReader?.startInventoryTag() ?: false
+            val success = chainwayReader?.startInventoryTag() ?: false
 
             if (success) {
                 isScanning = true
                 _state.value = RfidState.Scanning
                 callback?.onStateChanged(RfidState.Scanning)
-                Log.d(TAG, "Started RFID scanning")
+
+                // Start debounced UI update job
+                startDebouncedUpdates()
+
+                Log.d(TAG, "Started Chainway RFID scanning")
             } else {
                 _state.value = RfidState.Error("Failed to start inventory")
                 callback?.onError("Failed to start scanning")
@@ -140,7 +266,55 @@ class RfidManager @Inject constructor(
         } catch (e: Exception) {
             _state.value = RfidState.Error(e.message ?: "Unknown error")
             callback?.onError(e.message ?: "Failed to start scanning")
-            Log.e(TAG, "Error starting scan", e)
+            Log.e(TAG, "Error starting Chainway scan", e)
+        }
+    }
+
+    private fun startHandheldScanning(callback: RfidCallback?) {
+        try {
+            isScanning = true
+            _state.value = RfidState.Scanning
+            callback?.onStateChanged(RfidState.Scanning)
+
+            // Start debounced UI update job
+            startDebouncedUpdates()
+
+            // Start inventory using coroutines instead of bare Thread
+            scanJob = scope.launch(Dispatchers.IO) {
+                Log.d(TAG, "Starting Handheld inventory scan coroutine")
+                while (isActive && isScanning) {
+                    try {
+                        val tagList = handheldManager?.tagInventoryByTimer(100.toShort()) // 100ms timeout for better range
+                        tagList?.forEach { tagInfo ->
+                            // Reader.TAGINFO has EpcId (byte[]) and RSSI (int)
+                            val epcBytes = tagInfo?.EpcId
+                            val rssi = tagInfo?.RSSI ?: -50
+                            if (epcBytes != null && epcBytes.isNotEmpty()) {
+                                val epc = epcBytes.joinToString("") { "%02X".format(it) }
+                                if (epc.isNotEmpty()) {
+                                    handleTagRead(epc, rssi)
+                                }
+                            }
+                        }
+                        delay(HANDHELD_SCAN_INTERVAL_MS)
+                    } catch (e: CancellationException) {
+                        // Coroutine was cancelled, exit gracefully
+                        Log.d(TAG, "Handheld scan coroutine cancelled")
+                        break
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error during Handheld inventory", e)
+                    }
+                }
+                Log.d(TAG, "Handheld inventory scan coroutine stopped")
+            }
+
+            Log.d(TAG, "Started Handheld RFID scanning")
+
+        } catch (e: Exception) {
+            isScanning = false
+            _state.value = RfidState.Error(e.message ?: "Unknown error")
+            callback?.onError(e.message ?: "Failed to start scanning")
+            Log.e(TAG, "Error starting Handheld scan", e)
         }
     }
 
@@ -151,7 +325,25 @@ class RfidManager @Inject constructor(
         if (!isScanning) return
 
         try {
-            rfidReader?.stopInventory()
+            // Stop the debounced update job
+            updateJob?.cancel()
+            updateJob = null
+
+            when (deviceType) {
+                DeviceType.CHAINWAY -> {
+                    chainwayReader?.stopInventory()
+                }
+                DeviceType.HANDHELD -> {
+                    isScanning = false
+                    scanJob?.cancel()
+                    scanJob = null
+                    handheldManager?.stopTagInventory()
+                }
+                DeviceType.UNKNOWN -> {}
+            }
+
+            // Flush any remaining pending tags to the state
+            flushPendingTags()
 
             isScanning = false
             _state.value = RfidState.Connected
@@ -165,41 +357,72 @@ class RfidManager @Inject constructor(
     }
 
     /**
-     * Handle a tag read from the SDK
+     * Handle a tag read from the SDK - uses batched updates to avoid blocking main thread
      */
     private fun handleTagRead(epc: String, rssi: Int) {
         val cleanEpc = epc.trim().uppercase()
 
-        handler.post {
-            val currentTags = _scannedTags.value.toMutableMap()
-            val existingTag = currentTags[cleanEpc]
-
-            val tag = if (existingTag != null) {
-                existingTag.copy(
-                    rssi = maxOf(existingTag.rssi, rssi),
-                    readCount = existingTag.readCount + 1,
-                    timestamp = System.currentTimeMillis()
-                )
-            } else {
-                RfidTag(
-                    epc = cleanEpc,
-                    rssi = rssi,
-                    readCount = 1,
-                    timestamp = System.currentTimeMillis()
-                )
-            }
-
-            currentTags[cleanEpc] = tag
-            _scannedTags.value = currentTags
-
-            callback?.onTagRead(tag)
+        // Update the buffer atomically - no main thread blocking
+        val existingTag = tagsBuffer[cleanEpc]
+        val tag = if (existingTag != null) {
+            existingTag.copy(
+                rssi = maxOf(existingTag.rssi, rssi),
+                readCount = existingTag.readCount + 1,
+                timestamp = System.currentTimeMillis()
+            )
+        } else {
+            RfidTag(
+                epc = cleanEpc,
+                rssi = rssi,
+                readCount = 1,
+                timestamp = System.currentTimeMillis()
+            )
         }
+
+        tagsBuffer[cleanEpc] = tag
+        pendingTags[cleanEpc] = tag
+
+        // Callback is still triggered per tag but state update is debounced
+        callback?.onTagRead(tag)
+    }
+
+    /**
+     * Start the debounced update job that flushes pending tags to StateFlow periodically
+     */
+    private fun startDebouncedUpdates() {
+        updateJob?.cancel()
+        updateJob = scope.launch {
+            while (isActive && isScanning) {
+                delay(TAG_UPDATE_DEBOUNCE_MS)
+                if (pendingTags.isNotEmpty()) {
+                    flushPendingTags()
+                }
+            }
+        }
+    }
+
+    /**
+     * Flush pending tags to the StateFlow - called on debounce interval or when stopping
+     */
+    private fun flushPendingTags() {
+        if (pendingTags.isEmpty()) return
+
+        // Create a snapshot and clear pending
+        val snapshot = HashMap(tagsBuffer)
+        pendingTags.clear()
+
+        // Update StateFlow with the complete buffer snapshot
+        _scannedTags.value = snapshot
+
+        Log.d(TAG, "Flushed ${snapshot.size} tags to StateFlow")
     }
 
     /**
      * Clear scanned tags
      */
     fun clearScannedTags() {
+        tagsBuffer.clear()
+        pendingTags.clear()
         _scannedTags.value = emptyMap()
     }
 
@@ -218,7 +441,11 @@ class RfidManager @Inject constructor(
      */
     fun setPower(power: Int) {
         try {
-            rfidReader?.setPower(power)
+            when (deviceType) {
+                DeviceType.CHAINWAY -> chainwayReader?.setPower(power)
+                DeviceType.HANDHELD -> handheldManager?.setPower(power, power) // ant1, ant2
+                DeviceType.UNKNOWN -> {}
+            }
             Log.d(TAG, "Set power to $power dBm")
         } catch (e: Exception) {
             Log.e(TAG, "Error setting power", e)
@@ -230,7 +457,11 @@ class RfidManager @Inject constructor(
      */
     fun getPower(): Int {
         return try {
-            rfidReader?.power ?: 20
+            when (deviceType) {
+                DeviceType.CHAINWAY -> chainwayReader?.power ?: 20
+                DeviceType.HANDHELD -> handheldManager?.power?.firstOrNull() ?: 20
+                DeviceType.UNKNOWN -> 20
+            }
         } catch (e: Exception) {
             20
         }
@@ -242,8 +473,20 @@ class RfidManager @Inject constructor(
     fun release() {
         stopScanning()
         try {
-            rfidReader?.free()
-            rfidReader = null
+            // Cancel all coroutines
+            scope.cancel()
+
+            when (deviceType) {
+                DeviceType.CHAINWAY -> {
+                    chainwayReader?.free()
+                    chainwayReader = null
+                }
+                DeviceType.HANDHELD -> {
+                    handheldManager?.close()
+                    handheldManager = null
+                }
+                DeviceType.UNKNOWN -> {}
+            }
             isInitialized = false
             _state.value = RfidState.Disconnected
             Log.d(TAG, "RFID manager released")
@@ -272,12 +515,13 @@ class RfidManager @Inject constructor(
     fun simulateBulkRead(count: Int = 10) {
         if (_state.value != RfidState.Scanning && _state.value != RfidState.Connected) return
 
-        repeat(count) { index ->
-            val epc = "E200001122334455667788${String.format("%04X", index)}"
-            val rssi = (-70..-30).random()
-            handler.postDelayed({
+        scope.launch {
+            repeat(count) { index ->
+                val epc = "E200001122334455667788${String.format("%04X", index)}"
+                val rssi = (-70..-30).random()
                 handleTagRead(epc, rssi)
-            }, (index * 100).toLong())
+                delay(100)
+            }
         }
     }
 }

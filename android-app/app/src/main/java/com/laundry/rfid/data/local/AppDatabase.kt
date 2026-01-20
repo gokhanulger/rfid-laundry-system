@@ -3,10 +3,14 @@ package com.laundry.rfid.data.local
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import com.laundry.rfid.data.local.dao.CachedItemDao
+import com.laundry.rfid.data.local.dao.CachedTenantDao
+import com.laundry.rfid.data.local.dao.CachedItemTypeDao
 import com.laundry.rfid.data.local.dao.ScanEventDao
 import com.laundry.rfid.data.local.dao.ScanSessionDao
 import com.laundry.rfid.data.local.dao.SyncQueueDao
 import com.laundry.rfid.data.local.entity.CachedItemEntity
+import com.laundry.rfid.data.local.entity.CachedTenantEntity
+import com.laundry.rfid.data.local.entity.CachedItemTypeEntity
 import com.laundry.rfid.data.local.entity.ScanEventEntity
 import com.laundry.rfid.data.local.entity.ScanSessionEntity
 import com.laundry.rfid.data.local.entity.SyncQueueEntity
@@ -16,14 +20,18 @@ import com.laundry.rfid.data.local.entity.SyncQueueEntity
         ScanSessionEntity::class,
         ScanEventEntity::class,
         CachedItemEntity::class,
+        CachedTenantEntity::class,
+        CachedItemTypeEntity::class,
         SyncQueueEntity::class
     ],
-    version = 1,
+    version = 4, // Added cached_tenants and cached_item_types tables
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun scanSessionDao(): ScanSessionDao
     abstract fun scanEventDao(): ScanEventDao
     abstract fun cachedItemDao(): CachedItemDao
+    abstract fun cachedTenantDao(): CachedTenantDao
+    abstract fun cachedItemTypeDao(): CachedItemTypeDao
     abstract fun syncQueueDao(): SyncQueueDao
 }

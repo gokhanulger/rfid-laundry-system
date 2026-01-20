@@ -5,16 +5,44 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Get list of available printers
   getPrinters: () => ipcRenderer.invoke('get-printers'),
 
+  // Test printer with a test page
+  testPrinter: (printerName) => ipcRenderer.invoke('test-printer', { printerName }),
+
   // Print current page
   printDocument: (options) => ipcRenderer.invoke('print-document', options),
 
-  // Print label silently to specific printer (60mm x 80mm)
-  printLabel: (html, printerName, copies) =>
-    ipcRenderer.invoke('print-label', { html, printerName, copies }),
+  // Print label silently to specific printer (80mm x 60mm)
+  printLabel: (html, printerName, copies) => {
+    console.log('[Preload] printLabel called, printer:', printerName, 'htmlLen:', html?.length);
+    return ipcRenderer.invoke('print-label', { html, printerName, copies })
+      .then(result => {
+        console.log('[Preload] printLabel result:', result);
+        return result;
+      })
+      .catch(err => {
+        console.error('[Preload] printLabel error:', err);
+        throw err;
+      });
+  },
 
-  // Print irsaliye silently to specific printer (205mm x 217.5mm)
-  printIrsaliye: (html, printerName, copies) =>
-    ipcRenderer.invoke('print-irsaliye', { html, printerName, copies }),
+  // Print irsaliye silently to specific printer (A4)
+  printIrsaliye: (html, printerName, copies) => {
+    console.log('[Preload] printIrsaliye called, printer:', printerName, 'htmlLen:', html?.length);
+    return ipcRenderer.invoke('print-irsaliye', { html, printerName, copies })
+      .then(result => {
+        console.log('[Preload] printIrsaliye result:', result);
+        // Main process loglarını konsola yaz
+        if (result.logs && result.logs.length > 0) {
+          console.log('[Main Process Logs]:');
+          result.logs.forEach(log => console.log('  ' + log));
+        }
+        return result;
+      })
+      .catch(err => {
+        console.error('[Preload] printIrsaliye error:', err);
+        throw err;
+      });
+  },
 
   // Check if running in Electron
   isElectron: true,
@@ -84,6 +112,61 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onUhfLog: (callback) => {
     ipcRenderer.on('uhf-log', (event, log) => callback(log));
     return () => ipcRenderer.removeAllListeners('uhf-log');
+  },
+
+  // Listen for UHF debug data (raw packets)
+  onUhfDebug: (callback) => {
+    ipcRenderer.on('uhf-debug', (event, debug) => callback(debug));
+    return () => ipcRenderer.removeAllListeners('uhf-debug');
+  },
+
+  // ==========================================
+  // SQLite Database API (Offline-first)
+  // ==========================================
+
+  // Initialize database with auth token
+  dbInit: (token) => ipcRenderer.invoke('db-init', { token }),
+
+  // Set auth token for sync
+  dbSetToken: (token) => ipcRenderer.invoke('db-set-token', { token }),
+
+  // Full sync from API to SQLite
+  dbFullSync: () => ipcRenderer.invoke('db-full-sync'),
+
+  // Delta sync (only changes)
+  dbDeltaSync: () => ipcRenderer.invoke('db-delta-sync'),
+
+  // Get item by RFID tag (fast local lookup - <1ms)
+  dbGetItemByRfid: (rfidTag) => ipcRenderer.invoke('db-get-item-by-rfid', { rfidTag }),
+
+  // Get database stats
+  dbGetStats: () => ipcRenderer.invoke('db-get-stats'),
+
+  // Get all tenants from local cache
+  dbGetTenants: () => ipcRenderer.invoke('db-get-tenants'),
+
+  // Get all item types from local cache
+  dbGetItemTypes: () => ipcRenderer.invoke('db-get-item-types'),
+
+  // Mark items as clean (with offline queue support)
+  dbMarkItemsClean: (itemIds) => ipcRenderer.invoke('db-mark-items-clean', { itemIds }),
+
+  // Get pending operations count
+  dbGetPendingCount: () => ipcRenderer.invoke('db-get-pending-count'),
+
+  // Process pending operations
+  dbProcessPending: () => ipcRenderer.invoke('db-process-pending'),
+
+  // Check if online
+  dbIsOnline: () => ipcRenderer.invoke('db-is-online'),
+
+  // Debug: Search items in local database
+  dbDebugSearch: (searchTerm) => ipcRenderer.invoke('db-debug-search', { searchTerm }),
+
+  // Listen for sync status updates
+  onSyncStatus: (callback) => {
+    ipcRenderer.on('sync-status', (event, status) => callback(status));
+    return () => ipcRenderer.removeAllListeners('sync-status');
   }
 });
 

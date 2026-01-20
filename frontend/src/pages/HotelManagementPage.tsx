@@ -28,10 +28,11 @@ interface TenantForm {
   address: string;
   latitude: string;
   longitude: string;
+  qrCode: string;
   etaDatabaseType: 'official' | 'unofficial';
 }
 
-const emptyForm: TenantForm = { name: '', email: '', phone: '', address: '', latitude: '', longitude: '', etaDatabaseType: 'official' };
+const emptyForm: TenantForm = { name: '', email: '', phone: '', address: '', latitude: '', longitude: '', qrCode: '', etaDatabaseType: 'official' };
 
 export function HotelManagementPage() {
   const [showModal, setShowModal] = useState(false);
@@ -122,6 +123,7 @@ export function HotelManagementPage() {
       address: tenant.address || '',
       latitude: tenant.latitude || '',
       longitude: tenant.longitude || '',
+      qrCode: tenant.qrCode || '',
       etaDatabaseType: tenant.etaDatabaseType || 'official',
     });
     setShowModal(true);
@@ -133,8 +135,8 @@ export function HotelManagementPage() {
     setForm(emptyForm);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = (e?: React.FormEvent) => {
+    e?.preventDefault();
     if (editingTenant) {
       updateMutation.mutate({ id: editingTenant.id, data: form });
     } else {
@@ -229,6 +231,7 @@ export function HotelManagementPage() {
           address: getColumnValue(row, 'Adres', 'address', 'Address', 'Konum'),
           latitude: getColumnValue(row, 'Enlem', 'latitude', 'Lat'),
           longitude: getColumnValue(row, 'Boylam', 'longitude', 'Lng', 'Long'),
+          qrCode: getColumnValue(row, 'QR Kod', 'QR Code', 'Cari Kodu', 'Cari Kod', 'qrCode'),
           etaDatabaseType: etaTypeValue.includes('gayri') || etaTypeValue.includes('unofficial') || etaTypeValue.includes('teklif') ? 'unofficial' : 'official',
         };
 
@@ -598,9 +601,9 @@ export function HotelManagementPage() {
 
       {/* Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-            <div className="p-6 border-b flex items-center justify-between">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[90vh] flex flex-col">
+            <div className="p-4 border-b flex items-center justify-between flex-shrink-0">
               <h2 className="text-xl font-bold">
                 {editingTenant ? 'Otel Duzenle' : 'Yeni Otel Ekle'}
               </h2>
@@ -608,7 +611,7 @@ export function HotelManagementPage() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+            <form onSubmit={handleSubmit} className="p-4 space-y-3 overflow-y-auto flex-1">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Otel Adi *
@@ -658,6 +661,24 @@ export function HotelManagementPage() {
                   rows={2}
                 />
               </div>
+              {/* Cari Kodu - sadece düzenleme modunda göster */}
+              {editingTenant && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Cari Kodu (ETA)
+                  </label>
+                  <input
+                    type="text"
+                    value={form.qrCode}
+                    onChange={(e) => setForm({ ...form, qrCode: e.target.value.toUpperCase() })}
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500 font-mono"
+                    placeholder="HTL-XXXXXXXX veya ETA cari kodu"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Gayri resmi oteller icin ETA'daki cari kodunu buraya girin
+                  </p>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -720,24 +741,25 @@ export function HotelManagementPage() {
                   </button>
                 </div>
               </div>
-              <div className="flex gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={closeModal}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
-                >
-                  Iptal
-                </button>
-                <button
-                  type="submit"
-                  disabled={createMutation.isPending || updateMutation.isPending}
-                  className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  <Check className="w-4 h-4" />
-                  {editingTenant ? 'Guncelle' : 'Olustur'}
-                </button>
-              </div>
             </form>
+            <div className="flex gap-3 p-4 border-t flex-shrink-0">
+              <button
+                type="button"
+                onClick={closeModal}
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+              >
+                Iptal
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={createMutation.isPending || updateMutation.isPending}
+                className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                <Check className="w-4 h-4" />
+                {editingTenant ? 'Guncelle' : 'Olustur'}
+              </button>
+            </div>
           </div>
         </div>
       )}

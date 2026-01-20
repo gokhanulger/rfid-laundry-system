@@ -19,6 +19,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.material3.LocalTextStyle
@@ -30,6 +31,8 @@ import com.laundry.rfid.domain.model.ScannedTag
 import com.laundry.rfid.domain.model.SessionType
 import com.laundry.rfid.rfid.RfidState
 import com.laundry.rfid.ui.theme.*
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -119,7 +122,8 @@ fun ScanScreen(
                     onShowSelector = { viewModel.showHotelSelector() },
                     onHideSelector = { viewModel.hideHotelSelector() },
                     onSelectTenant = { id, name -> viewModel.selectTenant(id, name) },
-                    onScanQR = onScanQR
+                    onScanQR = onScanQR,
+                    onRefresh = { viewModel.refreshTenants() }
                 )
             }
 
@@ -149,25 +153,43 @@ fun ScanScreen(
                                 fontWeight = FontWeight.Medium,
                                 color = color
                             )
-                            StatusIndicator(state = uiState.rfidState, isScanning = uiState.isScanning)
+                            StatusIndicator(state = uiState.rfidState, isScanning = uiState.isScanning, deviceType = uiState.deviceType)
                         }
                     }
                     // Show matched/unmatched counts if hotel is selected
                     if (needsHotelSelection && uiState.selectedTenantId != null && uiState.tagCount > 0) {
                         Spacer(modifier = Modifier.height(4.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text(
-                                text = "✓ ${uiState.matchedCount} eşleşen",
-                                fontSize = 14.sp,
-                                color = SuccessColor,
-                                fontWeight = FontWeight.Medium
-                            )
-                            if (uiState.unmatchedCount > 0) {
+                        Column {
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Text(
-                                    text = "✗ ${uiState.unmatchedCount} diğer otel",
+                                    text = "✓ ${uiState.matchedCount} eşleşen",
                                     fontSize = 14.sp,
-                                    color = WarningColor,
+                                    color = SuccessColor,
                                     fontWeight = FontWeight.Medium
+                                )
+                                if (uiState.otherHotelCount > 0) {
+                                    Text(
+                                        text = "✗ ${uiState.otherHotelCount} farklı otel",
+                                        fontSize = 14.sp,
+                                        color = WarningColor,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                                if (uiState.unregisteredCount > 0) {
+                                    Text(
+                                        text = "? ${uiState.unregisteredCount} kayıtsız",
+                                        fontSize = 14.sp,
+                                        color = Error,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                            // Show which hotels for other items
+                            if (uiState.otherHotelNames.isNotEmpty()) {
+                                Text(
+                                    text = "Diğer: ${uiState.otherHotelNames.joinToString(", ")}",
+                                    fontSize = 12.sp,
+                                    color = WarningColor.copy(alpha = 0.8f)
                                 )
                             }
                         }
@@ -229,7 +251,7 @@ fun ScanScreen(
                 }
             }
 
-            // Grouped items list - shows "3x Nevresim" style for driver
+            // Grouped items list - shows "3x Nevresim" style for driver (optimized with keys)
             LazyColumn(
                 modifier = Modifier
                     .weight(1f)
@@ -237,7 +259,10 @@ fun ScanScreen(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
             ) {
                 // Show grouped items (registered only for driver sessions)
-                items(uiState.groupedItems) { group ->
+                items(
+                    items = uiState.groupedItems,
+                    key = { "${it.itemTypeName}_${it.tenantName}_${it.belongsToSelectedHotel}" }
+                ) { group ->
                     GroupedItemCard(
                         group = group,
                         color = color,
@@ -326,7 +351,7 @@ fun ScanScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.Top
                     ) {
                         Icon(
                             Icons.Default.Info,
@@ -341,6 +366,16 @@ fun ScanScreen(
                                 fontWeight = FontWeight.Bold,
                                 color = WarningColor
                             )
+                            // Show which hotels
+                            if (uiState.otherHotelNames.isNotEmpty()) {
+                                uiState.otherHotelNames.forEach { hotelInfo ->
+                                    Text(
+                                        text = "• $hotelInfo",
+                                        fontSize = 12.sp,
+                                        color = WarningColor.copy(alpha = 0.8f)
+                                    )
+                                }
+                            }
                             Text(
                                 text = "Bu ürünler işleme dahil edilmeyecek",
                                 fontSize = 12.sp,
@@ -437,7 +472,10 @@ fun ScanScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
+/**
+ * Fast hotel selection bar using Dialog + LazyColumn
+ * Opens instantly because items are rendered lazily
+ */
 @Composable
 fun HotelSelectionBar(
     selectedTenantName: String?,
@@ -447,150 +485,197 @@ fun HotelSelectionBar(
     onShowSelector: () -> Unit,
     onHideSelector: () -> Unit,
     onSelectTenant: (String, String) -> Unit,
-    onScanQR: () -> Unit = {}
+    onScanQR: () -> Unit = {},
+    onRefresh: () -> Unit = {}
 ) {
-    var qrInput by remember { mutableStateOf("") }
-    val focusRequester = remember { FocusRequester() }
-    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    var searchText by remember { mutableStateOf("") }
 
-    // Auto-focus for hardware scanner but hide keyboard
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
-        keyboardController?.hide()
-    }
-
-    // Auto-search after input stops (debounce 300ms)
-    LaunchedEffect(qrInput) {
-        if (qrInput.isNotBlank()) {
-            kotlinx.coroutines.delay(300)
-            // Find tenant by QR code
-            val tenant = tenants.find { it.qrCode == qrInput.trim() }
-            if (tenant != null) {
-                onSelectTenant(tenant.id, tenant.name)
-            } else {
-                // Try partial name match
-                val tenantByName = tenants.find {
-                    it.name.lowercase().contains(qrInput.trim().lowercase()) ||
-                    qrInput.trim().lowercase().contains(it.name.lowercase())
-                }
-                if (tenantByName != null) {
-                    onSelectTenant(tenantByName.id, tenantByName.name)
-                }
-            }
-            qrInput = ""
-            focusRequester.requestFocus()
-            keyboardController?.hide()
-        }
+    // Filter tenants - memoized
+    val filteredTenants = remember(tenants, searchText) {
+        if (searchText.isBlank()) tenants
+        else tenants.filter { it.name.contains(searchText, ignoreCase = true) }
     }
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = if (selectedTenantName != null) InfoColor.copy(alpha = 0.1f) else WarningColor.copy(alpha = 0.1f)
     ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            // Hidden QR Scanner Input - for hardware scanner only (invisible)
-            BasicTextField(
-                value = qrInput,
-                onValueChange = { qrInput = it },
-                modifier = Modifier
-                    .size(1.dp)
-                    .focusRequester(focusRequester),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Default.Business,
+                contentDescription = null,
+                tint = if (selectedTenantName != null) InfoColor else WarningColor,
+                modifier = Modifier.size(24.dp)
             )
+            Spacer(modifier = Modifier.width(12.dp))
 
-            // Hotel dropdown
-            Row(
+            // Clickable hotel selector - opens dialog
+            Card(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .weight(1f)
+                    .clickable(enabled = !isLoading) { onShowSelector() },
+                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+                border = CardDefaults.outlinedCardBorder()
             ) {
-                Icon(
-                    Icons.Default.Business,
-                    contentDescription = null,
-                    tint = if (selectedTenantName != null) InfoColor else WarningColor,
-                    modifier = Modifier.size(24.dp)
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-
-                // Dropdown menu
-                ExposedDropdownMenuBox(
-                    expanded = showSelector,
-                    onExpandedChange = { if (it) onShowSelector() else onHideSelector() },
-                    modifier = Modifier.weight(1f)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
+                    Text(
+                        text = selectedTenantName ?: "Otel seçin...",
+                        fontWeight = if (selectedTenantName != null) FontWeight.Medium else FontWeight.Normal,
+                        color = if (selectedTenantName != null) InfoColor else WarningColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (isLoading) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                    }
+                }
+            }
+
+            // Refresh button
+            IconButton(onClick = onRefresh, enabled = !isLoading) {
+                Icon(
+                    Icons.Default.Refresh,
+                    contentDescription = "Yenile",
+                    tint = if (isLoading) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+
+    // Fast selection dialog with LazyColumn
+    if (showSelector && !isLoading) {
+        Dialog(
+            onDismissRequest = {
+                searchText = ""
+                onHideSelector()
+            },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth(0.9f)
+                    .fillMaxHeight(0.6f),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    // Header
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Otel Seçin",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = {
+                            searchText = ""
+                            onHideSelector()
+                        }) {
+                            Icon(Icons.Default.Close, contentDescription = "Kapat")
+                        }
+                    }
+
+                    // Search field
                     OutlinedTextField(
-                        value = selectedTenantName ?: "",
-                        onValueChange = {},
-                        readOnly = true,
-                        placeholder = {
-                            Text(
-                                "Otel seçin...",
-                                color = WarningColor
-                            )
-                        },
+                        value = searchText,
+                        onValueChange = { searchText = it },
+                        placeholder = { Text("Ara...") },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                         trailingIcon = {
-                            if (isLoading) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    strokeWidth = 2.dp
-                                )
-                            } else {
-                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = showSelector)
+                            if (searchText.isNotEmpty()) {
+                                IconButton(onClick = { searchText = "" }) {
+                                    Icon(Icons.Default.Clear, contentDescription = "Temizle")
+                                }
                             }
                         },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = if (selectedTenantName != null) InfoColor else WarningColor,
-                            unfocusedBorderColor = if (selectedTenantName != null) InfoColor.copy(alpha = 0.5f) else WarningColor.copy(alpha = 0.5f),
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent
-                        ),
                         modifier = Modifier
-                            .menuAnchor()
-                            .fillMaxWidth(),
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
                         singleLine = true,
-                        textStyle = LocalTextStyle.current.copy(
-                            fontWeight = FontWeight.Medium,
-                            color = if (selectedTenantName != null) InfoColor else MaterialTheme.colorScheme.onSurface
-                        )
+                        shape = RoundedCornerShape(12.dp)
                     )
 
-                    ExposedDropdownMenu(
-                        expanded = showSelector && !isLoading,
-                        onDismissRequest = onHideSelector
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Fast LazyColumn - only renders visible items
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentPadding = PaddingValues(horizontal = 8.dp)
                     ) {
-                        tenants.forEach { tenant ->
-                            DropdownMenuItem(
-                                text = {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            Icons.Default.Business,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(20.dp),
-                                            tint = if (tenant.name == selectedTenantName) InfoColor else MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        Spacer(modifier = Modifier.width(12.dp))
-                                        Text(
-                                            tenant.name,
-                                            fontWeight = if (tenant.name == selectedTenantName) FontWeight.Bold else FontWeight.Normal
-                                        )
+                        items(
+                            count = filteredTenants.size,
+                            key = { filteredTenants[it].id }
+                        ) { index ->
+                            val tenant = filteredTenants[index]
+                            val isSelected = tenant.name == selectedTenantName
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        onSelectTenant(tenant.id, tenant.name)
+                                        searchText = ""
+                                        onHideSelector()
                                     }
-                                },
-                                onClick = {
-                                    onSelectTenant(tenant.id, tenant.name)
-                                    onHideSelector()
-                                },
-                                leadingIcon = if (tenant.name == selectedTenantName) {
-                                    {
-                                        Icon(
-                                            Icons.Default.Check,
-                                            contentDescription = null,
-                                            tint = InfoColor
-                                        )
-                                    }
-                                } else null
-                            )
+                                    .background(
+                                        if (isSelected) InfoColor.copy(alpha = 0.1f)
+                                        else Color.Transparent,
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .padding(horizontal = 12.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    if (isSelected) Icons.Default.CheckCircle else Icons.Default.Business,
+                                    contentDescription = null,
+                                    tint = if (isSelected) InfoColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    text = tenant.name,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSelected) InfoColor else MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+
+                        if (filteredTenants.isEmpty()) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(32.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        "Sonuç bulunamadı",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -705,7 +790,7 @@ fun GroupedItemCard(
 }
 
 @Composable
-fun StatusIndicator(state: RfidState, isScanning: Boolean) {
+fun StatusIndicator(state: RfidState, isScanning: Boolean, deviceType: String = "") {
     val (text, color) = when {
         isScanning -> "Taranıyor..." to SuccessColor
         state is RfidState.Connected -> "Hazır" to InfoColor
@@ -713,6 +798,8 @@ fun StatusIndicator(state: RfidState, isScanning: Boolean) {
         state is RfidState.Error -> "Hata: ${state.message}" to Error
         else -> "Bağlı Değil" to MaterialTheme.colorScheme.onSurfaceVariant
     }
+
+    val displayText = if (deviceType.isNotEmpty()) "$text ($deviceType)" else text
 
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(
@@ -722,7 +809,7 @@ fun StatusIndicator(state: RfidState, isScanning: Boolean) {
         )
         Spacer(modifier = Modifier.width(8.dp))
         Text(
-            text = text,
+            text = displayText,
             fontSize = 14.sp,
             color = color
         )

@@ -1,5 +1,6 @@
 package com.laundry.rfid.data.repository
 
+import android.util.Log
 import com.google.gson.Gson
 import com.laundry.rfid.data.local.dao.ScanEventDao
 import com.laundry.rfid.data.local.dao.ScanSessionDao
@@ -10,6 +11,8 @@ import com.laundry.rfid.data.local.entity.SyncQueueEntity
 import com.laundry.rfid.data.remote.api.ApiService
 import com.laundry.rfid.data.remote.dto.*
 import com.laundry.rfid.domain.model.*
+import com.laundry.rfid.network.NetworkMonitor
+import com.laundry.rfid.network.OperationType
 import com.laundry.rfid.util.PreferencesManager
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -19,13 +22,17 @@ import java.util.*
 import javax.inject.Inject
 import javax.inject.Singleton
 
+private const val TAG = "ScanRepository"
+private const val MAX_RETRIES = 5
+
 @Singleton
 class ScanRepository @Inject constructor(
     private val sessionDao: ScanSessionDao,
     private val eventDao: ScanEventDao,
     private val syncQueueDao: SyncQueueDao,
     private val apiService: ApiService,
-    private val preferencesManager: PreferencesManager
+    private val preferencesManager: PreferencesManager,
+    private val networkMonitor: NetworkMonitor
 ) {
     private val gson = Gson()
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
@@ -135,8 +142,48 @@ class ScanRepository @Inject constructor(
         sessionId: String,
         tags: List<ScannedTag>
     ) {
+        if (tags.isEmpty()) return
+
+        // Get existing tags in this session for deduplication
+        val existingTags = eventDao.getEventsBySessionSync(sessionId)
+            .associateBy { it.rfidTag }
+
+        val eventsToInsert = mutableListOf<ScanEventEntity>()
+        val eventsToUpdate = mutableListOf<Pair<String, Int?>>() // id to signalStrength
+
         for (tag in tags) {
-            addScanEvent(sessionId, tag.rfidTag, tag.signalStrength)
+            val existing = existingTags[tag.rfidTag]
+            if (existing != null) {
+                // Queue for update (increment read count)
+                eventsToUpdate.add(existing.id to tag.signalStrength)
+            } else {
+                // Queue for insert
+                eventsToInsert.add(
+                    ScanEventEntity(
+                        id = UUID.randomUUID().toString(),
+                        sessionId = sessionId,
+                        rfidTag = tag.rfidTag,
+                        signalStrength = tag.signalStrength,
+                        readCount = tag.readCount,
+                        scannedAt = System.currentTimeMillis()
+                    )
+                )
+            }
+        }
+
+        // Batch insert new events
+        if (eventsToInsert.isNotEmpty()) {
+            eventDao.insertEvents(eventsToInsert)
+            Log.d(TAG, "Batch inserted ${eventsToInsert.size} scan events")
+        }
+
+        // Update existing events (still need individual updates due to increment logic)
+        for ((id, signalStrength) in eventsToUpdate) {
+            eventDao.incrementReadCount(id, signalStrength)
+        }
+
+        if (eventsToUpdate.isNotEmpty()) {
+            Log.d(TAG, "Updated ${eventsToUpdate.size} existing scan events")
         }
     }
 
@@ -181,30 +228,49 @@ class ScanRepository @Inject constructor(
         val queueItem = SyncQueueEntity(
             id = UUID.randomUUID().toString(),
             sessionId = sessionId,
+            operationType = OperationType.SCAN_SESSION_SYNC.name,
             payload = gson.toJson(payload),
             status = "pending",
+            priority = 3, // Medium-high priority for scan syncs
             retryCount = 0,
             errorMessage = null,
             processedAt = null
         )
 
         syncQueueDao.insert(queueItem)
+        Log.d(TAG, "Added session $sessionId to sync queue")
     }
 
     suspend fun syncPendingSessions(): Result<SyncResponse> {
-        val pendingItems = syncQueueDao.getPendingItems()
+        // Check network first
+        if (!networkMonitor.isCurrentlyOnline()) {
+            Log.d(TAG, "Offline, skipping sync")
+            return Result.failure(Exception("Device is offline"))
+        }
+
+        val pendingItems = syncQueueDao.getPendingItemsWithRetryLimit(MAX_RETRIES)
         if (pendingItems.isEmpty()) {
+            Log.d(TAG, "No pending items to sync")
             return Result.success(SyncResponse(
                 syncedAt = dateFormat.format(Date()),
                 results = emptyList()
             ))
         }
 
+        Log.d(TAG, "Syncing ${pendingItems.size} pending sessions")
+
         val deviceUuid = preferencesManager.deviceUuid.first()
             ?: return Result.failure(Exception("Device not registered"))
 
+        // Cache deserialized DTOs to avoid repeated JSON parsing
+        val sessionDtoCache = mutableMapOf<String, OfflineSessionDto>()
+        val localIdToQueueItem = mutableMapOf<String, SyncQueueEntity>()
+
         val sessions = pendingItems.map { item ->
-            gson.fromJson(item.payload, OfflineSessionDto::class.java)
+            val dto = gson.fromJson(item.payload, OfflineSessionDto::class.java)
+            sessionDtoCache[item.id] = dto
+            localIdToQueueItem[dto.localId] = item
+            dto
         }
 
         return try {
@@ -215,11 +281,9 @@ class ScanRepository @Inject constructor(
             if (response.isSuccessful && response.body() != null) {
                 val syncResponse = response.body()!!
 
-                // Update sync status for each session
+                // Update sync status for each session - using cached lookup instead of re-parsing
                 for (result in syncResponse.results) {
-                    val queueItem = pendingItems.find {
-                        gson.fromJson(it.payload, OfflineSessionDto::class.java).localId == result.localId
-                    }
+                    val queueItem = localIdToQueueItem[result.localId]
 
                     if (queueItem != null) {
                         val status = if (result.status == "synced" || result.status == "conflict") {
@@ -242,6 +306,7 @@ class ScanRepository @Inject constructor(
                                 syncStatus = SyncStatus.SYNCED.value,
                                 syncedAt = System.currentTimeMillis()
                             )
+                            Log.d(TAG, "Session ${queueItem.sessionId} synced successfully")
                         }
                     }
                 }
@@ -262,25 +327,31 @@ class ScanRepository @Inject constructor(
                     }
                 ))
             } else {
+                Log.w(TAG, "Sync API returned error: ${response.code()}")
                 Result.failure(Exception("Sync failed: ${response.code()}"))
             }
         } catch (e: Exception) {
-            // Mark items as failed but keep for retry
+            Log.e(TAG, "Sync failed with exception: ${e.message}", e)
+
+            // Update retry counts for failed items
             for (item in pendingItems) {
-                if (item.retryCount < 3) {
-                    syncQueueDao.updateStatus(
+                val newRetryCount = item.retryCount + 1
+                if (newRetryCount < MAX_RETRIES) {
+                    syncQueueDao.updateStatusWithRetry(
                         id = item.id,
                         status = "pending",
-                        processedAt = null,
+                        retryCount = newRetryCount,
                         errorMessage = e.message
                     )
+                    Log.d(TAG, "Item ${item.id} will retry (attempt $newRetryCount/$MAX_RETRIES)")
                 } else {
                     syncQueueDao.updateStatus(
                         id = item.id,
                         status = "failed",
                         processedAt = System.currentTimeMillis(),
-                        errorMessage = "Max retries exceeded: ${e.message}"
+                        errorMessage = "Max retries ($MAX_RETRIES) exceeded: ${e.message}"
                     )
+                    Log.w(TAG, "Item ${item.id} moved to failed queue after $MAX_RETRIES retries")
                 }
             }
             Result.failure(e)
