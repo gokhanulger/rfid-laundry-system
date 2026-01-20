@@ -520,8 +520,17 @@ itemsRouter.post('/scan', async (req: AuthRequest, res) => {
     }
 
     console.log('[SCAN DEBUG] Matched:', matchedItems.length, 'NotFound:', notFoundTags.length);
+
+    // Log tenant breakdown
+    const tenantGroups = matchedItems.reduce((acc, item) => {
+      const tenantName = item.tenant?.name || 'Unknown';
+      acc[tenantName] = (acc[tenantName] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    console.log('[SCAN DEBUG] Items by tenant:', JSON.stringify(tenantGroups));
+
     if (matchedItems.length > 0) {
-      console.log('[SCAN DEBUG] First match - scanned contains DB tag:', matchedItems[0].rfidTag);
+      console.log('[SCAN DEBUG] First match:', matchedItems[0].rfidTag, '-> Tenant:', matchedItems[0].tenant?.name);
     }
     if (notFoundTags.length > 0) {
       console.log('[SCAN DEBUG] First notFound tag:', notFoundTags[0]);
