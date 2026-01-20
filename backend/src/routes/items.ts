@@ -545,8 +545,11 @@ itemsRouter.post('/scan', async (req: AuthRequest, res) => {
     console.log('[SCAN DEBUG] Items by tenant:', JSON.stringify(tenantGroups));
 
     if (matchedItems.length > 0) {
-      console.log('[SCAN DEBUG] First match:', matchedItems[0].rfidTag, '-> Tenant:', matchedItems[0].tenant?.name);
+      console.log('[SCAN DEBUG] First match:', matchedItems[0].rfidTag, '-> Tenant:', matchedItems[0].tenant?.name, '-> TenantID:', matchedItems[0].tenantId);
     }
+    // Log all unique tenant IDs for debugging
+    const tenantIds = [...new Set(matchedItems.map(i => i.tenantId))];
+    console.log('[SCAN DEBUG] Unique tenant IDs in results:', tenantIds);
     if (notFoundTags.length > 0) {
       console.log('[SCAN DEBUG] First notFound tag:', notFoundTags[0]);
     }
