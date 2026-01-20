@@ -498,40 +498,37 @@ itemsRouter.post('/scan', async (req: AuthRequest, res) => {
     // Scanned tag (long) contains database rfidTag (short)
     // e.g., "E200000090342512..." contains "90342512..."
     // Pick the LONGEST matching rfidTag to avoid false matches
-    // IMPORTANT: Each database item can only be matched ONCE (first match wins)
     const matchedItems: typeof allItems = [];
     const matchedScannedTags: string[] = [];
     const notFoundTags: string[] = [];
-    const matchedItemIds = new Set<string>(); // Track which DB items are already matched
+    const matchedItemIds = new Set<string>(); // Track unique DB items for count
 
     // Map scannedTag -> item (to return scanned tag as the key, not DB tag)
     const scannedTagToItem: Record<string, typeof allItems[0]> = {};
 
     for (const scannedTag of rfidTags) {
       // Find all items whose rfidTag is contained within the scanned tag
-      // AND that haven't been matched yet
-      const matchingItems = allItems.filter(item =>
-        scannedTag.includes(item.rfidTag) && !matchedItemIds.has(item.id)
-      );
+      const matchingItems = allItems.filter(item => scannedTag.includes(item.rfidTag));
 
       if (matchingItems.length > 0) {
         // Pick the one with the longest rfidTag (most specific match)
         const bestMatch = matchingItems.sort((a, b) => b.rfidTag.length - a.rfidTag.length)[0];
-        // Mark this item as matched so it won't be matched again
-        matchedItemIds.add(bestMatch.id);
         // Store with scanned tag as key
         scannedTagToItem[scannedTag] = bestMatch;
-        matchedItems.push(bestMatch);
+        // Track unique items
+        if (!matchedItemIds.has(bestMatch.id)) {
+          matchedItemIds.add(bestMatch.id);
+          matchedItems.push(bestMatch);
+        }
         matchedScannedTags.push(scannedTag);
       } else {
         notFoundTags.push(scannedTag);
       }
     }
 
-    // Return one entry per matched database item (not per scanned tag)
-    const itemsWithScannedTags = matchedItems.map(item => {
-      // Find the scanned tag that matched this item
-      const scannedTag = Object.entries(scannedTagToItem).find(([_, i]) => i.id === item.id)?.[0] || item.rfidTag;
+    // Override rfidTag in response to use scanned tag (so Android can match)
+    const itemsWithScannedTags = matchedScannedTags.map(scannedTag => {
+      const item = scannedTagToItem[scannedTag];
       return {
         ...item,
         rfidTag: scannedTag, // Use scanned tag instead of DB tag
@@ -569,11 +566,12 @@ itemsRouter.post('/scan', async (req: AuthRequest, res) => {
       console.log('[SCAN DEBUG] First notFound tag:', notFoundTags[0]);
     }
 
-    console.log('[SCAN DEBUG] Response: items count=', itemsWithScannedTags.length, ', found=', matchedScannedTags.length, ', notFound=', notFoundTags.length);
+    console.log('[SCAN DEBUG] Response: items count=', itemsWithScannedTags.length, ', uniqueItems=', matchedItemIds.size, ', found=', matchedScannedTags.length, ', notFound=', notFoundTags.length);
 
     res.json({
       items: itemsWithScannedTags, // Return items with scanned tag as rfidTag
       found: matchedScannedTags.length,
+      uniqueItemCount: matchedItemIds.size, // Number of unique database items matched
       notFound: notFoundTags.length,
       notFoundTags,
     });
