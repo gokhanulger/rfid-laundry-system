@@ -563,6 +563,8 @@ itemsRouter.post('/scan', async (req: AuthRequest, res) => {
       console.log('[SCAN DEBUG] First notFound tag:', notFoundTags[0]);
     }
 
+    console.log('[SCAN DEBUG] Response: items count=', itemsWithScannedTags.length, ', found=', matchedScannedTags.length, ', notFound=', notFoundTags.length);
+
     res.json({
       items: itemsWithScannedTags, // Return items with scanned tag as rfidTag
       found: matchedScannedTags.length,
