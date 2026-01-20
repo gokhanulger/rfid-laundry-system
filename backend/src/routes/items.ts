@@ -29,6 +29,7 @@ const updateItemSchema = z.object({
   isDamaged: z.boolean().optional(),
   isStained: z.boolean().optional(),
   notes: z.string().optional(),
+  itemTypeId: z.string().uuid('Invalid item type ID').optional(),
 });
 
 const markCleanSchema = z.object({
@@ -477,28 +478,58 @@ itemsRouter.post('/scan', async (req: AuthRequest, res) => {
     const { rfidTags } = validation.data;
     const user = req.user!;
 
-    const conditions = [inArray(items.rfidTag, rfidTags)];
+    console.log('[SCAN DEBUG] Received tags:', rfidTags.slice(0, 5)); // Log first 5 tags
 
-    // Tenant isolation
+    // Get all items (optionally filtered by tenant)
+    const conditions: any[] = [];
     if (user.role !== 'system_admin' && user.tenantId) {
       conditions.push(eq(items.tenantId, user.tenantId));
     }
 
-    const scannedItems = await db.query.items.findMany({
-      where: and(...conditions),
+    const allItems = await db.query.items.findMany({
+      where: conditions.length > 0 ? and(...conditions) : undefined,
       with: {
         itemType: true,
         tenant: true,
       },
     });
 
-    // Return info about found and not found tags
-    const foundTags = scannedItems.map(item => item.rfidTag);
-    const notFoundTags = rfidTags.filter(tag => !foundTags.includes(tag));
+    // Match scanned tags to items using partial matching
+    // Scanned tag (long) contains database rfidTag (short)
+    // e.g., "E200000090342512..." contains "90342512..."
+    // Pick the LONGEST matching rfidTag to avoid false matches
+    const matchedItems: typeof allItems = [];
+    const matchedScannedTags: string[] = [];
+    const notFoundTags: string[] = [];
+
+    for (const scannedTag of rfidTags) {
+      // Find all items whose rfidTag is contained within the scanned tag
+      const matchingItems = allItems.filter(item => scannedTag.includes(item.rfidTag));
+
+      if (matchingItems.length > 0) {
+        // Pick the one with the longest rfidTag (most specific match)
+        const bestMatch = matchingItems.sort((a, b) => b.rfidTag.length - a.rfidTag.length)[0];
+        // Avoid duplicates
+        if (!matchedItems.find(m => m.id === bestMatch.id)) {
+          matchedItems.push(bestMatch);
+        }
+        matchedScannedTags.push(scannedTag);
+      } else {
+        notFoundTags.push(scannedTag);
+      }
+    }
+
+    console.log('[SCAN DEBUG] Matched:', matchedItems.length, 'NotFound:', notFoundTags.length);
+    if (matchedItems.length > 0) {
+      console.log('[SCAN DEBUG] First match - scanned contains DB tag:', matchedItems[0].rfidTag);
+    }
+    if (notFoundTags.length > 0) {
+      console.log('[SCAN DEBUG] First notFound tag:', notFoundTags[0]);
+    }
 
     res.json({
-      items: scannedItems,
-      found: foundTags.length,
+      items: matchedItems,
+      found: matchedScannedTags.length,
       notFound: notFoundTags.length,
       notFoundTags,
     });

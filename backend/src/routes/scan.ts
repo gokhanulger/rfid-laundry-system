@@ -22,6 +22,7 @@ scanRouter.use(requireAuth);
 
 // Helper function to find item by partial RFID match
 // Searches for database rfidTag within the scanned tag (e.g., "903425" found in "E2000000903425...")
+// Returns the LONGEST matching rfidTag to avoid false matches (e.g., "1234" vs "12345678")
 async function findItemByPartialRfidMatch(scannedTag: string, tenantId?: string) {
   // Get all items (optionally filtered by tenant)
   const conditions = tenantId ? eq(items.tenantId, tenantId) : undefined;
@@ -29,11 +30,16 @@ async function findItemByPartialRfidMatch(scannedTag: string, tenantId?: string)
     where: conditions,
   });
 
-  // Find item whose rfidTag is contained within the scanned tag
-  return allItems.find(item => scannedTag.includes(item.rfidTag));
+  // Find all items whose rfidTag is contained within the scanned tag
+  // Then return the one with the LONGEST rfidTag (most specific match)
+  const matchingItems = allItems.filter(item => scannedTag.includes(item.rfidTag));
+  if (matchingItems.length === 0) return undefined;
+
+  return matchingItems.sort((a, b) => b.rfidTag.length - a.rfidTag.length)[0];
 }
 
 // Helper function to match multiple scanned tags to items
+// Returns the LONGEST matching rfidTag for each scanned tag to avoid false matches
 async function matchScannedTagsToItems(scannedTags: string[], tenantId?: string): Promise<Map<string, string>> {
   // Get all items (optionally filtered by tenant)
   const conditions = tenantId ? eq(items.tenantId, tenantId) : undefined;
@@ -45,9 +51,11 @@ async function matchScannedTagsToItems(scannedTags: string[], tenantId?: string)
   const matchMap = new Map<string, string>();
 
   for (const scannedTag of scannedTags) {
-    const matchedItem = allItems.find(item => scannedTag.includes(item.rfidTag));
-    if (matchedItem) {
-      matchMap.set(scannedTag, matchedItem.id);
+    // Find all matching items and pick the one with longest rfidTag
+    const matchingItems = allItems.filter(item => scannedTag.includes(item.rfidTag));
+    if (matchingItems.length > 0) {
+      const bestMatch = matchingItems.sort((a, b) => b.rfidTag.length - a.rfidTag.length)[0];
+      matchMap.set(scannedTag, bestMatch.id);
     }
   }
 
