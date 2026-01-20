@@ -535,6 +535,15 @@ itemsRouter.post('/scan', async (req: AuthRequest, res) => {
     });
 
     console.log('[SCAN DEBUG] Matched:', matchedItems.length, 'NotFound:', notFoundTags.length);
+    // Log first response item to verify structure
+    if (itemsWithScannedTags.length > 0) {
+      const firstItem = itemsWithScannedTags[0];
+      console.log('[SCAN DEBUG] Response item sample:', JSON.stringify({
+        rfidTag: firstItem.rfidTag,
+        tenantId: firstItem.tenantId,
+        tenantName: firstItem.tenant?.name,
+      }));
+    }
 
     // Log tenant breakdown
     const tenantGroups = matchedItems.reduce((acc, item) => {
