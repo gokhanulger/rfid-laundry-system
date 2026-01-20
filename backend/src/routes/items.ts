@@ -538,10 +538,11 @@ itemsRouter.post('/scan', async (req: AuthRequest, res) => {
     // Log first response item to verify structure
     if (itemsWithScannedTags.length > 0) {
       const firstItem = itemsWithScannedTags[0];
-      console.log('[SCAN DEBUG] Response item sample:', JSON.stringify({
+      console.log('[SCAN DEBUG] Response item FULL:', JSON.stringify({
         rfidTag: firstItem.rfidTag,
         tenantId: firstItem.tenantId,
-        tenantName: firstItem.tenant?.name,
+        tenant: firstItem.tenant,
+        hasTenantObj: !!firstItem.tenant,
       }));
     }
 
