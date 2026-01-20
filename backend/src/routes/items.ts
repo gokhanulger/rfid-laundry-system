@@ -502,6 +502,9 @@ itemsRouter.post('/scan', async (req: AuthRequest, res) => {
     const matchedScannedTags: string[] = [];
     const notFoundTags: string[] = [];
 
+    // Map scannedTag -> item (to return scanned tag as the key, not DB tag)
+    const scannedTagToItem: Record<string, typeof allItems[0]> = {};
+
     for (const scannedTag of rfidTags) {
       // Find all items whose rfidTag is contained within the scanned tag
       const matchingItems = allItems.filter(item => scannedTag.includes(item.rfidTag));
@@ -509,7 +512,9 @@ itemsRouter.post('/scan', async (req: AuthRequest, res) => {
       if (matchingItems.length > 0) {
         // Pick the one with the longest rfidTag (most specific match)
         const bestMatch = matchingItems.sort((a, b) => b.rfidTag.length - a.rfidTag.length)[0];
-        // Avoid duplicates
+        // Store with scanned tag as key
+        scannedTagToItem[scannedTag] = bestMatch;
+        // Avoid duplicates in matchedItems
         if (!matchedItems.find(m => m.id === bestMatch.id)) {
           matchedItems.push(bestMatch);
         }
@@ -518,6 +523,16 @@ itemsRouter.post('/scan', async (req: AuthRequest, res) => {
         notFoundTags.push(scannedTag);
       }
     }
+
+    // Override rfidTag in response to use scanned tag (so Android can match)
+    const itemsWithScannedTags = matchedScannedTags.map(scannedTag => {
+      const item = scannedTagToItem[scannedTag];
+      return {
+        ...item,
+        rfidTag: scannedTag, // Use scanned tag instead of DB tag
+        dbRfidTag: item.rfidTag, // Keep original for reference
+      };
+    });
 
     console.log('[SCAN DEBUG] Matched:', matchedItems.length, 'NotFound:', notFoundTags.length);
 
@@ -537,7 +552,7 @@ itemsRouter.post('/scan', async (req: AuthRequest, res) => {
     }
 
     res.json({
-      items: matchedItems,
+      items: itemsWithScannedTags, // Return items with scanned tag as rfidTag
       found: matchedScannedTags.length,
       notFound: notFoundTags.length,
       notFoundTags,
