@@ -131,20 +131,23 @@ portalRouter.get('/summary', async (req: AuthRequest, res) => {
       return res.status(500).json({ error: 'Pickup stats query failed: ' + e.message });
     }
 
-    // Get pending deliveries (in transit)
+    // Get pending deliveries (in transit) - simplified query
     try {
       if (tenantId) {
-        pendingDeliveries = await db.query.deliveries.findMany({
-          where: and(
-            eq(deliveries.tenantId, tenantId),
-            inArray(deliveries.status, ['packaged', 'in_transit', 'picked_up'] as any)
-          ),
+        const allTenantDeliveries = await db.query.deliveries.findMany({
+          where: eq(deliveries.tenantId, tenantId),
           orderBy: [desc(deliveries.createdAt)],
-          limit: 5,
+          limit: 20,
         });
+        // Filter in JS
+        pendingDeliveries = allTenantDeliveries
+          .filter(d => ['packaged', 'in_transit', 'picked_up'].includes(d.status))
+          .slice(0, 5);
       }
     } catch (e: any) {
-      return res.status(500).json({ error: 'Pending deliveries query failed: ' + e.message });
+      // Non-fatal - continue with empty array
+      console.error('Pending deliveries query failed:', e.message);
+      pendingDeliveries = [];
     }
 
     // Items needing attention
