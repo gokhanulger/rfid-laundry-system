@@ -453,21 +453,29 @@ portalRouter.get('/waybills', async (req: AuthRequest, res) => {
     });
 
     // Format response
-    const formattedWaybills = waybillList.map(waybill => ({
-      id: waybill.id,
-      waybillNumber: waybill.waybillNumber,
-      status: waybill.status,
-      packageCount: waybill.packageCount,
-      bagCount: waybill.bagCount,
-      totalItems: waybill.totalItems,
-      itemSummary: waybill.itemSummary ? JSON.parse(waybill.itemSummary) : null,
-      etaSynced: false, // Not in schema yet
-      etaRefNo: null,
-      createdAt: waybill.createdAt,
-      printedAt: waybill.printedAt,
-      deliveredAt: waybill.deliveredAt,
-      deliveryCount: waybill.waybillDeliveries?.length || 0,
-    }));
+    const formattedWaybills = waybillList.map(waybill => {
+      let itemSummary = null;
+      try {
+        itemSummary = waybill.itemSummary ? JSON.parse(waybill.itemSummary) : null;
+      } catch {
+        itemSummary = null;
+      }
+      return {
+        id: waybill.id,
+        waybillNumber: waybill.waybillNumber,
+        status: waybill.status,
+        packageCount: waybill.packageCount,
+        bagCount: waybill.bagCount,
+        totalItems: waybill.totalItems,
+        itemSummary,
+        etaSynced: false, // Not in schema yet
+        etaRefNo: null,
+        createdAt: waybill.createdAt,
+        printedAt: waybill.printedAt,
+        deliveredAt: waybill.deliveredAt,
+        deliveryCount: waybill.waybillDeliveries?.length || 0,
+      };
+    });
 
     res.json({
       data: formattedWaybills,

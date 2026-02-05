@@ -294,7 +294,7 @@ export function PortalWaybills() {
                 )}
 
                 {/* Item Summary */}
-                {selectedWaybill.itemSummary && Object.keys(selectedWaybill.itemSummary).length > 0 && (
+                {selectedWaybill.itemSummary && typeof selectedWaybill.itemSummary === 'object' && Object.keys(selectedWaybill.itemSummary).length > 0 && (
                   <div className="mt-4">
                     <p className="text-sm font-medium text-gray-700 mb-2">Urun Ozeti</p>
                     <div className="bg-gray-50 rounded-lg p-3">
@@ -302,7 +302,7 @@ export function PortalWaybills() {
                         {Object.entries(selectedWaybill.itemSummary).map(([type, count]) => (
                           <div key={type} className="flex justify-between text-sm">
                             <span className="text-gray-600">{type}</span>
-                            <span className="font-medium">{count}</span>
+                            <span className="font-medium">{String(count)}</span>
                           </div>
                         ))}
                       </div>
