@@ -54,17 +54,50 @@ export function CustomerPortalPage() {
   }
 
   if (error) {
+    const axiosError = error as any;
+    const status = axiosError?.response?.status;
+    const errorMessage = axiosError?.response?.data?.error || axiosError?.message || 'Bilinmeyen hata';
+
+    let userMessage = 'Portal yuklenirken hata olustu';
+    let subMessage = '';
+
+    if (status === 401) {
+      userMessage = 'Oturum suresi dolmus';
+      subMessage = 'Lutfen tekrar giris yapin';
+    } else if (status === 403) {
+      if (errorMessage.includes('tenant')) {
+        userMessage = 'Otel atamasi yapilmamis';
+        subMessage = 'Hesabiniza bir otel atanmasi gerekiyor. Lutfen yonetici ile iletisime gecin.';
+      } else {
+        userMessage = 'Erisim yetkiniz yok';
+        subMessage = 'Portal icin hotel_owner veya system_admin rolu gerekli';
+      }
+    } else if (status === 500) {
+      userMessage = 'Sunucu hatasi';
+      subMessage = 'Lutfen daha sonra tekrar deneyin';
+    }
+
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
+        <div className="text-center max-w-md px-4">
           <AlertTriangle className="w-12 h-12 text-red-500 mx-auto" />
-          <p className="mt-4 text-gray-600">Portal yuklenirken hata olustu</p>
-          <button
-            onClick={() => refetch()}
-            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-          >
-            Tekrar Dene
-          </button>
+          <p className="mt-4 text-lg font-medium text-gray-900">{userMessage}</p>
+          {subMessage && <p className="mt-2 text-gray-600">{subMessage}</p>}
+          <p className="mt-2 text-sm text-gray-400">Hata: {errorMessage}</p>
+          <div className="mt-6 space-x-3">
+            <button
+              onClick={() => refetch()}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            >
+              Tekrar Dene
+            </button>
+            <button
+              onClick={() => window.location.href = '#/login'}
+              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+            >
+              Giris Yap
+            </button>
+          </div>
         </div>
       </div>
     );
