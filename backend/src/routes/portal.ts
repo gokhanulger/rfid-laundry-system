@@ -491,27 +491,11 @@ portalRouter.get('/waybills/:id', async (req: AuthRequest, res) => {
     const tenantId = user.tenantId;
     const { id } = req.params;
 
+    // Get waybill with tenant
     const waybill = await db.query.waybills.findFirst({
       where: eq(waybills.id, id),
       with: {
         tenant: true,
-        waybillDeliveries: {
-          with: {
-            delivery: {
-              with: {
-                deliveryItems: {
-                  with: {
-                    item: {
-                      with: {
-                        itemType: true,
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
       },
     });
 
@@ -524,10 +508,57 @@ portalRouter.get('/waybills/:id', async (req: AuthRequest, res) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    res.json(waybill);
-  } catch (error) {
+    // Get waybill deliveries separately
+    let waybillDeliveriesData: any[] = [];
+    try {
+      const wbDeliveries = await db.query.waybillDeliveries.findMany({
+        where: eq(waybillDeliveries.waybillId, id),
+      });
+
+      // Get delivery details for each
+      for (const wbd of wbDeliveries) {
+        const delivery = await db.query.deliveries.findFirst({
+          where: eq(deliveries.id, wbd.deliveryId),
+        });
+
+        if (delivery) {
+          // Get delivery items
+          const delItems = await db.query.deliveryItems.findMany({
+            where: eq(deliveryItems.deliveryId, delivery.id),
+          });
+
+          // Get item details
+          const itemsWithTypes = [];
+          for (const di of delItems) {
+            const item = await db.query.items.findFirst({
+              where: eq(items.id, di.itemId),
+              with: { itemType: true },
+            });
+            if (item) {
+              itemsWithTypes.push({ ...di, item });
+            }
+          }
+
+          waybillDeliveriesData.push({
+            ...wbd,
+            delivery: {
+              ...delivery,
+              deliveryItems: itemsWithTypes,
+            },
+          });
+        }
+      }
+    } catch (e: any) {
+      console.error('Error fetching waybill deliveries:', e.message);
+    }
+
+    res.json({
+      ...waybill,
+      waybillDeliveries: waybillDeliveriesData,
+    });
+  } catch (error: any) {
     console.error('Get portal waybill error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: error?.message || 'Internal server error' });
   }
 });
 
