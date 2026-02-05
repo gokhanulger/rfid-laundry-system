@@ -12,9 +12,12 @@ import {
   X,
   Loader2,
   CheckCircle,
+  Download,
+  Eye,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { portalApi, PortalWaybill } from '../../lib/api';
+import { useAuth } from '../../contexts/AuthContext';
 
 export function PortalWaybills() {
   const [page, setPage] = useState(1);
@@ -23,6 +26,8 @@ export function PortalWaybills() {
   const [endDate, setEndDate] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [selectedWaybill, setSelectedWaybill] = useState<PortalWaybill | null>(null);
+  const [showPdfView, setShowPdfView] = useState(false);
+  const { user } = useAuth();
 
   const { data, isLoading } = useQuery({
     queryKey: ['portal', 'waybills', page, search, startDate, endDate],
@@ -222,93 +227,137 @@ export function PortalWaybills() {
         )}
       </div>
 
-      {/* Waybill Detail Modal */}
+      {/* Waybill Detail Modal - PDF Style */}
       {selectedWaybill && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[80vh] overflow-hidden">
-            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden">
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50">
               <h3 className="font-semibold text-gray-900">Irsaliye Detayi</h3>
-              <button
-                onClick={() => setSelectedWaybill(null)}
-                className="p-1 hover:bg-gray-100 rounded-lg"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => window.print()}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
+                >
+                  <Download className="w-4 h-4" />
+                  Yazdir / PDF
+                </button>
+                <button
+                  onClick={() => setSelectedWaybill(null)}
+                  className="p-1 hover:bg-gray-200 rounded-lg"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
-            <div className="p-4 overflow-y-auto max-h-[60vh]">
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+
+            {/* PDF Style Content */}
+            <div className="p-6 overflow-y-auto max-h-[75vh] print:max-h-none print:overflow-visible" id="waybill-print">
+              {/* Header */}
+              <div className="text-center border-b-2 border-gray-800 pb-4 mb-4">
+                <h1 className="text-2xl font-bold text-gray-900">IRSALIYE</h1>
+                <p className="text-lg font-mono mt-2">{selectedWaybill.waybillNumber}</p>
+              </div>
+
+              {/* Hotel & Date Info */}
+              <div className="grid grid-cols-2 gap-6 mb-6">
+                <div>
+                  <p className="text-xs text-gray-500 uppercase">Otel</p>
+                  <p className="font-semibold text-lg">{user?.tenantName || 'Otel'}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-gray-500 uppercase">Tarih</p>
+                  <p className="font-semibold">
+                    {format(new Date(selectedWaybill.createdAt), 'dd MMMM yyyy', { locale: tr })}
+                  </p>
+                  <p className="text-sm text-gray-600">
+                    {format(new Date(selectedWaybill.createdAt), 'HH:mm', { locale: tr })}
+                  </p>
+                </div>
+              </div>
+
+              {/* Summary Box */}
+              <div className="bg-gray-100 rounded-lg p-4 mb-6">
+                <div className="grid grid-cols-4 gap-4 text-center">
                   <div>
-                    <p className="text-sm text-gray-500">Irsaliye No</p>
-                    <p className="font-mono font-medium">{selectedWaybill.waybillNumber}</p>
+                    <p className="text-2xl font-bold text-blue-600">{selectedWaybill.packageCount}</p>
+                    <p className="text-xs text-gray-500">Paket</p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-500">Durum</p>
-                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${statusLabels[selectedWaybill.status]?.color}`}>
-                      {statusLabels[selectedWaybill.status]?.label}
-                    </span>
+                    <p className="text-2xl font-bold text-green-600">{selectedWaybill.bagCount}</p>
+                    <p className="text-xs text-gray-500">Cuval</p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-500">Olusturma Tarihi</p>
-                    <p className="font-medium">
-                      {format(new Date(selectedWaybill.createdAt), 'dd MMM yyyy HH:mm', { locale: tr })}
-                    </p>
-                  </div>
-                  {selectedWaybill.deliveredAt && (
-                    <div>
-                      <p className="text-sm text-gray-500">Teslim Tarihi</p>
-                      <p className="font-medium">
-                        {format(new Date(selectedWaybill.deliveredAt), 'dd MMM yyyy HH:mm', { locale: tr })}
-                      </p>
-                    </div>
-                  )}
-                  <div>
-                    <p className="text-sm text-gray-500">Paket Sayisi</p>
-                    <p className="font-medium">{selectedWaybill.packageCount}</p>
+                    <p className="text-2xl font-bold text-purple-600">{selectedWaybill.totalItems}</p>
+                    <p className="text-xs text-gray-500">Toplam Urun</p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-500">Cuval Sayisi</p>
-                    <p className="font-medium">{selectedWaybill.bagCount}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-500">Toplam Urun</p>
-                    <p className="font-medium">{selectedWaybill.totalItems}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-500">Teslimat Sayisi</p>
-                    <p className="font-medium">{selectedWaybill.deliveryCount}</p>
+                    <p className="text-2xl font-bold text-orange-600">{selectedWaybill.deliveryCount}</p>
+                    <p className="text-xs text-gray-500">Teslimat</p>
                   </div>
                 </div>
+              </div>
 
-                {/* ETA Info */}
-                {selectedWaybill.etaSynced && (
-                  <div className="p-3 bg-green-50 rounded-lg border border-green-200">
-                    <div className="flex items-center gap-2 text-green-800">
-                      <CheckCircle className="w-5 h-5" />
-                      <span className="font-medium">ETA Sistemiyle Senkronize</span>
-                    </div>
-                    {selectedWaybill.etaRefNo && (
-                      <p className="text-sm text-green-600 mt-1">Referans: {selectedWaybill.etaRefNo}</p>
-                    )}
+              {/* Item Details Table */}
+              {selectedWaybill.itemSummary && Array.isArray(selectedWaybill.itemSummary) && selectedWaybill.itemSummary.length > 0 && (
+                <div className="mb-6">
+                  <h3 className="font-semibold text-gray-900 mb-3 border-b pb-2">Urun Detaylari</h3>
+                  <table className="w-full">
+                    <thead>
+                      <tr className="bg-gray-100">
+                        <th className="text-left px-3 py-2 font-medium text-gray-700">Urun Tipi</th>
+                        <th className="text-right px-3 py-2 font-medium text-gray-700">Adet</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedWaybill.itemSummary.map((item: any, index: number) => (
+                        <tr key={index} className="border-b border-gray-100">
+                          <td className="px-3 py-2">{item.typeName || item.name || '-'}</td>
+                          <td className="px-3 py-2 text-right font-semibold">{item.count || 0}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-gray-50 font-bold">
+                        <td className="px-3 py-2">TOPLAM</td>
+                        <td className="px-3 py-2 text-right">{selectedWaybill.totalItems}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+
+              {/* Status & Signatures */}
+              <div className="grid grid-cols-2 gap-6 mt-8 pt-4 border-t">
+                <div>
+                  <p className="text-xs text-gray-500 uppercase mb-1">Durum</p>
+                  <span className={`px-3 py-1 text-sm font-medium rounded-full ${statusLabels[selectedWaybill.status]?.color}`}>
+                    {statusLabels[selectedWaybill.status]?.label}
+                  </span>
+                </div>
+                {selectedWaybill.deliveredAt && (
+                  <div className="text-right">
+                    <p className="text-xs text-gray-500 uppercase mb-1">Teslim Tarihi</p>
+                    <p className="font-medium">
+                      {format(new Date(selectedWaybill.deliveredAt), 'dd MMM yyyy HH:mm', { locale: tr })}
+                    </p>
                   </div>
                 )}
+              </div>
 
-                {/* Item Summary */}
-                {selectedWaybill.itemSummary && typeof selectedWaybill.itemSummary === 'object' && Object.keys(selectedWaybill.itemSummary).length > 0 && (
-                  <div className="mt-4">
-                    <p className="text-sm font-medium text-gray-700 mb-2">Urun Ozeti</p>
-                    <div className="bg-gray-50 rounded-lg p-3">
-                      <div className="grid grid-cols-2 gap-2">
-                        {Object.entries(selectedWaybill.itemSummary).map(([type, count]) => (
-                          <div key={type} className="flex justify-between text-sm">
-                            <span className="text-gray-600">{type}</span>
-                            <span className="font-medium">{String(count)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+              {/* Signature Area for Print */}
+              <div className="grid grid-cols-2 gap-6 mt-8 pt-8 border-t print:block hidden">
+                <div>
+                  <p className="text-sm text-gray-500 mb-12">Teslim Eden:</p>
+                  <div className="border-t border-gray-400 pt-1">
+                    <p className="text-xs text-gray-500">Imza / Tarih</p>
                   </div>
-                )}
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500 mb-12">Teslim Alan:</p>
+                  <div className="border-t border-gray-400 pt-1">
+                    <p className="text-xs text-gray-500">Imza / Tarih</p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
