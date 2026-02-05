@@ -13,7 +13,6 @@ import {
   Loader2,
   CheckCircle,
   Download,
-  Eye,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { portalApi, PortalWaybill } from '../../lib/api';
@@ -26,7 +25,6 @@ export function PortalWaybills() {
   const [endDate, setEndDate] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [selectedWaybill, setSelectedWaybill] = useState<PortalWaybill | null>(null);
-  const [showPdfView, setShowPdfView] = useState(false);
   const { user } = useAuth();
 
   const { data, isLoading } = useQuery({
