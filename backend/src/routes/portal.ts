@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { db } from '../db';
 import { items, pickups, deliveries, waybills, waybillDeliveries, deliveryItems, pickupItems, tenants } from '../db/schema';
-import { eq, and, desc, sql, count, gte, lte } from 'drizzle-orm';
+import { eq, and, desc, sql, count, gte, lte, inArray } from 'drizzle-orm';
 import { requireAuth, AuthRequest, requireRole } from '../middleware/auth';
 
 export const portalRouter = Router();
@@ -137,7 +137,7 @@ portalRouter.get('/summary', async (req: AuthRequest, res) => {
         pendingDeliveries = await db.query.deliveries.findMany({
           where: and(
             eq(deliveries.tenantId, tenantId),
-            sql`${deliveries.status} IN ('packaged', 'in_transit', 'picked_up')`
+            inArray(deliveries.status, ['packaged', 'in_transit', 'picked_up'] as any)
           ),
           orderBy: [desc(deliveries.createdAt)],
           limit: 5,
