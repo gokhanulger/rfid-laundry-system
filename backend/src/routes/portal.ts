@@ -173,9 +173,11 @@ portalRouter.get('/summary', async (req: AuthRequest, res) => {
       },
       attentionItems,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Get portal summary error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({
+      error: error?.message || 'Internal server error'
+    });
   }
 });
 
