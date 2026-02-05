@@ -61,14 +61,21 @@ export function ItemManagementPage() {
   const { user } = useAuth();
 
   const canDeleteItems = user?.role === 'system_admin' || user?.role === 'admin' || user?.role === 'laundry_manager';
+  const isHotelOwner = user?.role === 'hotel_owner';
 
-  // Load selected hotel from localStorage
+  // Load selected hotel from localStorage OR auto-select for hotel_owner
   useEffect(() => {
+    // Hotel owner: automatically select their own hotel
+    if (isHotelOwner && user?.tenantId) {
+      setSelectedHotelId(user.tenantId);
+      return;
+    }
+    // Other roles: load from localStorage
     const savedHotel = localStorage.getItem(SELECTED_HOTEL_KEY);
     if (savedHotel) {
       setSelectedHotelId(savedHotel);
     }
-  }, []);
+  }, [isHotelOwner, user?.tenantId]);
 
   // Save selected hotel to localStorage
   const selectHotel = (hotelId: string | null) => {
@@ -461,13 +468,16 @@ export function ItemManagementPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <button
-            onClick={() => selectHotel(null)}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-            title="Geri"
-          >
-            <ChevronRight className="w-6 h-6 text-gray-600 rotate-180" />
-          </button>
+          {/* Hide back button for hotel_owner - they can only see their own hotel */}
+          {!isHotelOwner && (
+            <button
+              onClick={() => selectHotel(null)}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              title="Geri"
+            >
+              <ChevronRight className="w-6 h-6 text-gray-600 rotate-180" />
+            </button>
+          )}
           <div className="p-3 bg-teal-100 rounded-lg">
             <Building2 className="w-8 h-8 text-teal-600" />
           </div>

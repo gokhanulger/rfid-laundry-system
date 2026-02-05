@@ -77,9 +77,24 @@ function mapTenantToResponse(tenant: any) {
   };
 }
 
-// Get all tenants - returns full data for admin use
-tenantsRouter.get('/', async (req, res) => {
+// Get all tenants - filtered by role
+// hotel_owner can only see their own tenant
+tenantsRouter.get('/', requireAuth, async (req: AuthRequest, res) => {
   try {
+    const user = req.user!;
+
+    // hotel_owner can only see their own tenant
+    if (user.role === 'hotel_owner') {
+      if (!user.tenantId) {
+        return res.json([]);
+      }
+      const tenant = await db.query.tenants.findFirst({
+        where: eq(tenants.id, user.tenantId),
+      });
+      return res.json(tenant ? [mapTenantToResponse(tenant)] : []);
+    }
+
+    // Other roles (admin, laundry_manager, etc.) can see all tenants
     const allTenants = await db.query.tenants.findMany({
       orderBy: (tenants, { asc }) => [asc(tenants.name)],
     });
