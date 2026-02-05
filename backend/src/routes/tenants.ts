@@ -77,14 +77,31 @@ function mapTenantToResponse(tenant: any) {
   };
 }
 
-// Get all tenants - filtered by role
+// Get all tenants - filtered by role if authenticated
 // hotel_owner can only see their own tenant
-tenantsRouter.get('/', requireAuth, async (req: AuthRequest, res) => {
+// Unauthenticated requests get all tenants (for login/register pages)
+tenantsRouter.get('/', async (req: AuthRequest, res) => {
   try {
-    const user = req.user!;
+    // Try to get user from auth header (optional auth)
+    const authHeader = req.headers.authorization;
+    let user = null;
+
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      const jwt = require('jsonwebtoken');
+      const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || '';
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET) as any;
+        user = await db.query.users.findFirst({
+          where: eq(users.id, decoded.id),
+        });
+      } catch {
+        // Invalid token, continue as unauthenticated
+      }
+    }
 
     // hotel_owner can only see their own tenant
-    if (user.role === 'hotel_owner') {
+    if (user && user.role === 'hotel_owner') {
       if (!user.tenantId) {
         return res.json([]);
       }
@@ -94,7 +111,7 @@ tenantsRouter.get('/', requireAuth, async (req: AuthRequest, res) => {
       return res.json(tenant ? [mapTenantToResponse(tenant)] : []);
     }
 
-    // Other roles (admin, laundry_manager, etc.) can see all tenants
+    // Other roles or unauthenticated: return all tenants
     const allTenants = await db.query.tenants.findMany({
       orderBy: (tenants, { asc }) => [asc(tenants.name)],
     });
