@@ -61,21 +61,27 @@ portalRouter.get('/summary', async (req: AuthRequest, res) => {
     const deliveryCondition = tenantId ? eq(deliveries.tenantId, tenantId) : undefined;
     const pickupCondition = tenantId ? eq(pickups.tenantId, tenantId) : undefined;
 
+    // Helper to build conditions safely (filters out undefined)
+    const buildConditions = (...conditions: (ReturnType<typeof eq> | undefined)[]) => {
+      const validConditions = conditions.filter(c => c !== undefined);
+      return validConditions.length > 0 ? and(...validConditions) : undefined;
+    };
+
     // Get delivery stats
     const [todayDeliveries, weekDeliveries, monthDeliveries, totalDeliveries] = await Promise.all([
-      db.select({ count: count() }).from(deliveries).where(and(
+      db.select({ count: count() }).from(deliveries).where(buildConditions(
         deliveryCondition,
         eq(deliveries.status, 'delivered'),
         gte(deliveries.deliveredAt, today),
         lte(deliveries.deliveredAt, tomorrow)
       )),
-      db.select({ count: count() }).from(deliveries).where(and(
+      db.select({ count: count() }).from(deliveries).where(buildConditions(
         deliveryCondition,
         eq(deliveries.status, 'delivered'),
         gte(deliveries.deliveredAt, weekStart),
         lte(deliveries.deliveredAt, weekEnd)
       )),
-      db.select({ count: count() }).from(deliveries).where(and(
+      db.select({ count: count() }).from(deliveries).where(buildConditions(
         deliveryCondition,
         eq(deliveries.status, 'delivered'),
         gte(deliveries.deliveredAt, monthStart),
@@ -86,17 +92,17 @@ portalRouter.get('/summary', async (req: AuthRequest, res) => {
 
     // Get pickup stats
     const [todayPickups, weekPickups, monthPickups, totalPickups] = await Promise.all([
-      db.select({ count: count() }).from(pickups).where(and(
+      db.select({ count: count() }).from(pickups).where(buildConditions(
         pickupCondition,
         gte(pickups.createdAt, today),
         lte(pickups.createdAt, tomorrow)
       )),
-      db.select({ count: count() }).from(pickups).where(and(
+      db.select({ count: count() }).from(pickups).where(buildConditions(
         pickupCondition,
         gte(pickups.createdAt, weekStart),
         lte(pickups.createdAt, weekEnd)
       )),
-      db.select({ count: count() }).from(pickups).where(and(
+      db.select({ count: count() }).from(pickups).where(buildConditions(
         pickupCondition,
         gte(pickups.createdAt, monthStart),
         lte(pickups.createdAt, monthEnd)
