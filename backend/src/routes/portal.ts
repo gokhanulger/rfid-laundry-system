@@ -141,9 +141,6 @@ portalRouter.get('/summary', async (req: AuthRequest, res) => {
           ),
           orderBy: [desc(deliveries.createdAt)],
           limit: 5,
-          with: {
-            driver: true,
-          },
         });
       }
     } catch (e: any) {
