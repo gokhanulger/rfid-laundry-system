@@ -62,8 +62,8 @@ portalRouter.get('/summary', async (req: AuthRequest, res) => {
     const pickupCondition = tenantId ? eq(pickups.tenantId, tenantId) : undefined;
 
     // Helper to build conditions safely (filters out undefined)
-    const buildConditions = (...conditions: (ReturnType<typeof eq> | undefined)[]) => {
-      const validConditions = conditions.filter(c => c !== undefined);
+    const buildConditions = (...conditions: any[]) => {
+      const validConditions = conditions.filter(c => c !== undefined && c !== null);
       return validConditions.length > 0 ? and(...validConditions) : undefined;
     };
 
@@ -112,7 +112,7 @@ portalRouter.get('/summary', async (req: AuthRequest, res) => {
 
     // Get pending deliveries (in transit)
     const pendingDeliveries = await db.query.deliveries.findMany({
-      where: and(
+      where: buildConditions(
         deliveryCondition,
         sql`${deliveries.status} IN ('packaged', 'in_transit', 'picked_up')`
       ),
