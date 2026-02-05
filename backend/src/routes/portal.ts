@@ -61,27 +61,21 @@ portalRouter.get('/summary', async (req: AuthRequest, res) => {
     const deliveryCondition = tenantId ? eq(deliveries.tenantId, tenantId) : undefined;
     const pickupCondition = tenantId ? eq(pickups.tenantId, tenantId) : undefined;
 
-    // Helper to build conditions safely (filters out undefined)
-    const buildConditions = (...conditions: any[]) => {
-      const validConditions = conditions.filter(c => c !== undefined && c !== null);
-      return validConditions.length > 0 ? and(...validConditions) : undefined;
-    };
-
     // Get delivery stats
     const [todayDeliveries, weekDeliveries, monthDeliveries, totalDeliveries] = await Promise.all([
-      db.select({ count: count() }).from(deliveries).where(buildConditions(
+      db.select({ count: count() }).from(deliveries).where(and(
         deliveryCondition,
         eq(deliveries.status, 'delivered'),
         gte(deliveries.deliveredAt, today),
         lte(deliveries.deliveredAt, tomorrow)
       )),
-      db.select({ count: count() }).from(deliveries).where(buildConditions(
+      db.select({ count: count() }).from(deliveries).where(and(
         deliveryCondition,
         eq(deliveries.status, 'delivered'),
         gte(deliveries.deliveredAt, weekStart),
         lte(deliveries.deliveredAt, weekEnd)
       )),
-      db.select({ count: count() }).from(deliveries).where(buildConditions(
+      db.select({ count: count() }).from(deliveries).where(and(
         deliveryCondition,
         eq(deliveries.status, 'delivered'),
         gte(deliveries.deliveredAt, monthStart),
@@ -92,17 +86,17 @@ portalRouter.get('/summary', async (req: AuthRequest, res) => {
 
     // Get pickup stats
     const [todayPickups, weekPickups, monthPickups, totalPickups] = await Promise.all([
-      db.select({ count: count() }).from(pickups).where(buildConditions(
+      db.select({ count: count() }).from(pickups).where(and(
         pickupCondition,
         gte(pickups.createdAt, today),
         lte(pickups.createdAt, tomorrow)
       )),
-      db.select({ count: count() }).from(pickups).where(buildConditions(
+      db.select({ count: count() }).from(pickups).where(and(
         pickupCondition,
         gte(pickups.createdAt, weekStart),
         lte(pickups.createdAt, weekEnd)
       )),
-      db.select({ count: count() }).from(pickups).where(buildConditions(
+      db.select({ count: count() }).from(pickups).where(and(
         pickupCondition,
         gte(pickups.createdAt, monthStart),
         lte(pickups.createdAt, monthEnd)
@@ -112,7 +106,7 @@ portalRouter.get('/summary', async (req: AuthRequest, res) => {
 
     // Get pending deliveries (in transit)
     const pendingDeliveries = await db.query.deliveries.findMany({
-      where: buildConditions(
+      where: and(
         deliveryCondition,
         sql`${deliveries.status} IN ('packaged', 'in_transit', 'picked_up')`
       ),
@@ -173,11 +167,9 @@ portalRouter.get('/summary', async (req: AuthRequest, res) => {
       },
       attentionItems,
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error('Get portal summary error:', error);
-    res.status(500).json({
-      error: error?.message || 'Internal server error'
-    });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
