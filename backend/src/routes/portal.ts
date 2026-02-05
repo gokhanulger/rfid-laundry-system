@@ -20,20 +20,30 @@ portalRouter.get('/summary', async (req: AuthRequest, res) => {
       return res.status(403).json({ error: 'No tenant associated with this account' });
     }
 
-    const tenantCondition = tenantId ? eq(items.tenantId, tenantId) : undefined;
-
     // Get hotel info
-    const hotel = tenantId ? await db.query.tenants.findFirst({
-      where: eq(tenants.id, tenantId),
-    }) : null;
+    let hotel = null;
+    try {
+      hotel = tenantId ? await db.query.tenants.findFirst({
+        where: eq(tenants.id, tenantId),
+      }) : null;
+    } catch (e: any) {
+      return res.status(500).json({ error: 'Hotel query failed: ' + e.message });
+    }
 
     // Get all items for the hotel
-    const hotelItems = await db.query.items.findMany({
-      where: tenantCondition,
-      with: {
-        itemType: true,
-      },
-    });
+    let hotelItems: any[] = [];
+    try {
+      if (tenantId) {
+        hotelItems = await db.query.items.findMany({
+          where: eq(items.tenantId, tenantId),
+          with: {
+            itemType: true,
+          },
+        });
+      }
+    } catch (e: any) {
+      return res.status(500).json({ error: 'Items query failed: ' + e.message });
+    }
 
     // Items by status
     const itemsByStatus = hotelItems.reduce((acc, item) => {
@@ -57,65 +67,88 @@ portalRouter.get('/summary', async (req: AuthRequest, res) => {
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
     const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
 
-    // Delivery conditions
-    const deliveryCondition = tenantId ? eq(deliveries.tenantId, tenantId) : undefined;
-    const pickupCondition = tenantId ? eq(pickups.tenantId, tenantId) : undefined;
-
     // Get delivery stats
-    const [todayDeliveries, weekDeliveries, monthDeliveries, totalDeliveries] = await Promise.all([
-      db.select({ count: count() }).from(deliveries).where(and(
-        deliveryCondition,
-        eq(deliveries.status, 'delivered'),
-        gte(deliveries.deliveredAt, today),
-        lte(deliveries.deliveredAt, tomorrow)
-      )),
-      db.select({ count: count() }).from(deliveries).where(and(
-        deliveryCondition,
-        eq(deliveries.status, 'delivered'),
-        gte(deliveries.deliveredAt, weekStart),
-        lte(deliveries.deliveredAt, weekEnd)
-      )),
-      db.select({ count: count() }).from(deliveries).where(and(
-        deliveryCondition,
-        eq(deliveries.status, 'delivered'),
-        gte(deliveries.deliveredAt, monthStart),
-        lte(deliveries.deliveredAt, monthEnd)
-      )),
-      db.select({ count: count() }).from(deliveries).where(deliveryCondition),
-    ]);
+    let todayDeliveries = [{ count: 0 }];
+    let weekDeliveries = [{ count: 0 }];
+    let monthDeliveries = [{ count: 0 }];
+    let totalDeliveries = [{ count: 0 }];
+    let todayPickups = [{ count: 0 }];
+    let weekPickups = [{ count: 0 }];
+    let monthPickups = [{ count: 0 }];
+    let totalPickups = [{ count: 0 }];
+    let pendingDeliveries: any[] = [];
 
-    // Get pickup stats
-    const [todayPickups, weekPickups, monthPickups, totalPickups] = await Promise.all([
-      db.select({ count: count() }).from(pickups).where(and(
-        pickupCondition,
-        gte(pickups.createdAt, today),
-        lte(pickups.createdAt, tomorrow)
-      )),
-      db.select({ count: count() }).from(pickups).where(and(
-        pickupCondition,
-        gte(pickups.createdAt, weekStart),
-        lte(pickups.createdAt, weekEnd)
-      )),
-      db.select({ count: count() }).from(pickups).where(and(
-        pickupCondition,
-        gte(pickups.createdAt, monthStart),
-        lte(pickups.createdAt, monthEnd)
-      )),
-      db.select({ count: count() }).from(pickups).where(pickupCondition),
-    ]);
+    try {
+      if (tenantId) {
+        [todayDeliveries, weekDeliveries, monthDeliveries, totalDeliveries] = await Promise.all([
+          db.select({ count: count() }).from(deliveries).where(and(
+            eq(deliveries.tenantId, tenantId),
+            eq(deliveries.status, 'delivered'),
+            gte(deliveries.deliveredAt, today),
+            lte(deliveries.deliveredAt, tomorrow)
+          )),
+          db.select({ count: count() }).from(deliveries).where(and(
+            eq(deliveries.tenantId, tenantId),
+            eq(deliveries.status, 'delivered'),
+            gte(deliveries.deliveredAt, weekStart),
+            lte(deliveries.deliveredAt, weekEnd)
+          )),
+          db.select({ count: count() }).from(deliveries).where(and(
+            eq(deliveries.tenantId, tenantId),
+            eq(deliveries.status, 'delivered'),
+            gte(deliveries.deliveredAt, monthStart),
+            lte(deliveries.deliveredAt, monthEnd)
+          )),
+          db.select({ count: count() }).from(deliveries).where(eq(deliveries.tenantId, tenantId)),
+        ]);
+      }
+    } catch (e: any) {
+      return res.status(500).json({ error: 'Delivery stats query failed: ' + e.message });
+    }
+
+    try {
+      if (tenantId) {
+        [todayPickups, weekPickups, monthPickups, totalPickups] = await Promise.all([
+          db.select({ count: count() }).from(pickups).where(and(
+            eq(pickups.tenantId, tenantId),
+            gte(pickups.createdAt, today),
+            lte(pickups.createdAt, tomorrow)
+          )),
+          db.select({ count: count() }).from(pickups).where(and(
+            eq(pickups.tenantId, tenantId),
+            gte(pickups.createdAt, weekStart),
+            lte(pickups.createdAt, weekEnd)
+          )),
+          db.select({ count: count() }).from(pickups).where(and(
+            eq(pickups.tenantId, tenantId),
+            gte(pickups.createdAt, monthStart),
+            lte(pickups.createdAt, monthEnd)
+          )),
+          db.select({ count: count() }).from(pickups).where(eq(pickups.tenantId, tenantId)),
+        ]);
+      }
+    } catch (e: any) {
+      return res.status(500).json({ error: 'Pickup stats query failed: ' + e.message });
+    }
 
     // Get pending deliveries (in transit)
-    const pendingDeliveries = await db.query.deliveries.findMany({
-      where: and(
-        deliveryCondition,
-        sql`${deliveries.status} IN ('packaged', 'in_transit', 'picked_up')`
-      ),
-      orderBy: [desc(deliveries.createdAt)],
-      limit: 5,
-      with: {
-        driver: true,
-      },
-    });
+    try {
+      if (tenantId) {
+        pendingDeliveries = await db.query.deliveries.findMany({
+          where: and(
+            eq(deliveries.tenantId, tenantId),
+            sql`${deliveries.status} IN ('packaged', 'in_transit', 'picked_up')`
+          ),
+          orderBy: [desc(deliveries.createdAt)],
+          limit: 5,
+          with: {
+            driver: true,
+          },
+        });
+      }
+    } catch (e: any) {
+      return res.status(500).json({ error: 'Pending deliveries query failed: ' + e.message });
+    }
 
     // Items needing attention
     const attentionItems = hotelItems
