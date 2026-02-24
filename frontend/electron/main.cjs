@@ -59,7 +59,7 @@ let userWantsConnection = false; // User initiated connection - auto-reconnect i
 let heartbeatTimer = null; // Timer for sending heartbeats
 let healthCheckTimer = null; // Timer for checking connection health
 const CONNECTION_TIMEOUT = 30000; // 30 seconds without data = connection lost
-let currentRfPower = 20; // Default RF power (0-30 dBm). Lower = shorter range
+let currentRfPower = 30; // Default RF power (0-30 dBm). Max power for longest range
 
 // Common RFID reader ports to scan
 const COMMON_RFID_PORTS = [20058, 4001, 6000, 8080, 5000, 4196, 10001, 502, 7000, 8000, 9000, 3000, 4000, 6001, 20059, 8899, 9999, 2000, 1024, 23, 80];
@@ -526,7 +526,6 @@ function handleUhfData(data) {
       // Send EPC if found and not duplicate
       if (epc && !foundInPacket.has(epc)) {
         foundInPacket.add(epc);
-        console.log('[UHF] SENDING EPC (CM):', epc);
 
         scannedTags.set(epc, {
           epc,
@@ -567,7 +566,6 @@ function connectUhfReader() {
     uhfDataBuffer = Buffer.alloc(0);
     lastDataReceived = Date.now();
     userWantsConnection = true;
-
     uhfSocket.setTimeout(0);
     uhfInventoryActive = true;
 
@@ -595,6 +593,15 @@ function connectUhfReader() {
       }
     }, 300);
 
+    // Step 2.5: Set RF power to max on connect
+    setTimeout(() => {
+      if (uhfSocket && !uhfSocket.destroyed && uhfConnected) {
+        console.log('[UHF] Step 2.5: Setting RF power to', currentRfPower, 'dBm');
+        const powerData = [currentRfPower, currentRfPower, currentRfPower, currentRfPower];
+        uhfSocket.write(buildUhfCommand(UHF_CMD.SET_RF_POWER, powerData));
+      }
+    }, 400);
+
     // Step 3: Try START_AUTO_READ first (continuous mode like demo's "Inventory Once")
     setTimeout(() => {
       if (uhfSocket && !uhfSocket.destroyed && uhfConnected) {
@@ -606,9 +613,9 @@ function connectUhfReader() {
     // Step 4: Try START_INVENTORY with antenna mask parameter
     setTimeout(() => {
       if (uhfSocket && !uhfSocket.destroyed && uhfConnected) {
-        // Try with antenna 1 enabled (0x01)
-        console.log('[UHF] Step 4: Sending START_INVENTORY with antenna=0x01');
-        uhfSocket.write(buildUhfCommand(UHF_CMD.START_INVENTORY, [0x01]));
+        // Enable antenna 1 + antenna 2 (0x03 bitmask)
+        console.log('[UHF] Step 4: Sending START_INVENTORY with antenna=0x03 (ant1+ant2)');
+        uhfSocket.write(buildUhfCommand(UHF_CMD.START_INVENTORY, [0x03]));
       }
     }, 700);
 
@@ -683,7 +690,7 @@ function startInventoryPolling() {
 
   let pollCount = 0;
 
-  // Send inventory command every 2000ms (2 seconds) - prevents system slowdown
+  // Send inventory command every 800ms - faster than original 2000ms
   inventoryPollTimer = setInterval(() => {
     if (uhfSocket && !uhfSocket.destroyed && uhfConnected && uhfInventoryActive) {
       try {
@@ -697,13 +704,11 @@ function startInventoryPolling() {
           const cmd = buildUhfCommand(UHF_CMD.START_AUTO_READ);
           uhfSocket.write(cmd);
         }
-        // Verbose logging disabled - uncomment for debugging:
-        // console.log('[UHF] Poll #' + pollCount);
       } catch (e) {
         // Write error - let close event handle reconnect
       }
     }
-  }, 2000);
+  }, 800);
 }
 
 function stopInventoryPolling() {
