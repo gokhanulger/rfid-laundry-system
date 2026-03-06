@@ -12,8 +12,8 @@ RUN npm ci --workspace=backend --include-workspace-root
 # Copy backend source
 COPY backend/ ./backend/
 
-# Build
-RUN npm run build --workspace=backend
+# Build - only compile TypeScript, skip db:migrate (needs DATABASE_URL at runtime)
+RUN cd backend && npx tsc
 
-# Start
-CMD ["npm", "run", "start", "--workspace=backend"]
+# Start - run migrations then start server
+CMD ["sh", "-c", "cd backend && npm run db:migrate && node dist/index.js"]
