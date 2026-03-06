@@ -25,11 +25,18 @@ const createTransporter = () => {
 
 const transporter = createTransporter();
 
+interface EmailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType?: string;
+}
+
 interface EmailOptions {
   to: string;
   subject: string;
   html: string;
   text?: string;
+  attachments?: EmailAttachment[];
 }
 
 async function sendEmail(options: EmailOptions): Promise<boolean> {
@@ -45,6 +52,11 @@ async function sendEmail(options: EmailOptions): Promise<boolean> {
       subject: options.subject,
       html: options.html,
       text: options.text,
+      attachments: options.attachments?.map(a => ({
+        filename: a.filename,
+        content: a.content,
+        contentType: a.contentType,
+      })),
     });
     console.log('Email sent successfully to:', options.to);
     return true;
@@ -219,4 +231,69 @@ export async function sendAlertNotification(
   `;
 
   return sendEmail({ to, subject, html });
+}
+
+export async function sendWaybillDeliveryEmail(
+  to: string,
+  hotelName: string,
+  waybillNumber: string,
+  totalItems: number,
+  pdfBuffer: Buffer
+): Promise<boolean> {
+  const subject = `Teslimat Irsaliyesi - ${waybillNumber}`;
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #0d9488; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+        .content { background: #f9fafb; padding: 20px; border-radius: 0 0 8px 8px; }
+        .info-box { background: white; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #0d9488; }
+        .footer { text-align: center; margin-top: 20px; color: #6b7280; font-size: 12px; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>Teslimat Tamamlandi</h1>
+        </div>
+        <div class="content">
+          <p>Sayin ${hotelName},</p>
+          <p>Camasirhane teslimatiniz basariyla tamamlanmistir. Irsaliye detaylari ekte yer almaktadir.</p>
+
+          <div class="info-box">
+            <p><strong>Irsaliye No:</strong> ${waybillNumber}</p>
+            <p><strong>Toplam Urun:</strong> ${totalItems} adet</p>
+            <p><strong>Teslimat Tarihi:</strong> ${new Date().toLocaleDateString('tr-TR')}</p>
+          </div>
+
+          <p>Lutfen teslimati kontrol ediniz. Herhangi bir sorunuz varsa bizimle iletisime geciniz.</p>
+
+          <p>Iyi gunler dileriz.</p>
+        </div>
+        <div class="footer">
+          <p>Demet Laundry - RFID Camasirhane Sistemi</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  const text = `Sayin ${hotelName},\n\nCamasirhane teslimatiniz tamamlanmistir.\nIrsaliye No: ${waybillNumber}\nToplam Urun: ${totalItems} adet\nTeslimat Tarihi: ${new Date().toLocaleDateString('tr-TR')}\n\nIrsaliye PDF ekte yer almaktadir.`;
+
+  return sendEmail({
+    to,
+    subject,
+    html,
+    text,
+    attachments: [
+      {
+        filename: `irsaliye-${waybillNumber}.pdf`,
+        content: pdfBuffer,
+        contentType: 'application/pdf',
+      },
+    ],
+  });
 }

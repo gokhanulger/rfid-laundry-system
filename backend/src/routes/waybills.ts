@@ -1,8 +1,10 @@
 import { Router, Response } from 'express';
 import { db } from '../db';
-import { waybills, waybillDeliveries, deliveries, items } from '../db/schema';
+import { waybills, waybillDeliveries, deliveries, items, tenants } from '../db/schema';
 import { eq, desc, and, inArray } from 'drizzle-orm';
 import { requireAuth, AuthRequest } from '../middleware/auth';
+import { sendWaybillDeliveryEmail } from '../services/email';
+import { generateWaybillPdf } from '../services/waybill-pdf';
 
 export const waybillsRouter = Router();
 
@@ -324,6 +326,44 @@ waybillsRouter.post('/:id/deliver', async (req: AuthRequest, res: Response) => {
           updatedAt: new Date(),
         })
         .where(inArray(items.id, allItemIds));
+    }
+
+    // Send PDF waybill email to hotel
+    try {
+      const tenant = await db.query.tenants.findFirst({
+        where: eq(tenants.id, waybill.tenantId),
+      });
+
+      if (tenant?.email) {
+        let itemSummary: Array<{ typeName: string; count: number }> = [];
+        try {
+          itemSummary = JSON.parse(waybill.itemSummary || '[]');
+        } catch {}
+
+        const pdfBuffer = await generateWaybillPdf({
+          waybillNumber: waybill.waybillNumber,
+          hotelName: tenant.name,
+          date: new Date(waybill.printedAt || waybill.createdAt).toLocaleDateString('tr-TR'),
+          itemSummary,
+          bagCount: waybill.bagCount || 0,
+          packageCount: waybill.packageCount || 0,
+          totalItems: waybill.totalItems || 0,
+        });
+
+        await sendWaybillDeliveryEmail(
+          tenant.email,
+          tenant.name,
+          waybill.waybillNumber,
+          waybill.totalItems || 0,
+          pdfBuffer
+        );
+        console.log(`Waybill delivery email sent to ${tenant.email} for ${waybill.waybillNumber}`);
+      } else {
+        console.log(`No email configured for tenant ${waybill.tenantId}, skipping waybill email`);
+      }
+    } catch (emailError) {
+      console.error('Failed to send waybill delivery email:', emailError);
+      // Don't fail the delivery if email fails
     }
 
     res.json({ success: true, message: 'Waybill marked as delivered' });
