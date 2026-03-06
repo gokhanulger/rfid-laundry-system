@@ -16,4 +16,5 @@ COPY backend/ ./backend/
 RUN cd backend && npx tsc
 
 # Start - run migrations then start server
-CMD ["sh", "-c", "cd backend && npm run db:migrate && node dist/index.js"]
+WORKDIR /app/backend
+CMD ["sh", "-c", "npm run db:migrate && node dist/index.js"]
