@@ -714,6 +714,114 @@ itemsRouter.post('/bulk', requireRole('driver', 'operator', 'laundry_manager', '
   }
 });
 
+// Bulk transfer items to another hotel
+itemsRouter.post('/bulk-transfer', requireRole('driver', 'operator', 'laundry_manager', 'system_admin'), async (req: AuthRequest, res) => {
+  try {
+    const bulkTransferSchema = z.object({
+      rfidTags: z.array(z.string()).min(1, 'At least one RFID tag is required'),
+      targetTenantId: z.string().uuid('Invalid target tenant ID'),
+      targetItemTypeId: z.string().uuid('Invalid target item type ID').optional(),
+    });
+
+    const validation = bulkTransferSchema.safeParse(req.body);
+    if (!validation.success) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: validation.error.errors
+      });
+    }
+
+    const { rfidTags, targetTenantId, targetItemTypeId } = validation.data;
+
+    // Verify target tenant exists
+    const targetTenant = await db.query.tenants.findFirst({
+      where: eq(tenants.id, targetTenantId),
+    });
+    if (!targetTenant) {
+      return res.status(404).json({ error: 'Target tenant not found' });
+    }
+
+    // Verify target item type if provided
+    if (targetItemTypeId) {
+      const targetItemType = await db.query.itemTypes.findFirst({
+        where: eq(itemTypes.id, targetItemTypeId),
+      });
+      if (!targetItemType) {
+        return res.status(404).json({ error: 'Target item type not found' });
+      }
+    }
+
+    // Get all items for matching
+    const allItems = await db.query.items.findMany({
+      with: { itemType: true, tenant: true },
+    });
+
+    let transferred = 0;
+    let notFound = 0;
+    let alreadyCorrect = 0;
+    const errors: { rfidTag: string; error: string }[] = [];
+    const transferredItems: { rfidTag: string; fromTenant: string; toTenant: string; itemType: string }[] = [];
+
+    for (const scannedTag of rfidTags) {
+      // Find item using partial matching (same as scan endpoint)
+      const matchingItems = allItems.filter(item => scannedTag.includes(item.rfidTag));
+
+      if (matchingItems.length === 0) {
+        notFound++;
+        errors.push({ rfidTag: scannedTag, error: 'Item not found' });
+        continue;
+      }
+
+      const bestMatch = matchingItems.sort((a, b) => b.rfidTag.length - a.rfidTag.length)[0];
+
+      // Check if already belongs to target tenant
+      if (bestMatch.tenantId === targetTenantId && (!targetItemTypeId || bestMatch.itemTypeId === targetItemTypeId)) {
+        alreadyCorrect++;
+        continue;
+      }
+
+      // Build update
+      const updateData: any = {
+        tenantId: targetTenantId,
+        updatedAt: new Date(),
+      };
+      if (targetItemTypeId) {
+        updateData.itemTypeId = targetItemTypeId;
+      }
+
+      try {
+        await db.update(items)
+          .set(updateData)
+          .where(eq(items.id, bestMatch.id));
+
+        transferred++;
+        transferredItems.push({
+          rfidTag: scannedTag,
+          fromTenant: bestMatch.tenant?.name || 'Unknown',
+          toTenant: targetTenant.name,
+          itemType: bestMatch.itemType?.name || 'Unknown',
+        });
+      } catch (err: any) {
+        errors.push({ rfidTag: scannedTag, error: err.message || 'Update failed' });
+      }
+    }
+
+    console.log(`[TRANSFER] ${transferred} items transferred to ${targetTenant.name}, ${alreadyCorrect} already correct, ${notFound} not found`);
+
+    res.json({
+      transferred,
+      alreadyCorrect,
+      notFound,
+      total: rfidTags.length,
+      transferredItems,
+      errors: errors.length > 0 ? errors : undefined,
+    });
+  } catch (error) {
+    console.error('Bulk transfer error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Delete item
 itemsRouter.delete('/:id', requireRole('laundry_manager', 'system_admin', 'admin'), async (req: AuthRequest, res) => {
   try {
