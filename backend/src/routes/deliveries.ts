@@ -4,7 +4,8 @@ import { deliveries, deliveryItems, deliveryPackages, items, tenants, users } fr
 import { eq, and, inArray, desc } from 'drizzle-orm';
 import { requireAuth, AuthRequest, requireRole } from '../middleware/auth';
 import { z } from 'zod';
-import { sendDeliveryNotification } from '../services/email';
+import { sendWaybillDeliveryEmail } from '../services/email';
+import { generateWaybillPdf } from '../services/waybill-pdf';
 import { emitDeliveryCreated, emitDeliveryUpdated, emitDashboardUpdate } from '../services/realtime';
 
 export const deliveriesRouter = Router();
@@ -660,14 +661,71 @@ deliveriesRouter.post('/:id/deliver', requireRole('driver', 'laundry_manager', '
       return { updatedDelivery: updated, deliveryItemsList: itemsList };
     });
 
-    // Send email notification to hotel owner
+    // Send email notification with PDF waybill to hotel owner
     try {
       if (existingDelivery.tenant?.email) {
-        await sendDeliveryNotification(
+        // Build item summary for PDF
+        const deliveryItemsWithTypes = await db.query.deliveryItems.findMany({
+          where: eq(deliveryItems.deliveryId, id),
+          with: {
+            item: {
+              with: {
+                itemType: true,
+              },
+            },
+          },
+        });
+
+        const itemSummaryMap: Record<string, { typeName: string; count: number }> = {};
+        let totalItems = 0;
+
+        // Check notes for label data first
+        if (updatedDelivery.notes) {
+          try {
+            const labelData = JSON.parse(updatedDelivery.notes);
+            if (Array.isArray(labelData)) {
+              labelData.forEach((item: any) => {
+                const typeName = item.typeName || 'Bilinmeyen';
+                const count = item.count || 0;
+                if (!itemSummaryMap[typeName]) {
+                  itemSummaryMap[typeName] = { typeName, count: 0 };
+                }
+                itemSummaryMap[typeName].count += count;
+                totalItems += count;
+              });
+            }
+          } catch {}
+        }
+
+        // Fallback to delivery items
+        if (totalItems === 0) {
+          deliveryItemsWithTypes.forEach((di: any) => {
+            const typeName = di.item?.itemType?.name || 'Bilinmeyen';
+            if (!itemSummaryMap[typeName]) {
+              itemSummaryMap[typeName] = { typeName, count: 0 };
+            }
+            itemSummaryMap[typeName].count++;
+            totalItems++;
+          });
+        }
+
+        const pdfBuffer = await generateWaybillPdf({
+          waybillNumber: updatedDelivery.barcode,
+          hotelName: existingDelivery.tenant.name,
+          hotelAddress: existingDelivery.tenant.address || undefined,
+          date: new Date().toLocaleDateString('tr-TR'),
+          itemSummary: Object.values(itemSummaryMap),
+          bagCount: 0,
+          packageCount: updatedDelivery.packageCount || 1,
+          totalItems,
+        });
+
+        await sendWaybillDeliveryEmail(
           existingDelivery.tenant.email,
           existingDelivery.tenant.name,
           updatedDelivery.barcode,
-          deliveryItemsList.length
+          totalItems,
+          pdfBuffer
         );
       }
     } catch (emailError) {

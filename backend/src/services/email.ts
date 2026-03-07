@@ -240,11 +240,12 @@ export async function sendWaybillDeliveryEmail(
   totalItems: number,
   pdfBuffer: Buffer
 ): Promise<boolean> {
-  const subject = `Teslimat Irsaliyesi - ${waybillNumber}`;
+  const subject = `Teslimat İrsaliyesi - ${waybillNumber}`;
   const html = `
     <!DOCTYPE html>
     <html>
     <head>
+      <meta charset="UTF-8">
       <style>
         body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
         .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -257,31 +258,31 @@ export async function sendWaybillDeliveryEmail(
     <body>
       <div class="container">
         <div class="header">
-          <h1>Teslimat Tamamlandi</h1>
+          <h1>Teslimat Tamamland&#305;</h1>
         </div>
         <div class="content">
-          <p>Sayin ${hotelName},</p>
-          <p>Camasirhane teslimatiniz basariyla tamamlanmistir. Irsaliye detaylari ekte yer almaktadir.</p>
+          <p>Say&#305;n ${hotelName},</p>
+          <p>&#199;ama&#351;&#305;rhane teslimat&#305;n&#305;z ba&#351;ar&#305;yla tamamlanm&#305;&#351;t&#305;r. &#304;rsaliye detaylar&#305; ekte yer almaktad&#305;r.</p>
 
           <div class="info-box">
-            <p><strong>Irsaliye No:</strong> ${waybillNumber}</p>
-            <p><strong>Toplam Urun:</strong> ${totalItems} adet</p>
+            <p><strong>&#304;rsaliye No:</strong> ${waybillNumber}</p>
+            <p><strong>Toplam &#220;r&#252;n:</strong> ${totalItems} adet</p>
             <p><strong>Teslimat Tarihi:</strong> ${new Date().toLocaleDateString('tr-TR')}</p>
           </div>
 
-          <p>Lutfen teslimati kontrol ediniz. Herhangi bir sorunuz varsa bizimle iletisime geciniz.</p>
+          <p>L&#252;tfen teslimat&#305; kontrol ediniz. Herhangi bir sorunuz varsa bizimle ileti&#351;ime ge&#231;iniz.</p>
 
-          <p>Iyi gunler dileriz.</p>
+          <p>&#304;yi g&#252;nler dileriz.</p>
         </div>
         <div class="footer">
-          <p>Demet Laundry - RFID Camasirhane Sistemi</p>
+          <p>Demet Laundry - RFID &#199;ama&#351;&#305;rhane Takip Sistemi</p>
         </div>
       </div>
     </body>
     </html>
   `;
 
-  const text = `Sayin ${hotelName},\n\nCamasirhane teslimatiniz tamamlanmistir.\nIrsaliye No: ${waybillNumber}\nToplam Urun: ${totalItems} adet\nTeslimat Tarihi: ${new Date().toLocaleDateString('tr-TR')}\n\nIrsaliye PDF ekte yer almaktadir.`;
+  const text = `Sayın ${hotelName},\n\nÇamaşırhane teslimatınız tamamlanmıştır.\nİrsaliye No: ${waybillNumber}\nToplam Ürün: ${totalItems} adet\nTeslimat Tarihi: ${new Date().toLocaleDateString('tr-TR')}\n\nİrsaliye PDF ekte yer almaktadır.`;
 
   return sendEmail({
     to,
