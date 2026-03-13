@@ -760,6 +760,94 @@ deliveriesRouter.post('/:id/deliver', requireRole('driver', 'laundry_manager', '
   }
 });
 
+// Send waybill PDF email without changing delivery status
+deliveriesRouter.post('/:id/send-waybill', requireRole('driver', 'laundry_manager', 'system_admin'), async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+
+    const delivery = await db.query.deliveries.findFirst({
+      where: eq(deliveries.id, id),
+      with: {
+        tenant: true,
+        deliveryItems: {
+          with: {
+            item: {
+              with: {
+                itemType: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!delivery) {
+      return res.status(404).json({ error: 'Delivery not found' });
+    }
+
+    if (!delivery.tenant?.email) {
+      return res.status(400).json({ error: 'Otelin email adresi tanımlı değil' });
+    }
+
+    // Build item summary
+    const itemSummaryMap: Record<string, { typeName: string; count: number }> = {};
+    let totalItems = 0;
+
+    if (delivery.notes) {
+      try {
+        const labelData = JSON.parse(delivery.notes);
+        if (Array.isArray(labelData)) {
+          labelData.forEach((item: any) => {
+            const typeName = item.typeName || 'Bilinmeyen';
+            const count = item.count || 0;
+            if (!itemSummaryMap[typeName]) {
+              itemSummaryMap[typeName] = { typeName, count: 0 };
+            }
+            itemSummaryMap[typeName].count += count;
+            totalItems += count;
+          });
+        }
+      } catch {}
+    }
+
+    if (totalItems === 0 && delivery.deliveryItems) {
+      delivery.deliveryItems.forEach((di: any) => {
+        const typeName = di.item?.itemType?.name || 'Bilinmeyen';
+        if (!itemSummaryMap[typeName]) {
+          itemSummaryMap[typeName] = { typeName, count: 0 };
+        }
+        itemSummaryMap[typeName].count++;
+        totalItems++;
+      });
+    }
+
+    const pdfBuffer = await generateWaybillPdf({
+      waybillNumber: delivery.barcode,
+      hotelName: delivery.tenant.name,
+      hotelAddress: delivery.tenant.address || undefined,
+      date: new Date().toLocaleDateString('tr-TR'),
+      itemSummary: Object.values(itemSummaryMap),
+      bagCount: 0,
+      packageCount: delivery.packageCount || 1,
+      totalItems,
+    });
+
+    await sendWaybillDeliveryEmail(
+      delivery.tenant.email,
+      delivery.tenant.name,
+      delivery.barcode,
+      totalItems,
+      pdfBuffer
+    );
+
+    console.log(`📧 Waybill email sent for delivery ${id} to ${delivery.tenant.email}`);
+    res.json({ success: true, email: delivery.tenant.email, totalItems });
+  } catch (error) {
+    console.error('Send waybill error:', error);
+    res.status(500).json({ error: 'Email gönderilemedi' });
+  }
+});
+
 // Create bag - group multiple deliveries under a single bag code
 deliveriesRouter.post('/create-bag', requireRole('operator', 'laundry_manager', 'system_admin'), async (req: AuthRequest, res) => {
   try {
