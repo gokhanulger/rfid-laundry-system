@@ -23,6 +23,7 @@ import etaRouter from './routes/eta';
 import { waybillsRouter } from './routes/waybills';
 import { portalRouter } from './routes/portal';
 import { notificationsRouter } from './routes/notifications';
+import { tenantPricingRouter } from './routes/tenantPricing';
 
 dotenv.config();
 
@@ -228,6 +229,7 @@ app.use('/api/eta', etaRouter);
 app.use('/api/waybills', waybillsRouter);
 app.use('/api/portal', portalRouter);
 app.use('/api/notifications', notificationsRouter);
+app.use('/api/tenant-pricing', tenantPricingRouter);
 
 // Health check
 app.get('/api/health', (req, res) => {

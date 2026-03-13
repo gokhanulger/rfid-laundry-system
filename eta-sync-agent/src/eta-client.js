@@ -433,20 +433,23 @@ EtaClient.prototype.createIrsaliye = function(irsaliye) {
               var fiyat = satir.fiyat || 0;
               var tutar = miktar * fiyat;
 
-              console.log('      Satir ' + siraNo + ': ' + stokKod + ' x ' + miktar);
+              var stokAd = satir.stokAd || '';
+              console.log('      Satir ' + siraNo + ': ' + stokKod + ' (' + stokAd + ') x ' + miktar);
 
               // IRSHAR - Irsaliye Hareket (TIPI = 3) - IRSFIS refNo kullanir
+              // IRSHARGCFLAG=2, IRSHARKAYNAK=6, IRSHARKODTIP=1 ETA uyumlulugu icin gerekli
               var irsharQuery =
                 "INSERT INTO IRSHAR (IRSHARREFNO, IRSHARTAR, IRSHARTIPI, IRSHARCARKOD, " +
-                "IRSHARSTKKOD, IRSHARSTKBRM, IRSHARMIKTAR, IRSHARFIYAT, IRSHARTUTAR, " +
-                "IRSHARKAYONC, IRSHARSIRANO) " +
-                "VALUES (@refNo, @tarih, 3, @cariKod, @stokKod, @birim, @miktar, @fiyat, @tutar, 1, @siraNo)";
+                "IRSHARSTKKOD, IRSHARSTKCINS, IRSHARSTKBRM, IRSHARMIKTAR, IRSHARFIYAT, IRSHARTUTAR, " +
+                "IRSHARKAYONC, IRSHARSIRANO, IRSHARGCFLAG, IRSHARKAYNAK, IRSHARKODTIP) " +
+                "VALUES (@refNo, @tarih, 3, @cariKod, @stokKod, @stokAd, @birim, @miktar, @fiyat, @tutar, 1, @siraNo, 2, 6, 1)";
 
               return self.pool.request()
                 .input('refNo', sql.Int, refNo)
                 .input('tarih', sql.DateTime, tarih)
                 .input('cariKod', sql.VarChar, cariKod)
                 .input('stokKod', sql.VarChar, stokKod)
+                .input('stokAd', sql.VarChar, stokAd)
                 .input('birim', sql.VarChar, birim)
                 .input('miktar', sql.Numeric, miktar)
                 .input('fiyat', sql.Numeric, fiyat)
@@ -574,6 +577,178 @@ EtaClient.prototype.getIrsaliyeSatirlari = function(refNo) {
   })
   .then(function(result) {
     return result.recordset;
+  });
+};
+
+/**
+ * Cari bazli stok fiyatlarini getir
+ * Once cari kodu ile arar, bulamazsa cari adi ile dener
+ * @param {string} cariKod - Cari kodu (orn: "120 00 3002")
+ * @param {string} cariAdi - Cari adi (orn: "CRONTON DESIGN HOTEL")
+ * @returns {Object} stokKod -> fiyat eslestirmesi
+ */
+EtaClient.prototype.getCariStokFiyatlari = function(cariKod, cariAdi) {
+  var self = this;
+
+  var connectPromise = this.pool ? Promise.resolve() : this.connect();
+
+  return connectPromise.then(function() {
+    // Once cari kodu ile dene
+    var query =
+      "SELECT CARFIYKOD, CARFIYSTKKOD, CARFIYTUTAR " +
+      "FROM CARFIYAT " +
+      "WHERE CARFIYKOD = @cariKod AND CARFIYSTKKOD IS NOT NULL AND CARFIYSTKKOD != ''";
+
+    return self.pool.request()
+      .input('cariKod', sql.VarChar, cariKod)
+      .query(query);
+  })
+  .then(function(result) {
+    if (result.recordset.length > 0) {
+      console.log('    Fiyatlar cari kodu ile bulundu: ' + cariKod + ' (' + result.recordset.length + ' kayit)');
+      return result.recordset;
+    }
+
+    // Cari kodu ile bulunamadi, cari adi ile dene (tam eslesme)
+    console.log('    Cari kodu ile fiyat bulunamadi, cari adi deneniyor: ' + cariAdi);
+    var query2 =
+      "SELECT CARFIYKOD, CARFIYSTKKOD, CARFIYTUTAR " +
+      "FROM CARFIYAT " +
+      "WHERE CARFIYKOD = @cariAdi AND CARFIYSTKKOD IS NOT NULL AND CARFIYSTKKOD != ''";
+
+    return self.pool.request()
+      .input('cariAdi', sql.VarChar, cariAdi)
+      .query(query2)
+      .then(function(result2) {
+        if (result2.recordset.length > 0) {
+          console.log('    Fiyatlar cari adi ile bulundu: ' + cariAdi + ' (' + result2.recordset.length + ' kayit)');
+          return result2.recordset;
+        }
+
+        // Tam eslesme bulunamadi
+        // 1) Cari kodu ile CARKART'tan ETA'daki unvani bul
+        // 2) O unvanla CARFIYAT'ta ara
+        // 3) Bulamazsa CARFIYAT'taki tum isimleri normalize edip karsilastir
+        console.log('    Tam eslesme bulunamadi, CARKART\'tan unvan cekiliyor...');
+
+        return self.pool.request()
+          .input('carKod', sql.VarChar, cariKod)
+          .query("SELECT CARUNVAN FROM CARKART WHERE CARKOD = @carKod")
+          .then(function(carResult) {
+            var etaUnvan = (carResult.recordset[0] && carResult.recordset[0].CARUNVAN) ? carResult.recordset[0].CARUNVAN.toString().trim() : '';
+
+            if (etaUnvan) {
+              console.log('    CARKART\'taki unvan: "' + etaUnvan + '"');
+              // Bu unvanla CARFIYAT'ta ara
+              return self.pool.request()
+                .input('etaUnvan', sql.VarChar, etaUnvan)
+                .query("SELECT CARFIYKOD, CARFIYSTKKOD, CARFIYTUTAR FROM CARFIYAT WHERE CARFIYKOD = @etaUnvan AND CARFIYSTKKOD IS NOT NULL AND CARFIYSTKKOD != ''")
+                .then(function(r) {
+                  if (r.recordset.length > 0) {
+                    console.log('    CARKART unvani ile ' + r.recordset.length + ' fiyat bulundu');
+                    return r.recordset;
+                  }
+                  console.log('    CARKART unvani ile de bulunamadi');
+                  return null; // Devam et
+                });
+            }
+            return null; // Devam et
+          })
+          .then(function(records) {
+            if (records) return records;
+
+            // Son care: tum CARFIYAT isimlerini normalize edip karsilastir
+            console.log('    Normalize eslestirme deneniyor...');
+            return self.pool.request()
+              .query("SELECT DISTINCT CARFIYKOD FROM CARFIYAT WHERE CARFIYSTKKOD IS NOT NULL AND CARFIYSTKKOD != ''")
+              .then(function(allNames) {
+                function norm(t) {
+                  if (!t) return '';
+                  var tr = {'İ':'I','I':'I','Ğ':'G','Ü':'U','Ş':'S','Ö':'O','Ç':'C',
+                            'ı':'I','i':'I','ğ':'G','ü':'U','ş':'S','ö':'O','ç':'C'};
+                  var r = t.toUpperCase().trim();
+                  for (var k in tr) { r = r.split(k).join(tr[k]); }
+                  return r.replace(/[^A-Z0-9 ]/g, '').trim();
+                }
+
+                // Genel kelimeri cikar (HOTEL, OTEL, PALACE vs)
+                function coreWords(t) {
+                  var skip = ['HOTEL','OTEL','PALACE','SUIT','SUITES','SUITE','INN','RESORT','SPA'];
+                  var words = t.split(/\s+/);
+                  var result = [];
+                  for (var w = 0; w < words.length; w++) {
+                    var found = false;
+                    for (var sk = 0; sk < skip.length; sk++) {
+                      if (words[w] === skip[sk]) { found = true; break; }
+                    }
+                    if (!found && words[w].length > 0) result.push(words[w]);
+                  }
+                  return result;
+                }
+
+                var searchCore = coreWords(norm(cariAdi));
+                console.log('    Aranan cekirdek kelimeler: ' + searchCore.join(', '));
+
+                var bestMatch = null;
+                var bestMatchCount = 0;
+
+                for (var s = 0; s < allNames.recordset.length; s++) {
+                  var name = (allNames.recordset[s].CARFIYKOD || '').toString().trim();
+                  var nameCore = coreWords(norm(name));
+
+                  // Kac kelime eslesiyor?
+                  var matchCount = 0;
+                  for (var a = 0; a < searchCore.length; a++) {
+                    for (var b = 0; b < nameCore.length; b++) {
+                      if (searchCore[a] === nameCore[b]) {
+                        matchCount++;
+                        break;
+                      }
+                    }
+                  }
+
+                  // En az 1 cekirdek kelime eslesmeli ve oncekinden iyi olmali
+                  if (matchCount > bestMatchCount) {
+                    bestMatchCount = matchCount;
+                    bestMatch = name;
+                  }
+                }
+
+                if (bestMatch && bestMatchCount >= 1) {
+                  console.log('    Normalize eslesmesi: "' + cariAdi + '" -> "' + bestMatch + '" (' + bestMatchCount + ' kelime eslesti)');
+                  return self.pool.request()
+                    .input('matchedName', sql.VarChar, bestMatch)
+                    .query("SELECT CARFIYKOD, CARFIYSTKKOD, CARFIYTUTAR FROM CARFIYAT WHERE CARFIYKOD = @matchedName AND CARFIYSTKKOD IS NOT NULL AND CARFIYSTKKOD != ''")
+                    .then(function(result4) {
+                      console.log('    ' + result4.recordset.length + ' fiyat kaydi bulundu');
+                      return result4.recordset;
+                    });
+                }
+
+                console.log('    ! CARFIYAT tablosunda bu cari icin fiyat bulunamadi');
+                console.log('    ! Aranan: kod="' + cariKod + '", ad="' + cariAdi + '"');
+                return [];
+              });
+          });
+      });
+  })
+  .then(function(records) {
+    // recordset veya bos dizi
+    if (!Array.isArray(records)) records = [];
+    var fiyatlar = {};
+    for (var i = 0; i < records.length; i++) {
+      var row = records[i];
+      var stokKod = row.CARFIYSTKKOD ? row.CARFIYSTKKOD.toString().trim() : '';
+      var fiyat = row.CARFIYTUTAR || 0;
+      if (stokKod) {
+        fiyatlar[stokKod] = fiyat;
+      }
+    }
+    return fiyatlar;
+  })
+  .catch(function(error) {
+    console.error('Cari fiyat cekme hatasi:', error.message);
+    return {}; // Hata durumunda bos obje don
   });
 };
 

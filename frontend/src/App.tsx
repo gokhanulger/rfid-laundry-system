@@ -40,6 +40,7 @@ import HotelQRCodesPage from './pages/HotelQRCodesPage';
 import { HotelStatusBoardPage } from './pages/HotelStatusBoardPage';
 import { EtaIntegrationPage } from './pages/EtaIntegrationPage';
 import NotificationSettingsPage from './pages/NotificationSettingsPage';
+import { TenantPricingPage } from './pages/TenantPricingPage';
 
 // Customer Portal Pages
 import { CustomerPortalPage } from './pages/CustomerPortalPage';
@@ -133,6 +134,7 @@ function App() {
                 <Route path="bulk-tag-assignment" element={<BulkTagAssignmentPage />} />
                 <Route path="eta-integration" element={<EtaIntegrationPage />} />
                 <Route path="notifications" element={<NotificationSettingsPage />} />
+                <Route path="tenant-pricing" element={<TenantPricingPage />} />
 
                 {/* Customer Portal Pages */}
                 <Route path="portal" element={<CustomerPortalPage />} />

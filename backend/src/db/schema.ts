@@ -564,6 +564,27 @@ export const scanConflictsRelations = relations(scanConflicts, ({ one }) => ({
   }),
 }));
 
+// Tenant Pricing (per-hotel item prices for ETA invoicing)
+export const tenantPricing = pgTable('tenant_pricing', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  itemTypeId: uuid('item_type_id').notNull().references(() => itemTypes.id),
+  price: integer('price').notNull().default(0), // Price in kuruş (1 TL = 100 kuruş) for precision
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const tenantPricingRelations = relations(tenantPricing, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [tenantPricing.tenantId],
+    references: [tenants.id],
+  }),
+  itemType: one(itemTypes, {
+    fields: [tenantPricing.itemTypeId],
+    references: [itemTypes.id],
+  }),
+}));
+
 // Notification Enums
 export const notificationChannelEnum = pgEnum('notification_channel', [
   'whatsapp',

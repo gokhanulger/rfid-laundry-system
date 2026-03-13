@@ -20,6 +20,20 @@ function delay(ms) {
   });
 }
 
+// Turkce karakter normalizasyonu (eslestirme icin)
+function normalizeText(text) {
+  if (!text) return '';
+  var tr = {
+    'İ': 'I', 'I': 'I', 'Ğ': 'G', 'Ü': 'U', 'Ş': 'S', 'Ö': 'O', 'Ç': 'C',
+    'ı': 'I', 'i': 'I', 'ğ': 'G', 'ü': 'U', 'ş': 'S', 'ö': 'O', 'ç': 'C'
+  };
+  var result = text.toUpperCase().trim();
+  for (var k in tr) {
+    result = result.split(k).join(tr[k]);
+  }
+  return result;
+}
+
 /**
  * Baglantilari test eder
  */
@@ -218,6 +232,8 @@ SyncService.prototype.syncIrsaliyeler = function() {
 
   var sent = 0;
   var errors = 0;
+  // Veritabani bazli stok cache'leri (her DB icin ayri)
+  var stokCacheByDb = {}; // { "ETA_DEMET_2025": { "CARSAF": "001", ... }, "ETA_TEKLIF_2025": { "CARSAF": "002", ... } }
 
   // RFID'ye giris yap
   return this.rfidClient.login()
@@ -226,166 +242,235 @@ SyncService.prototype.syncIrsaliyeler = function() {
       console.log('RFID\'den irsaliyesi basilmis teslimatlar cekiliyor...');
       return self.rfidClient.getPrintedWaybills();
     })
-    .then(function(deliveries) {
-      console.log(deliveries.length + ' teslimat bulundu (ETA\'ya gonderilecek)\n');
+    .then(function(waybills) {
+      console.log(waybills.length + ' irsaliye bulundu (ETA\'ya gonderilecek)\n');
 
-      if (deliveries.length === 0) {
+      if (waybills.length === 0) {
         console.log('Gonderilecek irsaliye yok.');
         return { success: true, sent: 0, errors: 0 };
       }
 
-      // Siralı islem (3 saniye beklemeli)
+      // Siralı islem - her waybill icin (3 saniye beklemeli)
       var promise = Promise.resolve();
 
-      for (var i = 0; i < deliveries.length; i++) {
-        (function(delivery) {
+      for (var i = 0; i < waybills.length; i++) {
+        (function(waybill) {
           promise = promise.then(function() {
             return delay(3000).then(function() {
-              // Delivery detaylarini al
-              return self.rfidClient.getDeliveryDetails(delivery.id)
-                .then(function(details) {
-                  // Debug: API yanitini goster
-                  console.log('  DEBUG - Delivery keys:', Object.keys(details));
+              var evrakNo = waybill.waybillNumber || '';
+              console.log('\n  === Irsaliye: ' + evrakNo + ' (' + waybill.deliveries.length + ' teslimat) ===');
 
-                  // Tenant bilgisini al
-                  var tenant = details.tenant || {};
-                  console.log('  DEBUG - Tenant tum alanlar:', JSON.stringify(tenant, null, 2));
-                  // ETA cari kodu icin oncelik: etaCariKod > etaCode > cariKod > code > qrCode
+              // Tum delivery'lerin detaylarini al
+              var detailPromises = [];
+              for (var d = 0; d < waybill.deliveries.length; d++) {
+                detailPromises.push(self.rfidClient.getDeliveryDetails(waybill.deliveries[d].id));
+              }
+
+              return Promise.all(detailPromises)
+                .then(function(allDetails) {
+                  // Ilk delivery'den tenant bilgisini al (ayni irsaliyedeki tum delivery'ler ayni tenant'a ait)
+                  var tenant = {};
+                  var ilkTarih = new Date();
+                  for (var dd = 0; dd < allDetails.length; dd++) {
+                    if (allDetails[dd] && allDetails[dd].tenant) {
+                      tenant = allDetails[dd].tenant;
+                      if (allDetails[dd].pickedUpAt) {
+                        ilkTarih = new Date(allDetails[dd].pickedUpAt);
+                      }
+                      break;
+                    }
+                  }
+
                   var cariKod = tenant.etaCariKod || tenant.etaCode || tenant.cariKod || tenant.code || tenant.qrCode || '';
                   var cariUnvan = tenant.name || '';
-                  console.log('  DEBUG - Secilen cariKod: ' + cariKod + ', cariUnvan: ' + cariUnvan);
 
-                  var satirlar = [];
+                  // Tum delivery'lerdeki itemlari topla ve grupla
+                  var gruplar = {};
 
-                  // ONCELIK 1: notes alaninda JSON olarak saklanan item verileri (ironer'dan)
-                  if (details.notes) {
-                    try {
-                      var labelData = JSON.parse(details.notes);
-                      if (Array.isArray(labelData) && labelData.length > 0) {
-                        console.log('  DEBUG - Notes icinden ' + labelData.length + ' urun tipi bulundu');
-                        for (var n = 0; n < labelData.length; n++) {
-                          var noteItem = labelData[n];
-                          var typeName = noteItem.typeName || noteItem.name || 'Bilinmeyen';
-                          var count = noteItem.count || 0;
-                          if (typeName && count > 0) {
-                            satirlar.push({
-                              stokKod: '', // notes'da kod yok
-                              stokAd: typeName,
-                              birim: 'ADET',
-                              miktar: count,
-                              fiyat: 0
-                            });
+                  for (var dd = 0; dd < allDetails.length; dd++) {
+                    var details = allDetails[dd];
+                    if (!details) continue;
+
+                    var deliverySatirlari = [];
+
+                    // ONCELIK 1: notes alaninda JSON olarak saklanan item verileri (ironer'dan)
+                    if (details.notes) {
+                      try {
+                        var labelData = JSON.parse(details.notes);
+                        if (Array.isArray(labelData) && labelData.length > 0) {
+                          for (var n = 0; n < labelData.length; n++) {
+                            var noteItem = labelData[n];
+                            var typeName = noteItem.typeName || noteItem.name || 'Bilinmeyen';
+                            var count = noteItem.count || 0;
+                            if (typeName && count > 0) {
+                              deliverySatirlari.push({ stokAd: typeName, miktar: count });
+                            }
+                          }
+                        }
+                      } catch (e) {
+                        // JSON parse hatasi
+                      }
+                    }
+
+                    // ONCELIK 2: deliveryItems veya deliveryPackages
+                    if (deliverySatirlari.length === 0) {
+                      var items = details.items || details.deliveryItems || details.lineItems || [];
+
+                      if (items.length === 0 && details.deliveryPackages) {
+                        var packages = details.deliveryPackages || [];
+                        for (var p = 0; p < packages.length; p++) {
+                          var pkg = packages[p];
+                          var pkgItems = pkg.items || pkg.packageItems || pkg.deliveryItems || [];
+                          for (var pi = 0; pi < pkgItems.length; pi++) {
+                            items.push(pkgItems[pi]);
                           }
                         }
                       }
-                    } catch (e) {
-                      // JSON parse hatasi, notes baska bir sey
-                    }
-                  }
 
-                  // ONCELIK 2: deliveryItems veya deliveryPackages
-                  if (satirlar.length === 0) {
-                    var items = details.items || details.deliveryItems || details.lineItems || [];
-
-                    // deliveryPackages icinden items topla
-                    if (items.length === 0 && details.deliveryPackages) {
-                      var packages = details.deliveryPackages || [];
-                      for (var p = 0; p < packages.length; p++) {
-                        var pkg = packages[p];
-                        var pkgItems = pkg.items || pkg.packageItems || pkg.deliveryItems || [];
-                        for (var pi = 0; pi < pkgItems.length; pi++) {
-                          items.push(pkgItems[pi]);
+                      for (var j = 0; j < items.length; j++) {
+                        var item = items[j];
+                        var itemType = item.itemType || item.item_type || item.type || (item.item && item.item.itemType) || {};
+                        var stokAd = itemType.name || item.name || '';
+                        if (stokAd) {
+                          deliverySatirlari.push({ stokAd: stokAd, miktar: 1 });
                         }
                       }
                     }
 
-                    // Item'lari grupla
-                    var gruplar = {};
-                    for (var j = 0; j < items.length; j++) {
-                      var item = items[j];
-                      var itemType = item.itemType || item.item_type || item.type || (item.item && item.item.itemType) || {};
-                      var stokKod = itemType.description || itemType.code || '';
-                      if (stokKod.indexOf('ETA:') === 0) {
-                        stokKod = stokKod.substring(4);
+                    // Bu delivery'nin itemlarini genel gruplara ekle
+                    for (var ds = 0; ds < deliverySatirlari.length; ds++) {
+                      var dSatir = deliverySatirlari[ds];
+                      var normalizedAd = normalizeText(dSatir.stokAd);
+                      if (!gruplar[normalizedAd]) {
+                        gruplar[normalizedAd] = {
+                          stokKod: '',
+                          stokAd: dSatir.stokAd,
+                          birim: 'ADET',
+                          miktar: 0,
+                          fiyat: 0
+                        };
                       }
-                      var stokAd = itemType.name || item.name || '';
-                      var key = stokKod || stokAd;
-
-                      if (key) {
-                        if (!gruplar[key]) {
-                          gruplar[key] = {
-                            stokKod: stokKod,
-                            stokAd: stokAd,
-                            birim: 'ADET',
-                            miktar: 0,
-                            fiyat: 0
-                          };
-                        }
-                        gruplar[key].miktar += 1;
-                      }
-                    }
-
-                    for (var key in gruplar) {
-                      satirlar.push(gruplar[key]);
+                      gruplar[normalizedAd].miktar += dSatir.miktar;
                     }
                   }
 
-                  // Debug
-                  console.log('  DEBUG - Toplam ' + satirlar.length + ' satir bulundu');
-                  if (satirlar.length > 0) {
-                    console.log('  DEBUG - Ilk satir:', JSON.stringify(satirlar[0]));
+                  // Gruplari satirlar dizisine cevir
+                  var satirlar = [];
+                  for (var grpKey in gruplar) {
+                    satirlar.push(gruplar[grpKey]);
                   }
 
                   if (satirlar.length === 0) {
-                    console.log('  - ' + delivery.barcode + ': Bos teslimat (notes ve items bos), atlaniyor');
-                    console.log('  DEBUG - notes:', details.notes ? details.notes.substring(0, 200) : 'yok');
+                    console.log('  - ' + evrakNo + ': Bos irsaliye, atlaniyor');
                     return;
                   }
 
-                  // ETA'ya irsaliye olustur
-                  // waybillNumber varsa evrak no olarak kullan (A-407912105 gibi)
-                  var evrakNo = delivery.waybillNumber || delivery.barcode;
+                  console.log('  Toplam ' + satirlar.length + ' kalem (birlestirilmis)');
+
                   var irsaliye = {
                     cariKod: cariKod,
                     cariUnvan: cariUnvan,
-                    tarih: delivery.pickedUpAt ? new Date(delivery.pickedUpAt) : new Date(),
+                    tarih: ilkTarih,
                     aciklama: 'RFID: ' + evrakNo,
                     evrakNo: evrakNo,
-                    barcode: delivery.barcode,
+                    barcode: evrakNo,
                     satirlar: satirlar
                   };
 
                   // Otel bazli veritabani secimi
-                  // API'den etaDatabaseType veya etaDatabaseName geliyor
-                  console.log('  DEBUG DB - etaDatabaseType:', tenant.etaDatabaseType);
-                  console.log('  DEBUG DB - etaDatabaseName:', tenant.etaDatabaseName);
                   var dbType = tenant.etaDatabaseType || tenant.etaDatabaseName || 'official';
-                  console.log('  DEBUG DB - dbType (before split):', dbType);
-                  // etaDatabaseName "unofficial_2025" formatinda olabilir
+                  var yearFromDbName = null;
                   if (dbType.indexOf('_') !== -1) {
-                    dbType = dbType.split('_')[0];
+                    var parts = dbType.split('_');
+                    dbType = parts[0];
+                    yearFromDbName = parts[1];
                   }
-                  console.log('  DEBUG DB - dbType (after split):', dbType);
-                  var year = tenant.etaDatabaseYear || self.config.eta.year || new Date().getFullYear();
+                  var year = yearFromDbName || tenant.etaDatabaseYear || self.config.eta.year || new Date().getFullYear();
                   var databases = self.config.eta.databases || { official: 'ETA_DEMET', unofficial: 'ETA_TEKLIF' };
-                  console.log('  DEBUG DB - databases config:', JSON.stringify(databases));
                   var dbPrefix = dbType === 'unofficial' ? databases.unofficial : databases.official;
-                  console.log('  DEBUG DB - dbPrefix:', dbPrefix);
                   var targetDatabase = dbPrefix + '_' + year;
-                  console.log('  Otel: ' + tenant.name + ' -> ' + targetDatabase + ' (dbType=' + dbType + ')');
 
-                  // Veritabani degistir (gerekirse)
+                  console.log('  [' + cariUnvan + '] -> ' + targetDatabase + ' (' + dbType + ')');
+
                   return self.etaClient.switchDatabase(targetDatabase)
                     .then(function() {
+                      if (!stokCacheByDb[targetDatabase]) {
+                        console.log('  Stok listesi cekiliyor...');
+                        return self.etaClient.getStokKartlar()
+                          .then(function(stoklar) {
+                            stokCacheByDb[targetDatabase] = {};
+                            for (var s = 0; s < stoklar.length; s++) {
+                              var stok = stoklar[s];
+                              var normalizedAd = normalizeText(stok.ad);
+                              stokCacheByDb[targetDatabase][normalizedAd] = stok.kod;
+                            }
+                            console.log('    ' + stoklar.length + ' stok yuklendi');
+                          });
+                      }
+                      return Promise.resolve();
+                    })
+                    .then(function() {
+                      var stokCache = stokCacheByDb[targetDatabase] || {};
+                      for (var sc = 0; sc < satirlar.length; sc++) {
+                        var satir = satirlar[sc];
+                        var normalizedAd = normalizeText(satir.stokAd);
+                        var bulunanKod = stokCache[normalizedAd] || '';
+                        if (bulunanKod) {
+                          satir.stokKod = bulunanKod;
+                          console.log('    + ' + satir.stokAd + ' -> ' + bulunanKod + ' x' + satir.miktar);
+                        } else {
+                          satir.stokKod = '';
+                          console.log('    ! ' + satir.stokAd + ' -> STOK BULUNAMADI');
+                        }
+                      }
+
+                      // RFID API'den tenant fiyatlarini cek (CARFIYAT yerine)
+                      var tenantId = tenant.id || '';
+                      return self.rfidClient.getTenantPricing(tenantId);
+                    })
+                    .then(function(fiyatlar) {
+                      // fiyatlar: { "BORNOZ": 15, "CARSAF": 20, ... } (itemTypeName -> TL)
+                      var fiyatKeys = Object.keys(fiyatlar);
+                      var toplamTutar = 0;
+
+                      for (var f = 0; f < satirlar.length; f++) {
+                        var satir = satirlar[f];
+                        // Stok adina gore fiyat bul (normalize ederek)
+                        var found = false;
+                        for (var fk = 0; fk < fiyatKeys.length; fk++) {
+                          if (normalizeText(fiyatKeys[fk]) === normalizeText(satir.stokAd)) {
+                            satir.fiyat = fiyatlar[fiyatKeys[fk]];
+                            satir.tutar = satir.miktar * satir.fiyat;
+                            toplamTutar += satir.tutar;
+                            found = true;
+                            break;
+                          }
+                        }
+                        if (!found) {
+                          satir.fiyat = 0;
+                          satir.tutar = 0;
+                        }
+                      }
+
+                      console.log('  Fiyat (RFID): ' + fiyatKeys.length + ' tanim, toplam ' + toplamTutar.toFixed(2) + ' TL');
+
                       return self.etaClient.createIrsaliye(irsaliye);
                     })
                     .then(function(result) {
                       if (result.success) {
                         sent++;
-                        console.log('  + Irsaliye ' + evrakNo + ' (Delivery: ' + delivery.barcode + ') -> ETA RefNo: ' + result.refNo);
+                        console.log('  + Irsaliye ' + evrakNo + ' -> ETA RefNo: ' + result.refNo);
 
-                        // RFID'de isaretle
-                        return self.rfidClient.markDeliveryAsEtaSynced(delivery.id, result.refNo);
+                        // Tum delivery'leri ETA'ya senkronlandi olarak isaretle
+                        var markPromise = Promise.resolve();
+                        for (var m = 0; m < waybill.deliveries.length; m++) {
+                          (function(del) {
+                            markPromise = markPromise.then(function() {
+                              return self.rfidClient.markDeliveryAsEtaSynced(del.id, result.refNo);
+                            });
+                          })(waybill.deliveries[m]);
+                        }
+                        return markPromise;
                       } else {
                         errors++;
                         console.log('  x Irsaliye ' + evrakNo + ': ' + result.error);
@@ -394,11 +479,11 @@ SyncService.prototype.syncIrsaliyeler = function() {
                 })
                 .catch(function(error) {
                   errors++;
-                  console.log('  x Irsaliye ' + (delivery.waybillNumber || delivery.barcode) + ': ' + error.message);
+                  console.log('  x Irsaliye ' + evrakNo + ': ' + error.message);
                 });
             });
           });
-        })(deliveries[i]);
+        })(waybills[i]);
       }
 
       return promise.then(function() {

@@ -486,6 +486,36 @@ export const settingsApi = {
   },
 };
 
+// Tenant Pricing API
+export const tenantPricingApi = {
+  getPrices: async (tenantId: string): Promise<Array<{
+    id: string;
+    tenantId: string;
+    itemTypeId: string;
+    itemTypeName: string;
+    price: number;
+    priceKurus: number;
+  }>> => {
+    const { data } = await api.get(`/tenant-pricing/${tenantId}`);
+    return data;
+  },
+
+  setPrice: async (tenantId: string, itemTypeId: string, price: number) => {
+    const { data } = await api.post(`/tenant-pricing/${tenantId}`, { itemTypeId, price });
+    return data;
+  },
+
+  setBulkPrices: async (tenantId: string, prices: Array<{ itemTypeId: string; price: number }>) => {
+    const { data } = await api.put(`/tenant-pricing/${tenantId}`, { prices });
+    return data;
+  },
+
+  deletePrice: async (tenantId: string, itemTypeId: string) => {
+    const { data } = await api.delete(`/tenant-pricing/${tenantId}/${itemTypeId}`);
+    return data;
+  },
+};
+
 // Reports API
 export const reportsApi = {
   getLifecycle: async (params?: {

@@ -419,27 +419,37 @@ RfidClient.prototype.getPrintedWaybills = function(retryCount) {
     return Promise.all(detailPromises);
   })
   .then(function(waybillDetails) {
-    // null olanlari filtrele ve etaSynced=false olan delivery'leri topla
+    // Waybill bazinda grupla - her waybill icindeki tum delivery'leri birlikte don
     var result = [];
 
     for (var i = 0; i < waybillDetails.length; i++) {
       var w = waybillDetails[i];
       if (!w || !w.waybillDeliveries) continue;
 
+      // Bu waybill'in icindeki etaSynced=false delivery'leri topla
+      var unsynced = [];
       for (var j = 0; j < w.waybillDeliveries.length; j++) {
         var wd = w.waybillDeliveries[j];
         var delivery = wd.delivery;
-
         if (delivery && !delivery.etaSynced) {
-          // Waybill bilgisini delivery'ye ekle
-          delivery.waybillNumber = w.waybillNumber;
-          delivery.waybillId = w.id;
-          result.push(delivery);
+          unsynced.push(delivery);
         }
+      }
+
+      if (unsynced.length > 0) {
+        result.push({
+          waybillId: w.id,
+          waybillNumber: w.waybillNumber,
+          deliveries: unsynced
+        });
       }
     }
 
-    console.log('    ETA\'ya gonderilecek ' + result.length + ' delivery bulundu');
+    var totalDeliveries = 0;
+    for (var k = 0; k < result.length; k++) {
+      totalDeliveries += result[k].deliveries.length;
+    }
+    console.log('    ETA\'ya gonderilecek ' + result.length + ' irsaliye (' + totalDeliveries + ' teslimat) bulundu');
     return result;
   })
   .catch(function(error) {
@@ -453,6 +463,68 @@ RfidClient.prototype.getPrintedWaybills = function(retryCount) {
     console.error('Waybill listesi alinamadi:', error.message);
     throw error;
   });
+};
+
+/**
+ * Tum item type'lari getir (ETA kod eslestirmesi icin)
+ */
+RfidClient.prototype.getItemTypes = function(retryCount) {
+  var self = this;
+  retryCount = retryCount || 0;
+
+  return this.client.get('/settings/item-types')
+    .then(function(response) {
+      return response.data || [];
+    })
+    .catch(function(error) {
+      var status = error.response && error.response.status;
+      if (status === 429 && retryCount < 5) {
+        console.log('  Item type listesi icin rate limit, 10 saniye bekleniyor...');
+        return delay(10000).then(function() {
+          return self.getItemTypes(retryCount + 1);
+        });
+      }
+      console.error('Item type listesi alinamadi:', error.message);
+      throw error;
+    });
+};
+
+/**
+ * Tenant fiyatlarini getir (tenant ID ile)
+ * @returns {Object} itemTypeName -> fiyat eslestirmesi
+ */
+RfidClient.prototype.getTenantPricing = function(tenantId, retryCount) {
+  var self = this;
+  retryCount = retryCount || 0;
+
+  return this.client.get('/tenant-pricing/' + tenantId)
+    .then(function(response) {
+      var prices = response.data || [];
+      // itemTypeName -> fiyat eslestirmesi olustur
+      var result = {};
+      for (var i = 0; i < prices.length; i++) {
+        var p = prices[i];
+        if (p.itemTypeName && p.price > 0) {
+          result[p.itemTypeName] = p.price;
+        }
+      }
+      return result;
+    })
+    .catch(function(error) {
+      var status = error.response && error.response.status;
+      if (status === 429 && retryCount < 5) {
+        console.log('  Tenant pricing icin rate limit, 10 saniye bekleniyor...');
+        return delay(10000).then(function() {
+          return self.getTenantPricing(tenantId, retryCount + 1);
+        });
+      }
+      if (status === 404) {
+        console.log('    Tenant pricing bulunamadi (404)');
+        return {};
+      }
+      console.error('Tenant pricing alinamadi:', error.message);
+      return {};
+    });
 };
 
 module.exports = RfidClient;
