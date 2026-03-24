@@ -1,10 +1,6 @@
 {
-  "functions": {
-    "api/**/*.js": {
-      "runtime": "@vercel/node@3"
-    }
-  },
   "rewrites": [
-    { "source": "/((?!api/).*)", "destination": "/" }
+    { "source": "/proxy/:path*", "destination": "https://rfid-laundry-backend-production.up.railway.app/api/:path*" },
+    { "source": "/(.*)", "destination": "/" }
   ]
 }

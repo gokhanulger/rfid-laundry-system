@@ -30,13 +30,13 @@ const isViteDevServer =
 
 // API URL strategy:
 // - Vite dev server: use /api proxy (localhost)
-// - Electron app: use Vercel serverless proxy (bypasses corporate firewalls blocking railway.app)
-// - Vercel production: use /api (same-domain serverless proxy to Railway)
+// - Electron app: use Vercel rewrite proxy (bypasses corporate firewalls blocking railway.app)
+// - Vercel production: use /proxy (same-domain rewrite to Railway)
 const apiBaseUrl = isViteDevServer
   ? '/api'
   : isElectronApp
-    ? 'https://rfid-laundry.vercel.app/api'
-    : '/api';
+    ? 'https://rfid-laundry.vercel.app/proxy'
+    : '/proxy';
 
 // Token storage key
 const TOKEN_KEY = 'rfid_auth_token';

@@ -7,8 +7,8 @@ const https = require('https');
 const http = require('http');
 const db = require('./database.cjs');
 
-// API Configuration - Use Vercel serverless proxy to bypass corporate firewalls
-const API_BASE_URL = 'https://rfid-laundry.vercel.app/api';
+// API Configuration - Use Vercel rewrite proxy to bypass corporate firewalls
+const API_BASE_URL = 'https://rfid-laundry.vercel.app/proxy';
 const API_HOST = 'rfid-laundry.vercel.app';
 
 let authToken = null;
