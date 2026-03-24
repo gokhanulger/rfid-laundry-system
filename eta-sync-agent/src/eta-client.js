@@ -291,42 +291,103 @@ EtaClient.prototype.createIrsaliye = function(irsaliye) {
     return self.getNextIrsaliyeRefNo();
   })
   .then(function(refNo) {
-    var tarih = irsaliye.tarih || new Date();
-    var saat = ('0' + tarih.getHours()).slice(-2) + ':' + ('0' + tarih.getMinutes()).slice(-2);
+    var now = irsaliye.tarih || new Date();
+    // Tarihi saat olmadan kaydet (ETA boyle bekliyor)
+    // Saat 12:00 olarak ayarla - UTC donusumunde gun kaymasini onler (TR = UTC+3)
+    var tarih = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0);
+    var saat = ('0' + now.getHours()).slice(-2) + ':' + ('0' + now.getMinutes()).slice(-2);
     var cariKod = irsaliye.cariKod || '';
     var cariUnvan = irsaliye.cariUnvan || '';
     var aciklama = irsaliye.aciklama || 'RFID Sistem';
-    var firma = irsaliye.firma || 1; // ETA firma kodu - genellikle 1
+    var firma = irsaliye.firma || 1;
+    var kdvOrani = irsaliye.kdvOrani || 20; // KDV orani (%)
 
-    // Toplam tutari hesapla
-    var toplamTutar = 0;
+    // Toplam tutari hesapla (mal toplami - KDV haric)
+    var malToplam = 0;
     for (var t = 0; t < irsaliye.satirlar.length; t++) {
       var s = irsaliye.satirlar[t];
-      toplamTutar += (s.miktar || 0) * (s.fiyat || 0);
+      malToplam += (s.miktar || 0) * (s.fiyat || 0);
     }
+    var kdvMatrahi = malToplam;
+    var kdvTutari = malToplam * kdvOrani / 100;
+    var genToplam = malToplam + kdvTutari;
 
     console.log('  RefNo: ' + refNo + ' olusturuluyor (Firma: ' + firma + ')...');
+    console.log('  Mal Toplam: ' + malToplam + ', KDV %' + kdvOrani + ': ' + kdvTutari + ', Gen Toplam: ' + genToplam);
 
-    // 1. IRSFIS - Irsaliye Fis (Ana kayit)
-    // IRSFISTIPI: 3 = Temiz/Cikis Irsaliyesi
-    // IRSFISKAYNAK: 6, IRSFISGCFLAG: 2, IRSFISFATKONT: 1, IRSFISSEVNO: 1
+    // Once STKFIS RefNo, CARKART ve ADRESLER bilgilerini alalim
+    var stkfisRefNo;
     var evrakNo = irsaliye.evrakNo || irsaliye.barcode || '';
+    var cariInfo = {};
+    var adresInfo = {};
+
+    // 1) STKFIS RefNo al
+    return self.pool.request()
+      .query("SELECT ISNULL(MAX(STKFISREFNO), 0) + 1 as nextRefNo FROM STKFIS")
+      .then(function(result) {
+        stkfisRefNo = result.recordset[0].nextRefNo;
+        console.log('    STKFIS RefNo: ' + stkfisRefNo + ' (onceden alindi)');
+
+        // 2) CARKART'tan vergi bilgileri al
+        return self.pool.request()
+          .input('cariKod', sql.VarChar, cariKod)
+          .query("SELECT CARVERDAIRE, CARVERHESNO, CAREFATEMAIL, CARIRSADRNO FROM CARKART WHERE CARKOD = @cariKod");
+      })
+      .then(function(result) {
+        if (result.recordset.length > 0) {
+          cariInfo = result.recordset[0];
+          console.log('    CARKART: VD=' + (cariInfo.CARVERDAIRE || '') + ', VHN=' + (cariInfo.CARVERHESNO || '') + ', Email=' + (cariInfo.CAREFATEMAIL || ''));
+        }
+
+        // 3) ADRESLER'den adres bilgileri al (ADRMODUL=2: Cari, ADRITEMNO=1: ilk adres)
+        return self.pool.request()
+          .input('cariKod', sql.VarChar, cariKod)
+          .query("SELECT TOP 1 ADRADRES1, ADRADRES2, ADRADRES3, ADRPOSTAKOD, ADRULKE, ADRIL, ADRILCE FROM ADRESLER WHERE ADRKOD1 = @cariKod AND ADRMODUL = 2");
+      })
+      .then(function(result) {
+        if (result.recordset.length > 0) {
+          adresInfo = result.recordset[0];
+          console.log('    ADRES: ' + (adresInfo.ADRADRES1 || '') + ', ' + (adresInfo.ADRIL || '') + '/' + (adresInfo.ADRILCE || ''));
+        }
+
+    // IRSFIS - Irsaliye Fis (Ana kayit)
     var irsfisQuery =
       "INSERT INTO IRSFIS (IRSFISREFNO, IRSFISTAR, IRSFISTIPI, IRSFISCARKOD, IRSFISCARUNVAN, " +
-      "IRSFISACIKLAMA1, IRSFISSAAT, IRSFISKAYONC, IRSFISGENTOPLAM, " +
+      "IRSFISACIKLAMA1, IRSFISSAAT, IRSFISKAYONC, IRSFISSTKREFNO, IRSFISADRESNO, " +
+      "IRSFISVERDAIRE, IRSFISVERHESNO, " +
+      "IRSFISADRES1, IRSFISADRES2, IRSFISADRES3, IRSFISPOSTAKOD, IRSFISULKE, IRSFISIL, IRSFISILCE, " +
+      "IRSFISKDVORANI, IRSFISMALTOP, IRSFISKDVMATRAHI, IRSFISKDVTUTARI, IRSFISARATOPLAM, IRSFISGENTOPLAM, " +
       "IRSFISKAYNAK, IRSFISGCFLAG, IRSFISFATKONT, IRSFISEVRAKNO1, IRSFISSEVNO) " +
-      "VALUES (@refNo, @tarih, 3, @cariKod, @cariUnvan, @aciklama, @saat, 1, @toplamTutar, " +
+      "VALUES (@refNo, @tarih, 3, @cariKod, @cariUnvan, @aciklama, @saat, 1, @stkRefNo, 1, " +
+      "@verDaire, @verHesNo, " +
+      "@adres1, @adres2, @adres3, @postaKod, @ulke, @il, @ilce, " +
+      "@kdvOrani, @malToplam, @kdvMatrahi, @kdvTutari, @araToplam, @genToplam, " +
       "6, 2, 1, @evrakNo, 1)";
 
     return self.pool.request()
       .input('refNo', sql.Int, refNo)
       .input('tarih', sql.DateTime, tarih)
-      .input('cariKod', sql.VarChar, cariKod)
-      .input('cariUnvan', sql.VarChar, cariUnvan)
-      .input('aciklama', sql.VarChar, aciklama)
-      .input('saat', sql.VarChar, saat)
-      .input('toplamTutar', sql.Numeric, toplamTutar)
-      .input('evrakNo', sql.VarChar, evrakNo)
+      .input('cariKod', sql.NVarChar, cariKod)
+      .input('cariUnvan', sql.NVarChar, cariUnvan)
+      .input('aciklama', sql.NVarChar, aciklama)
+      .input('saat', sql.NVarChar, saat)
+      .input('stkRefNo', sql.Int, stkfisRefNo)
+      .input('verDaire', sql.NVarChar, cariInfo.CARVERDAIRE || '')
+      .input('verHesNo', sql.NVarChar, cariInfo.CARVERHESNO || '')
+      .input('adres1', sql.NVarChar, adresInfo.ADRADRES1 || '')
+      .input('adres2', sql.NVarChar, adresInfo.ADRADRES2 || '')
+      .input('adres3', sql.NVarChar, adresInfo.ADRADRES3 || '')
+      .input('postaKod', sql.NVarChar, adresInfo.ADRPOSTAKOD || '')
+      .input('ulke', sql.NVarChar, adresInfo.ADRULKE || '')
+      .input('il', sql.NVarChar, adresInfo.ADRIL || '')
+      .input('ilce', sql.NVarChar, adresInfo.ADRILCE || '')
+      .input('kdvOrani', sql.Decimal(18, 2), kdvOrani)
+      .input('malToplam', sql.Decimal(18, 2), malToplam)
+      .input('kdvMatrahi', sql.Decimal(18, 2), kdvMatrahi)
+      .input('kdvTutari', sql.Decimal(18, 2), kdvTutari)
+      .input('araToplam', sql.Decimal(18, 2), genToplam)
+      .input('genToplam', sql.Decimal(18, 2), genToplam)
+      .input('evrakNo', sql.NVarChar, evrakNo)
       .query(irsfisQuery)
       .then(function() {
         console.log('    IRSFIS OK');
@@ -335,15 +396,15 @@ EtaClient.prototype.createIrsaliye = function(irsaliye) {
         var carfisQuery =
           "INSERT INTO CARFIS (CARFISREFNO, CARFISTAR, CARFISTIPI, CARFISCARKOD, CARFISCARUNVAN, " +
           "CARFISACIKLAMA1, CARFISBORCTOP, CARFISKAYONC) " +
-          "VALUES (@refNo, @tarih, 3, @cariKod, @cariUnvan, @aciklama, @toplamTutar, 1)";
+          "VALUES (@refNo, @tarih, 3, @cariKod, @cariUnvan, @aciklama, @genToplam, 1)";
 
         return self.pool.request()
           .input('refNo', sql.Int, refNo)
           .input('tarih', sql.DateTime, tarih)
-          .input('cariKod', sql.VarChar, cariKod)
-          .input('cariUnvan', sql.VarChar, cariUnvan)
-          .input('aciklama', sql.VarChar, aciklama)
-          .input('toplamTutar', sql.Numeric, toplamTutar)
+          .input('cariKod', sql.NVarChar, cariKod)
+          .input('cariUnvan', sql.NVarChar, cariUnvan)
+          .input('aciklama', sql.NVarChar, aciklama)
+          .input('genToplam', sql.Decimal(18, 2), genToplam)
           .query(carfisQuery);
       })
       .then(function() {
@@ -369,8 +430,8 @@ EtaClient.prototype.createIrsaliye = function(irsaliye) {
               return self.pool.request()
                 .input('refNo', sql.Int, refNo)
                 .input('tarih', sql.DateTime, tarih)
-                .input('cariKod', sql.VarChar, cariKod)
-                .input('tutar', sql.Numeric, tutar)
+                .input('cariKod', sql.NVarChar, cariKod)
+                .input('tutar', sql.Decimal(18, 2), tutar)
                 .input('siraNo', sql.Int, siraNo)
                 .query(carharQuery);
             });
@@ -383,28 +444,21 @@ EtaClient.prototype.createIrsaliye = function(irsaliye) {
         console.log('    CARHAR OK');
 
         // 4. STKFIS - Stok Fis - TIPI = 3
-        // STKFIS kendi REFNO sirasini kullaniyor, ayri almamiz gerekiyor
+        // stkfisRefNo onceden alindi (IRSFIS'e yazildi)
+        var stkfisQuery =
+          "INSERT INTO STKFIS (STKFISREFNO, STKFISTAR, STKFISTIPI, STKFISCARKOD, " +
+          "STKFISACIKLAMA1, STKFISKAYONC, STKFISTOPNTUT) " +
+          "VALUES (@stkfisRefNo, @tarih, 3, @cariKod, @aciklama, 1, @toplamTutar)";
+
         return self.pool.request()
-          .query("SELECT ISNULL(MAX(STKFISREFNO), 0) + 1 as nextRefNo FROM STKFIS")
-          .then(function(result) {
-            var stkfisRefNo = result.recordset[0].nextRefNo;
-            console.log('    STKFIS RefNo: ' + stkfisRefNo);
-
-            var stkfisQuery =
-              "INSERT INTO STKFIS (STKFISREFNO, STKFISTAR, STKFISTIPI, STKFISCARKOD, " +
-              "STKFISACIKLAMA1, STKFISKAYONC, STKFISTOPNTUT) " +
-              "VALUES (@stkfisRefNo, @tarih, 3, @cariKod, @aciklama, 1, @toplamTutar)";
-
-            return self.pool.request()
-              .input('stkfisRefNo', sql.Int, stkfisRefNo)
-              .input('tarih', sql.DateTime, tarih)
-              .input('cariKod', sql.VarChar, cariKod)
-              .input('aciklama', sql.VarChar, aciklama)
-              .input('toplamTutar', sql.Numeric, toplamTutar)
-              .query(stkfisQuery)
-              .then(function() {
-                return stkfisRefNo; // STKHAR icin refNo'yu dondur
-              });
+          .input('stkfisRefNo', sql.Int, stkfisRefNo)
+          .input('tarih', sql.DateTime, tarih)
+          .input('cariKod', sql.NVarChar, cariKod)
+          .input('aciklama', sql.NVarChar, aciklama)
+          .input('toplamTutar', sql.Decimal(18, 2), malToplam)
+          .query(stkfisQuery)
+          .then(function() {
+            return stkfisRefNo;
           });
       })
       .then(function(stkfisRefNo) {
@@ -447,13 +501,13 @@ EtaClient.prototype.createIrsaliye = function(irsaliye) {
               return self.pool.request()
                 .input('refNo', sql.Int, refNo)
                 .input('tarih', sql.DateTime, tarih)
-                .input('cariKod', sql.VarChar, cariKod)
-                .input('stokKod', sql.VarChar, stokKod)
-                .input('stokAd', sql.VarChar, stokAd)
-                .input('birim', sql.VarChar, birim)
-                .input('miktar', sql.Numeric, miktar)
-                .input('fiyat', sql.Numeric, fiyat)
-                .input('tutar', sql.Numeric, tutar)
+                .input('cariKod', sql.NVarChar, cariKod)
+                .input('stokKod', sql.NVarChar, stokKod)
+                .input('stokAd', sql.NVarChar, stokAd)
+                .input('birim', sql.NVarChar, birim)
+                .input('miktar', sql.Decimal(18, 2), miktar)
+                .input('fiyat', sql.Decimal(18, 2), fiyat)
+                .input('tutar', sql.Decimal(18, 2), tutar)
                 .input('siraNo', sql.Int, siraNo)
                 .query(irsharQuery)
                 .then(function() {
@@ -468,12 +522,12 @@ EtaClient.prototype.createIrsaliye = function(irsaliye) {
                   return self.pool.request()
                     .input('stkRefNo', sql.Int, stkRefNo)
                     .input('tarih', sql.DateTime, tarih)
-                    .input('cariKod', sql.VarChar, cariKod)
-                    .input('stokKod', sql.VarChar, stokKod)
-                    .input('birim', sql.VarChar, birim)
-                    .input('miktar', sql.Numeric, miktar)
-                    .input('fiyat', sql.Numeric, fiyat)
-                    .input('tutar', sql.Numeric, tutar)
+                    .input('cariKod', sql.NVarChar, cariKod)
+                    .input('stokKod', sql.NVarChar, stokKod)
+                    .input('birim', sql.NVarChar, birim)
+                    .input('miktar', sql.Decimal(18, 2), miktar)
+                    .input('fiyat', sql.Decimal(18, 2), fiyat)
+                    .input('tutar', sql.Decimal(18, 2), tutar)
                     .input('siraNo', sql.Int, siraNo)
                     .query(stkharQuery);
                 })
@@ -491,7 +545,8 @@ EtaClient.prototype.createIrsaliye = function(irsaliye) {
         console.log('  + Irsaliye olusturuldu: RefNo=' + refNo);
         return { success: true, refNo: refNo };
       });
-  })
+    }); // .then - ADRESLER sonucu
+  })  // .then(function(refNo)
   .catch(function(error) {
     console.error('  x Irsaliye olusturma hatasi:', error.message);
     return { success: false, error: error.message };
