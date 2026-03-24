@@ -109,8 +109,8 @@ export function IronerInterfacePage() {
   const [isScanning, setIsScanning] = useState(false);
   const [manualIp, setManualIp] = useState('');
   const [manualPort, setManualPort] = useState('20058');
-  const [rfPower, setRfPower] = useState(20); // RF power level 0-30 dBm
-  const [rssiThreshold, setRssiThreshold] = useState(-70); // RSSI threshold: -30 (very close) to -90 (far)
+  const [rfPower, setRfPower] = useState(30); // RF power level 0-30 dBm - max power
+  const [rssiThreshold, setRssiThreshold] = useState(-90); // RSSI threshold: -30 (very close) to -90 (far) - most sensitive
   const rssiThresholdRef = useRef(rssiThreshold); // Ref for use in callbacks
 
   // SQLite database stats and sync status
@@ -551,11 +551,8 @@ export function IronerInterfacePage() {
     const unsubTag = window.electronAPI.onUhfTag(async (tag: UhfTag) => {
       // Skip if reading is paused (after print)
       if (isReadingPausedRef.current) {
-        console.log('[FRONTEND] Reading paused, ignoring tag:', tag.epc);
         return;
       }
-
-      console.log('[FRONTEND] Received tag:', tag.epc);
 
       // RSSI Filter
       const tagRssi = tag.rssi ?? -100;
@@ -566,14 +563,12 @@ export function IronerInterfacePage() {
         const existing = prev.get(tag.epc);
         if (existing) {
           // Already exists - just update lastSeen
-          console.log('[FRONTEND] Tag exists, updating lastSeen:', tag.epc);
           const newMap = new Map(prev);
           newMap.set(tag.epc, { ...existing, lastSeen: Date.now(), rssi: tag.rssi });
           return newMap;
         }
 
         // New tag - add with checking status, validate async
-        console.log('[FRONTEND] New tag, adding:', tag.epc);
         const newMap = new Map(prev);
         newMap.set(tag.epc, {
           epc: tag.epc,
@@ -611,7 +606,7 @@ export function IronerInterfacePage() {
       unsubScanProgress();
       if (unsubDebug) unsubDebug();
     };
-  }, [validateTagAsync]); // REMOVED scannedTags - was causing listener to re-register on every tag!
+  }, [validateTagAsync]);
 
   // Tags persist on screen until print or "Yeniden Oku" button is pressed
   // No automatic timeout-based cleanup
@@ -1049,7 +1044,8 @@ export function IronerInterfacePage() {
       {/* Main Content */}
       <div className="p-8 space-y-6 overflow-auto h-full">
         {/* Header with Hotels and Counter */}
-        <div className="flex items-center justify-between gap-4 sticky top-0 z-40 bg-white py-2">
+        <div className="sticky top-0 z-40 bg-white py-2 space-y-2">
+        <div className="flex items-center justify-between gap-4">
           {/* Left: Logo and Title */}
           <div className="flex items-center gap-3 flex-shrink-0">
             <div className="p-3 bg-orange-100 rounded-lg">
@@ -1059,57 +1055,6 @@ export function IronerInterfacePage() {
               <h1 className="text-2xl font-bold text-gray-900">RFID Çamaşırhane</h1>
               <p className="text-lg font-semibold text-blue-600">by Karbeyaz & Demet Laundry</p>
             </div>
-          </div>
-
-          {/* Center: Selected Hotels */}
-          <div className="flex-1 flex items-center gap-2 flex-wrap justify-center">
-            {selectedHotelIds.map(hotelId => {
-              const hotel = tenantsArray.find((t: Tenant) => t.id === hotelId);
-              const isActive = activeHotelId === hotelId;
-              return (
-                <div
-                  key={hotelId}
-                  className={`flex items-center gap-1 pl-3 pr-1 py-1 rounded-full border transition-all ${
-                    isActive
-                      ? 'bg-orange-600 border-orange-600 text-white'
-                      : 'bg-orange-50 border-orange-200 hover:bg-orange-100'
-                  }`}
-                >
-                  <button
-                    onClick={() => setActiveHotelId(hotelId)}
-                    className="flex items-center gap-2"
-                  >
-                    <Building2 className={`w-4 h-4 ${isActive ? 'text-white' : 'text-orange-600'}`} />
-                    <span className={`font-medium text-sm ${isActive ? 'text-white' : 'text-gray-900'}`}>{hotel?.name}</span>
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const newSelection = selectedHotelIds.filter(id => id !== hotelId);
-                      saveSelectedHotels(newSelection);
-                      if (activeHotelId === hotelId) {
-                        setActiveHotelId(null);
-                      }
-                    }}
-                    className={`ml-1 p-1 rounded-full transition-colors ${
-                      isActive
-                        ? 'hover:bg-orange-500 text-white'
-                        : 'hover:bg-red-100 text-gray-400 hover:text-red-600'
-                    }`}
-                    title="Oteli kaldir"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              );
-            })}
-            <button
-              onClick={() => setShowHotelSelector(true)}
-              className="flex items-center gap-1 text-orange-600 hover:text-orange-700 text-sm font-medium px-2 py-1"
-            >
-              <Plus className="w-4 h-4" />
-              Otel Ekle
-            </button>
           </div>
 
           {/* Right: RFID + Printer + Counter */}
@@ -1274,6 +1219,71 @@ export function IronerInterfacePage() {
               </div>
             </div>
           </div>
+        </div>
+
+          {/* Selected Hotels - Below toolbar */}
+          {selectedHotelIds.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap px-1">
+              {selectedHotelIds.map(hotelId => {
+                const hotel = tenantsArray.find((t: Tenant) => t.id === hotelId);
+                const isActive = activeHotelId === hotelId;
+                return (
+                  <div
+                    key={hotelId}
+                    className={`flex items-center gap-1 pl-3 pr-1 py-1 rounded-full border transition-all ${
+                      isActive
+                        ? 'bg-orange-600 border-orange-600 text-white'
+                        : 'bg-orange-50 border-orange-200 hover:bg-orange-100'
+                    }`}
+                  >
+                    <button
+                      onClick={() => setActiveHotelId(hotelId)}
+                      className="flex items-center gap-2"
+                    >
+                      <Building2 className={`w-4 h-4 ${isActive ? 'text-white' : 'text-orange-600'}`} />
+                      <span className={`font-medium text-sm ${isActive ? 'text-white' : 'text-gray-900'}`}>{hotel?.name}</span>
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const newSelection = selectedHotelIds.filter(id => id !== hotelId);
+                        saveSelectedHotels(newSelection);
+                        if (activeHotelId === hotelId) {
+                          setActiveHotelId(null);
+                        }
+                      }}
+                      className={`ml-1 p-1 rounded-full transition-colors ${
+                        isActive
+                          ? 'hover:bg-orange-500 text-white'
+                          : 'hover:bg-red-100 text-gray-400 hover:text-red-600'
+                      }`}
+                      title="Oteli kaldir"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                );
+              })}
+              <button
+                onClick={() => setShowHotelSelector(true)}
+                className="flex items-center gap-1 text-orange-600 hover:text-orange-700 text-sm font-medium px-2 py-1"
+              >
+                <Plus className="w-4 h-4" />
+                Otel Ekle
+              </button>
+            </div>
+          )}
+          {selectedHotelIds.length === 0 && (
+            <div className="flex items-center gap-2 px-1">
+              <button
+                onClick={() => setShowHotelSelector(true)}
+                className="flex items-center gap-1 text-orange-600 hover:text-orange-700 text-sm font-medium px-2 py-1"
+              >
+                <Plus className="w-4 h-4" />
+                Otel Ekle
+              </button>
+            </div>
+          )}
         </div>
 
       {/* Hotel Selection Dialog */}

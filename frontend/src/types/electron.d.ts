@@ -126,6 +126,7 @@ interface ElectronAPI {
   uhfAutoConnect: () => Promise<UhfResult>;
   onUhfStatus: (callback: (status: UhfReaderStatus) => void) => () => void;
   onUhfTag: (callback: (tag: UhfTag) => void) => () => void;
+  onUhfTagBatch?: (callback: (tags: UhfTag[]) => void) => () => void;
   onUhfScanProgress: (callback: (progress: UhfScanProgress) => void) => () => void;
   onUhfDebug?: (callback: (debug: { type: string; data?: string; cmd?: string; length?: number; dataLen?: number; bytes?: string; poll?: number }) => void) => () => void;
 

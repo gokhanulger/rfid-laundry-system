@@ -96,10 +96,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeAllListeners('uhf-status');
   },
 
-  // Listen for UHF tag reads
+  // Listen for UHF tag reads (single - kept for backward compatibility)
   onUhfTag: (callback) => {
     ipcRenderer.on('uhf-tag', (event, tag) => callback(tag));
     return () => ipcRenderer.removeAllListeners('uhf-tag');
+  },
+
+  // Listen for UHF tag reads (batch - faster, less IPC overhead)
+  onUhfTagBatch: (callback) => {
+    ipcRenderer.on('uhf-tag-batch', (event, tags) => callback(tags));
+    return () => ipcRenderer.removeAllListeners('uhf-tag-batch');
   },
 
   // Listen for network scan progress
