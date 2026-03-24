@@ -153,7 +153,7 @@ fun ScanScreen(
                                 fontWeight = FontWeight.Medium,
                                 color = color
                             )
-                            StatusIndicator(state = uiState.rfidState, isScanning = uiState.isScanning, deviceType = uiState.deviceType)
+                            StatusIndicator(state = uiState.rfidState, isScanning = uiState.isScanning, deviceType = uiState.deviceType, cacheCount = uiState.cacheCount)
                         }
                     }
                     // Show matched/unmatched counts if hotel is selected
@@ -790,7 +790,7 @@ fun GroupedItemCard(
 }
 
 @Composable
-fun StatusIndicator(state: RfidState, isScanning: Boolean, deviceType: String = "") {
+fun StatusIndicator(state: RfidState, isScanning: Boolean, deviceType: String = "", cacheCount: Int = 0) {
     val (text, color) = when {
         isScanning -> "Taranıyor..." to SuccessColor
         state is RfidState.Connected -> "Hazır" to InfoColor
@@ -799,7 +799,9 @@ fun StatusIndicator(state: RfidState, isScanning: Boolean, deviceType: String = 
         else -> "Bağlı Değil" to MaterialTheme.colorScheme.onSurfaceVariant
     }
 
-    val displayText = if (deviceType.isNotEmpty()) "$text ($deviceType)" else text
+    // Show device type and cache count for debugging
+    val cacheInfo = if (cacheCount > 0) "DB:$cacheCount" else "DB:0"
+    val displayText = if (deviceType.isNotEmpty()) "$text ($deviceType) $cacheInfo" else "$text $cacheInfo"
 
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(

@@ -97,11 +97,11 @@ class LoginViewModel @Inject constructor(
                     }
                 },
                 onFailure = { error ->
-                    // Backend hatası olsa bile lokal şifre doğruysa giriş yap
-                    // Offline mod desteği için
-                    authRepository.setOfflineLogin(state.role)
                     _uiState.update {
-                        it.copy(isLoading = false, isSuccess = true)
+                        it.copy(
+                            isLoading = false,
+                            error = "Sunucuya bağlanılamadı: ${error.message ?: "Bilinmeyen hata"}"
+                        )
                     }
                 }
             )

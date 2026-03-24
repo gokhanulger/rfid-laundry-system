@@ -52,8 +52,9 @@ class RfidManager @Inject constructor(
 ) {
     companion object {
         private const val TAG = "RfidManager"
-        private const val TAG_UPDATE_DEBOUNCE_MS = 100L  // Debounce UI updates to every 100ms
-        private const val HANDHELD_SCAN_INTERVAL_MS = 10L
+        private const val TAG_UPDATE_DEBOUNCE_MS = 30L   // Debounce UI updates to every 30ms (faster feedback)
+        private const val HANDHELD_SCAN_INTERVAL_MS = 50L // Wait between inventory calls (was 10ms, too fast)
+        private const val CHAINWAY_RESTART_INTERVAL_MS = 2000L // Restart Chainway inventory every 2s to prevent "stuck" state
 
         /**
          * Detect device type based on manufacturer and model
@@ -112,6 +113,7 @@ class RfidManager @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var scanJob: Job? = null
     private var updateJob: Job? = null
+    private var chainwayRestartJob: Job? = null
 
     // Thread-safe pending tags buffer for batched updates
     private val pendingTags = ConcurrentHashMap<String, RfidTag>()
@@ -257,6 +259,9 @@ class RfidManager @Inject constructor(
                 // Start debounced UI update job
                 startDebouncedUpdates()
 
+                // Start periodic restart job to prevent "stuck" inventory
+                startChainwayRestartJob()
+
                 Log.d(TAG, "Started Chainway RFID scanning")
             } else {
                 _state.value = RfidState.Error("Failed to start inventory")
@@ -284,7 +289,7 @@ class RfidManager @Inject constructor(
                 Log.d(TAG, "Starting Handheld inventory scan coroutine")
                 while (isActive && isScanning) {
                     try {
-                        val tagList = handheldManager?.tagInventoryByTimer(100.toShort()) // 100ms timeout for better range
+                        val tagList = handheldManager?.tagInventoryByTimer(50.toShort()) // 50ms timeout - faster response
                         tagList?.forEach { tagInfo ->
                             // Reader.TAGINFO has EpcId (byte[]) and RSSI (int)
                             val epcBytes = tagInfo?.EpcId
@@ -328,6 +333,10 @@ class RfidManager @Inject constructor(
             // Stop the debounced update job
             updateJob?.cancel()
             updateJob = null
+
+            // Stop Chainway restart job
+            chainwayRestartJob?.cancel()
+            chainwayRestartJob = null
 
             when (deviceType) {
                 DeviceType.CHAINWAY -> {
@@ -384,6 +393,30 @@ class RfidManager @Inject constructor(
 
         // Callback is still triggered per tag but state update is debounced
         callback?.onTagRead(tag)
+    }
+
+    /**
+     * Periodically restart Chainway inventory to prevent "stuck" state
+     * Some Chainway devices stop reading after a while, this fixes it
+     */
+    private fun startChainwayRestartJob() {
+        chainwayRestartJob?.cancel()
+        chainwayRestartJob = scope.launch {
+            while (isActive && isScanning) {
+                delay(CHAINWAY_RESTART_INTERVAL_MS)
+                if (isScanning && deviceType == DeviceType.CHAINWAY) {
+                    try {
+                        // Quick restart: stop and immediately start again
+                        chainwayReader?.stopInventory()
+                        delay(10) // Brief pause
+                        chainwayReader?.startInventoryTag()
+                        Log.d(TAG, "Chainway inventory restarted (periodic refresh)")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error restarting Chainway inventory", e)
+                    }
+                }
+            }
+        }
     }
 
     /**

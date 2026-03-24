@@ -158,6 +158,15 @@ data class ItemLookupResponseDto(
     val notFoundTags: List<String>
 )
 
+data class ItemsListResponseDto(
+    val data: List<ItemDto>,  // Backend returns "data", not "items"
+    val pagination: PaginationDto?
+) {
+    // Helper to get items and total
+    val items: List<ItemDto> get() = data
+    val total: Int get() = pagination?.total ?: data.size
+}
+
 data class ItemDto(
     val id: String,
     @SerializedName("rfidTag") val rfidTag: String,
@@ -204,6 +213,29 @@ data class BulkItemCreateResponseDto(
 data class BulkItemErrorDto(
     val rfidTag: String,
     val error: String
+)
+
+// Transfer DTOs
+data class BulkTransferRequest(
+    val rfidTags: List<String>,
+    val targetTenantId: String,
+    val targetItemTypeId: String? = null
+)
+
+data class BulkTransferResponseDto(
+    val transferred: Int,
+    val alreadyCorrect: Int,
+    val notFound: Int,
+    val total: Int,
+    val transferredItems: List<TransferredItemDto>?,
+    val errors: List<BulkItemErrorDto>?
+)
+
+data class TransferredItemDto(
+    val rfidTag: String,
+    val fromTenant: String,
+    val toTenant: String,
+    val itemType: String
 )
 
 // Pickup DTOs

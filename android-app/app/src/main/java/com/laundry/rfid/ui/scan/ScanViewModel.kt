@@ -65,6 +65,7 @@ data class ScanUiState(
     val otherHotelCount: Int = 0, // Items from other hotels (registered but wrong hotel)
     val otherHotelNames: List<String> = emptyList(), // Names of other hotels with item counts
     val deviceType: String = "", // RFID device type for debugging
+    val cacheCount: Int = 0, // Number of items in local cache (for debugging)
     val isScanning: Boolean = false,
     val rfidState: RfidState = RfidState.Disconnected,
     val isCompleting: Boolean = false,
@@ -88,7 +89,7 @@ class ScanViewModel @Inject constructor(
 ) : ViewModel() {
 
     companion object {
-        private const val LOOKUP_DEBOUNCE_MS = 200L  // Wait 200ms to batch lookups
+        private const val LOOKUP_DEBOUNCE_MS = 100L  // Wait 100ms to batch lookups (faster than 200ms)
         private const val MAX_BATCH_SIZE = 50        // Maximum tags per API call
     }
 
@@ -278,12 +279,33 @@ class ScanViewModel @Inject constructor(
     }
 
     /**
-     * Queue a tag for batched lookup - debounces API calls
+     * Lookup a tag - first try local cache (instant), then API if not found
      */
     private fun queueLookup(tag: String) {
         // Skip if already known
         if (_uiState.value.scannedItemsInfo.containsKey(tag)) return
 
+        // Try local cache first (instant, <1ms)
+        val cachedItem = dataCacheRepository.findItemByScannedTag(tag)
+        if (cachedItem != null) {
+            // Found in local cache - update UI immediately
+            val selectedTenantId = _uiState.value.selectedTenantId
+            val info = ScannedItemInfo(
+                rfidTag = tag, // Use scanned tag, not DB tag
+                itemTypeName = cachedItem.itemTypeName,
+                tenantId = cachedItem.tenantId,
+                tenantName = cachedItem.tenantName,
+                status = cachedItem.status,
+                isRegistered = true,
+                belongsToSelectedHotel = cachedItem.tenantId == selectedTenantId
+            )
+            addScannedItemInfo(tag, info)
+            android.util.Log.d("ScanViewModel", "Cache HIT: $tag -> ${cachedItem.itemTypeName}")
+            return
+        }
+
+        // Not in cache - queue for API lookup (with debounce)
+        android.util.Log.d("ScanViewModel", "Cache MISS: $tag - queuing for API")
         synchronized(pendingLookupTags) {
             pendingLookupTags.add(tag)
         }
@@ -293,6 +315,35 @@ class ScanViewModel @Inject constructor(
         lookupJob = viewModelScope.launch {
             delay(LOOKUP_DEBOUNCE_MS)
             flushPendingLookups()
+        }
+    }
+
+    /**
+     * Add scanned item info and update UI state
+     */
+    private fun addScannedItemInfo(tag: String, info: ScannedItemInfo) {
+        val currentItems = _uiState.value.scannedItemsInfo.toMutableMap()
+        currentItems[tag] = info
+
+        val matchedCount = currentItems.values.count { it.belongsToSelectedHotel }
+        val groupedItems = calculateGroupedItems(currentItems)
+        val unregisteredCount = currentItems.values.count { !it.isRegistered }
+        val otherHotelItems = currentItems.values.filter { it.isRegistered && !it.belongsToSelectedHotel }
+        val otherHotelCount = otherHotelItems.size
+        val otherHotelNames = otherHotelItems
+            .groupBy { it.tenantName ?: "Bilinmeyen" }
+            .map { "${it.key}: ${it.value.size}" }
+
+        _uiState.update {
+            it.copy(
+                scannedItemsInfo = currentItems,
+                groupedItems = groupedItems,
+                unregisteredCount = unregisteredCount,
+                matchedCount = matchedCount,
+                unmatchedCount = _uiState.value.scannedTags.size - matchedCount,
+                otherHotelCount = otherHotelCount,
+                otherHotelNames = otherHotelNames
+            )
         }
     }
 
@@ -399,6 +450,21 @@ class ScanViewModel @Inject constructor(
 
                 // Initialize RFID reader
                 rfidManager.initialize()
+
+                // Load items cache to memory for fast local lookup
+                val cacheCount = dataCacheRepository.loadItemsToMemory()
+                _uiState.update { it.copy(cacheCount = cacheCount) }
+                android.util.Log.d("ScanViewModel", "Loaded $cacheCount items to memory cache")
+
+                // If no cache, refresh from API in background
+                if (cacheCount == 0) {
+                    viewModelScope.launch(Dispatchers.IO) {
+                        val result = dataCacheRepository.refreshItems()
+                        result.onSuccess { count ->
+                            _uiState.update { it.copy(cacheCount = count) }
+                        }
+                    }
+                }
 
                 // Load hotels for pickup and deliver sessions
                 if (sessionType == SessionType.PICKUP || sessionType == SessionType.DELIVER) {
@@ -545,19 +611,22 @@ class ScanViewModel @Inject constructor(
     }
 
     private fun playFeedback() {
-        try {
-            // Short beep
-            toneGenerator.startTone(ToneGenerator.TONE_PROP_BEEP, 50)
+        // Run feedback on IO dispatcher to avoid blocking tag processing
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // Short beep
+                toneGenerator.startTone(ToneGenerator.TONE_PROP_BEEP, 50)
 
-            // Short vibration
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                vibrator.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE))
-            } else {
-                @Suppress("DEPRECATION")
-                vibrator.vibrate(50)
+                // Short vibration
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE))
+                } else {
+                    @Suppress("DEPRECATION")
+                    vibrator.vibrate(50)
+                }
+            } catch (e: Exception) {
+                // Ignore audio/vibration errors
             }
-        } catch (e: Exception) {
-            // Ignore audio/vibration errors
         }
     }
 
@@ -567,9 +636,34 @@ class ScanViewModel @Inject constructor(
         rfidManager.simulateTagRead(randomTag, (-70..-30).random())
     }
 
+    /**
+     * Manually refresh items cache from API
+     * Call this if items seem outdated
+     */
+    fun refreshItemsCache() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _uiState.update { it.copy(error = "Ürün listesi güncelleniyor...") }
+            val result = dataCacheRepository.refreshItems()
+            result.onSuccess { count ->
+                _uiState.update { it.copy(error = null) }
+                android.util.Log.d("ScanViewModel", "Refreshed $count items from API")
+            }.onFailure { e ->
+                _uiState.update { it.copy(error = "Cache güncellenemedi: ${e.message}") }
+            }
+        }
+    }
+
+    /**
+     * Get items cache status
+     */
+    suspend fun getItemsCacheCount(): Int {
+        return dataCacheRepository.getItemsCacheCount()
+    }
+
     override fun onCleared() {
         super.onCleared()
         rfidManager.stopScanning()
         toneGenerator.release()
+        // Don't clear memory cache here - it's shared across ViewModel instances
     }
 }

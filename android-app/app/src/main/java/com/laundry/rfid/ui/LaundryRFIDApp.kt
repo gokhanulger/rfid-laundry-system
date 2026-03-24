@@ -20,6 +20,8 @@ import com.laundry.rfid.ui.scan.ScanScreen
 import com.laundry.rfid.ui.scan.ScanViewModel
 import com.laundry.rfid.ui.tagassign.TagAssignScreen
 import com.laundry.rfid.ui.tagassign.TagAssignViewModel
+import com.laundry.rfid.ui.tagtransfer.TagTransferScreen
+import com.laundry.rfid.ui.tagtransfer.TagTransferViewModel
 
 sealed class Screen(val route: String) {
     object Login : Screen("login")
@@ -33,6 +35,7 @@ sealed class Screen(val route: String) {
     object Delivery : Screen("delivery")
     object TagAssign : Screen("tag-assign")
     object TagAssignQRScan : Screen("tag-assign-qr-scan")
+    object TagTransfer : Screen("tag-transfer")
     object History : Screen("history")
     object Settings : Screen("settings")
 }
@@ -86,6 +89,9 @@ fun LaundryRFIDApp() {
                 onTagAssign = {
                     navController.navigate(Screen.TagAssign.route)
                 },
+                onTagTransfer = {
+                    navController.navigate(Screen.TagTransfer.route)
+                },
                 onLogout = {
                     navController.navigate(Screen.Login.route) {
                         popUpTo(Screen.Home.route) { inclusive = true }
@@ -128,6 +134,14 @@ fun LaundryRFIDApp() {
                     navController.popBackStack()
                 },
                 title = "Otel QR Kodu Tara"
+            )
+        }
+
+        composable(Screen.TagTransfer.route) {
+            val tagTransferViewModel: TagTransferViewModel = hiltViewModel()
+            TagTransferScreen(
+                viewModel = tagTransferViewModel,
+                onBack = { navController.popBackStack() }
             )
         }
 

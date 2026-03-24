@@ -60,6 +60,7 @@ data class ScanEventEntity(
     tableName = "cached_items",
     indices = [
         Index("rfidTag"),   // Frequently queried for item lookup
+        Index("tenantId"),  // For filtering by hotel
         Index("cachedAt")   // For cache cleanup queries
     ]
 )
@@ -67,9 +68,11 @@ data class CachedItemEntity(
     @PrimaryKey
     val id: String,
     val rfidTag: String,
+    val itemTypeId: String?,
     val itemTypeName: String?,
     val status: String,
     val tenantId: String,
+    val tenantName: String?,
     val cachedAt: Long = System.currentTimeMillis()
 )
 

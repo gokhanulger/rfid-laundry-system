@@ -27,6 +27,7 @@ fun HomeScreen(
     viewModel: HomeViewModel,
     onWorkflowSelected: (SessionType) -> Unit,
     onTagAssign: () -> Unit,
+    onTagTransfer: () -> Unit = {},
     onLogout: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -157,6 +158,15 @@ fun HomeScreen(
                     icon = Icons.Default.NewLabel,
                     color = InfoColor,
                     onClick = onTagAssign
+                )
+
+                // Admin/Operator: Tag Transfer
+                WorkflowButton(
+                    title = "Etiket Transfer",
+                    subtitle = "Yanlış otele atanan etiketleri düzelt",
+                    icon = Icons.Default.SwapHoriz,
+                    color = Color(0xFFE67E22),
+                    onClick = onTagTransfer
                 )
             }
 

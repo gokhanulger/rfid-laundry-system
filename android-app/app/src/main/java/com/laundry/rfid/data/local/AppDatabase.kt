@@ -24,7 +24,7 @@ import com.laundry.rfid.data.local.entity.SyncQueueEntity
         CachedItemTypeEntity::class,
         SyncQueueEntity::class
     ],
-    version = 4, // Added cached_tenants and cached_item_types tables
+    version = 5, // Added itemTypeId and tenantName to cached_items
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

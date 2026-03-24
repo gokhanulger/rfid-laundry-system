@@ -122,11 +122,20 @@ interface CachedItemDao {
     @Query("SELECT * FROM cached_items WHERE rfidTag IN (:rfidTags)")
     suspend fun getItemsByTags(rfidTags: List<String>): List<CachedItemEntity>
 
+    @Query("SELECT * FROM cached_items")
+    suspend fun getAllItems(): List<CachedItemEntity>
+
+    @Query("SELECT COUNT(*) FROM cached_items")
+    suspend fun getCount(): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertItem(item: CachedItemEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertItems(items: List<CachedItemEntity>)
+
+    @Query("DELETE FROM cached_items")
+    suspend fun deleteAll()
 
     @Query("DELETE FROM cached_items WHERE cachedAt < :beforeTime")
     suspend fun deleteOldCache(beforeTime: Long)

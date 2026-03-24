@@ -46,6 +46,13 @@ interface ApiService {
     @POST("items/scan")
     suspend fun lookupItems(@Body request: ItemLookupRequest): Response<ItemLookupResponseDto>
 
+    // Get all items (for cache sync)
+    @GET("items")
+    suspend fun getItems(
+        @Query("page") page: Int = 1,
+        @Query("limit") limit: Int = 500
+    ): Response<ItemsListResponseDto>
+
     // Settings - Item Types and Tenants
     @GET("settings/item-types")
     suspend fun getItemTypes(): Response<List<ItemTypeDto>>
@@ -64,6 +71,10 @@ interface ApiService {
     // Bulk Item Creation
     @POST("items/bulk")
     suspend fun createBulkItems(@Body request: BulkItemCreateRequest): Response<BulkItemCreateResponseDto>
+
+    // Bulk Transfer - reassign items to different hotel
+    @POST("items/bulk-transfer")
+    suspend fun bulkTransferItems(@Body request: BulkTransferRequest): Response<BulkTransferResponseDto>
 
     // Pickups - Create from RFID tags
     @POST("pickups/from-tags")
