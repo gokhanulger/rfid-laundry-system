@@ -38,6 +38,10 @@ export function initializeSocket(server: HttpServer): Server {
     cors: {
       origin: (origin, callback) => {
         if (!origin) return callback(null, true);
+        // Allow Electron app origins
+        if (origin.startsWith('file://') || origin.startsWith('app://') || origin === 'null') {
+          return callback(null, true);
+        }
         if (allowedOrigins.some(allowed => origin.startsWith(allowed.replace(/\/$/, '')))) {
           return callback(null, true);
         }

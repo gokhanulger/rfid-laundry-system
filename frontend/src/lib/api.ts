@@ -56,7 +56,7 @@ export function removeStoredToken(): void {
 
 const api = axios.create({
   baseURL: apiBaseUrl,
-  withCredentials: true,
+  withCredentials: !isElectronApp, // Electron uses JWT in header, no need for cookies
   headers: {
     'Content-Type': 'application/json',
   },

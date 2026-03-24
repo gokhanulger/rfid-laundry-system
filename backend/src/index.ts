@@ -142,12 +142,17 @@ const allowedOrigins = [
   process.env.FRONTEND_URL,
   'http://localhost:3000',
   'http://localhost:3002',
+  'http://localhost:5173',
 ].filter(Boolean) as string[];
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, curl, etc)
+    // Allow requests with no origin (mobile apps, curl, Electron file://, etc)
     if (!origin) return callback(null, true);
+    // Allow Electron app origins (file://, app://, localhost dev)
+    if (origin.startsWith('file://') || origin.startsWith('app://') || origin === 'null') {
+      return callback(null, true);
+    }
     if (allowedOrigins.some(allowed => origin.startsWith(allowed.replace(/\/$/, '')))) {
       return callback(null, true);
     }
