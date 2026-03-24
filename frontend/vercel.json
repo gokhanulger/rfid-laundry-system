@@ -1,7 +1,5 @@
 {
-  "routes": [
-    { "src": "/proxy/(.*)", "dest": "https://rfid-laundry-backend-production.up.railway.app/api/$1" },
-    { "handle": "filesystem" },
-    { "src": "/(.*)", "dest": "/index.html" }
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/" }
   ]
 }
