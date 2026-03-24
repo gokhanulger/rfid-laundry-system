@@ -30,8 +30,8 @@ const isViteDevServer =
 
 // API URL strategy:
 // - Vite dev server: use /api proxy (localhost)
-// - Electron app: use Vercel proxy (bypasses corporate firewalls blocking railway.app)
-// - Vercel production: use /api (same-origin rewrite to Railway)
+// - Electron app: use Vercel serverless proxy (bypasses corporate firewalls blocking railway.app)
+// - Vercel production: use /api (same-domain serverless proxy to Railway)
 const apiBaseUrl = isViteDevServer
   ? '/api'
   : isElectronApp
