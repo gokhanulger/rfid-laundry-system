@@ -28,13 +28,15 @@ const isViteDevServer =
   window.location.port === '5173' &&
   window.location.protocol === 'http:';
 
-// Always use Railway backend for:
-// - Electron app (no proxy available)
-// - Production builds (vercel, etc)
-// Only use /api proxy for local vite dev server
-const apiBaseUrl = isViteDevServer && !isElectronApp
+// API URL strategy:
+// - Vite dev server: use /api proxy (localhost)
+// - Electron app: use Vercel proxy (bypasses corporate firewalls blocking railway.app)
+// - Vercel production: use /api (same-origin rewrite to Railway)
+const apiBaseUrl = isViteDevServer
   ? '/api'
-  : 'https://rfid-laundry-backend-production.up.railway.app/api';
+  : isElectronApp
+    ? 'https://rfid-laundry.vercel.app/api'
+    : '/api';
 
 // Token storage key
 const TOKEN_KEY = 'rfid_auth_token';
