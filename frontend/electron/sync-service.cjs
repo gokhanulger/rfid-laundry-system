@@ -7,9 +7,9 @@ const https = require('https');
 const http = require('http');
 const db = require('./database.cjs');
 
-// API Configuration
-const API_BASE_URL = 'https://rfid-laundry-backend-production.up.railway.app/api';
-const API_HOST = 'rfid-laundry-backend-production.up.railway.app';
+// API Configuration - Use Cloudflare Worker proxy to bypass corporate firewalls
+const API_BASE_URL = 'https://rfid-api-proxy.mooogco.workers.dev/api';
+const API_HOST = 'rfid-api-proxy.mooogco.workers.dev';
 
 let authToken = null;
 let syncInProgress = false;

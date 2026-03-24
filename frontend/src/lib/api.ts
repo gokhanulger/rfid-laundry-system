@@ -30,10 +30,16 @@ const isViteDevServer =
 
 // API URL strategy:
 // - Vite dev server: use /api proxy (localhost)
-// - Electron & production: use Railway backend directly
+// - Electron app: use Cloudflare Worker proxy (bypasses corporate firewalls blocking railway.app)
+// - Vercel production: use Railway backend directly
+const CLOUDFLARE_PROXY = 'https://rfid-api-proxy.mooogco.workers.dev/api';
+const RAILWAY_DIRECT = 'https://rfid-laundry-backend-production.up.railway.app/api';
+
 const apiBaseUrl = isViteDevServer && !isElectronApp
   ? '/api'
-  : 'https://rfid-laundry-backend-production.up.railway.app/api';
+  : isElectronApp
+    ? CLOUDFLARE_PROXY
+    : RAILWAY_DIRECT;
 
 // Token storage key
 const TOKEN_KEY = 'rfid_auth_token';
