@@ -8,6 +8,45 @@ import { deliveriesApi, settingsApi, itemsApi, getErrorMessage } from '../lib/ap
 import { useToast } from '../components/Toast';
 import type { Delivery, DeliveryStatus } from '../types';
 
+function getDeliveryItemCount(delivery: Delivery): number {
+  if (delivery.deliveryItems && delivery.deliveryItems.length > 0) return delivery.deliveryItems.length;
+  if (delivery.itemCount && delivery.itemCount > 0) return delivery.itemCount;
+  // Parse count from JSON notes if available
+  if (delivery.notes) {
+    try {
+      const parsed = JSON.parse(delivery.notes);
+      if (Array.isArray(parsed)) {
+        return parsed.reduce((sum: number, item: any) => sum + (item.count || 0), 0);
+      }
+    } catch { /* not JSON */ }
+  }
+  return 0;
+}
+
+interface NoteItem {
+  typeName: string;
+  count: number;
+  discardCount?: number;
+}
+
+function parseDeliveryNotes(notes: string): { isJson: boolean; items: NoteItem[]; raw: string } {
+  try {
+    const parsed = JSON.parse(notes);
+    if (Array.isArray(parsed)) {
+      return {
+        isJson: true,
+        items: parsed.map((item: any) => ({
+          typeName: item.typeName || '-',
+          count: item.count || 0,
+          discardCount: item.discardCount,
+        })),
+        raw: notes,
+      };
+    }
+  } catch { /* not JSON */ }
+  return { isJson: false, items: [], raw: notes };
+}
+
 const statusColors: Record<DeliveryStatus, string> = {
   created: 'bg-gray-100 text-gray-800',
   label_printed: 'bg-purple-100 text-purple-800',
@@ -165,7 +204,7 @@ export function DeliveryManagementPage() {
                   <tr key={delivery.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 font-mono text-sm">{delivery.barcode}</td>
                     <td className="px-4 py-3">{delivery.tenant?.name || '-'}</td>
-                    <td className="px-4 py-3">{delivery.deliveryItems?.length || 0}</td>
+                    <td className="px-4 py-3">{getDeliveryItemCount(delivery)}</td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-1 text-xs rounded-full ${statusColors[delivery.status]}`}>
                         {statusLabels[delivery.status]}
@@ -388,7 +427,7 @@ function DeliveryDetailsModal({ delivery, onClose }: { delivery: Delivery; onClo
             </div>
             <div>
               <p className="text-sm text-gray-500">Urunler</p>
-              <p className="font-medium">{delivery.deliveryItems?.length || 0}</p>
+              <p className="font-medium">{getDeliveryItemCount(delivery)}</p>
             </div>
           </div>
 
@@ -406,12 +445,47 @@ function DeliveryDetailsModal({ delivery, onClose }: { delivery: Delivery; onClo
             </div>
           )}
 
-          {delivery.notes && (
-            <div>
-              <p className="text-sm text-gray-500">Notlar</p>
-              <p>{delivery.notes}</p>
-            </div>
-          )}
+          {delivery.notes && (() => {
+            const parsed = parseDeliveryNotes(delivery.notes);
+            if (parsed.isJson && parsed.items.length > 0) {
+              return (
+                <div>
+                  <p className="text-sm text-gray-500 mb-2">Urun Detaylari</p>
+                  <div className="border rounded-lg overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-3 py-1.5 text-left text-gray-500">Tur</th>
+                          <th className="px-3 py-1.5 text-right text-gray-500">Adet</th>
+                          <th className="px-3 py-1.5 text-right text-gray-500">Fire</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {parsed.items.map((item, i) => (
+                          <tr key={i}>
+                            <td className="px-3 py-1.5">{item.typeName}</td>
+                            <td className="px-3 py-1.5 text-right">{item.count}</td>
+                            <td className="px-3 py-1.5 text-right">{item.discardCount || 0}</td>
+                          </tr>
+                        ))}
+                        <tr className="bg-gray-50 font-medium">
+                          <td className="px-3 py-1.5">Toplam</td>
+                          <td className="px-3 py-1.5 text-right">{parsed.items.reduce((s, i) => s + i.count, 0)}</td>
+                          <td className="px-3 py-1.5 text-right">{parsed.items.reduce((s, i) => s + (i.discardCount || 0), 0)}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            }
+            return (
+              <div>
+                <p className="text-sm text-gray-500">Notlar</p>
+                <p>{delivery.notes}</p>
+              </div>
+            );
+          })()}
         </div>
       </div>
     </div>

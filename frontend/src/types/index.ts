@@ -125,6 +125,7 @@ export interface Delivery {
   packagerId: string | null;
   barcode: string;
   packageCount: number;
+  itemCount?: number;
   status: DeliveryStatus;
   labelPrintedAt: string | null;
   packagedAt: string | null;
