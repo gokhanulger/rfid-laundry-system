@@ -4,6 +4,7 @@ import { pickups, pickupItems, items, tenants } from '../db/schema';
 import { eq, and, inArray } from 'drizzle-orm';
 import { requireAuth, AuthRequest, requireRole } from '../middleware/auth';
 import { z } from 'zod';
+import { sendPickupConfirmation } from '../services/email';
 
 export const pickupsRouter = Router();
 pickupsRouter.use(requireAuth);
@@ -63,6 +64,19 @@ pickupsRouter.post('/', requireRole('driver', 'laundry_manager', 'system_admin')
       await db.update(items)
         .set({ status: 'at_laundry', updatedAt: new Date() })
         .where(inArray(items.id, itemIds));
+    }
+
+    // Send email notification to hotel owner
+    try {
+      if (tenant.email) {
+        const itemCount = itemIds?.length || 0;
+        await sendPickupConfirmation(tenant.email, tenant.name, bagCode, itemCount);
+        console.log(`📧 Pickup email sent to ${tenant.email} for tenant ${tenant.name}`);
+      } else {
+        console.warn(`⚠️ No email configured for tenant ${tenant.name} (${tenantId})`);
+      }
+    } catch (emailError) {
+      console.error('Failed to send pickup email:', emailError);
     }
 
     res.status(201).json(newPickup);
@@ -240,6 +254,18 @@ pickupsRouter.post('/from-tags', requireRole('driver', 'laundry_manager', 'syste
       await db.update(items)
         .set({ status: 'at_laundry', updatedAt: new Date() })
         .where(inArray(items.id, itemIds));
+    }
+
+    // Send email notification to hotel owner
+    try {
+      if (tenant.email) {
+        await sendPickupConfirmation(tenant.email, tenant.name, bagCode, itemIds.length);
+        console.log(`📧 Pickup email sent to ${tenant.email} for tenant ${tenant.name}`);
+      } else {
+        console.warn(`⚠️ No email configured for tenant ${tenant.name} (${tenantId})`);
+      }
+    } catch (emailError) {
+      console.error('Failed to send pickup email:', emailError);
     }
 
     res.status(201).json({

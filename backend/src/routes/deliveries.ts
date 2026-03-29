@@ -662,6 +662,7 @@ deliveriesRouter.post('/:id/deliver', requireRole('driver', 'laundry_manager', '
     });
 
     // Send email notification with PDF waybill to hotel owner
+    console.log(`📧 Delivery email check - tenant: ${existingDelivery.tenant?.name}, email: ${existingDelivery.tenant?.email || 'NOT SET'}`);
     try {
       if (existingDelivery.tenant?.email) {
         // Build item summary for PDF
@@ -727,6 +728,8 @@ deliveriesRouter.post('/:id/deliver', requireRole('driver', 'laundry_manager', '
           totalItems,
           pdfBuffer
         );
+      } else {
+        console.warn(`⚠️ No email configured for tenant ${existingDelivery.tenant?.name} (${existingDelivery.tenantId})`);
       }
     } catch (emailError) {
       console.error('Failed to send delivery notification:', emailError);
