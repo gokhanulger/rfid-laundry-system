@@ -662,7 +662,7 @@ deliveriesRouter.post('/:id/deliver', requireRole('driver', 'laundry_manager', '
     });
 
     // Send email notification with PDF waybill to hotel owner
-    console.log(`📧 Delivery email check - tenant: ${existingDelivery.tenant?.name}, email: ${existingDelivery.tenant?.email || 'NOT SET'}`);
+    console.log(`📧 Delivery email check - tenant:`, JSON.stringify(existingDelivery.tenant, null, 2));
     try {
       if (existingDelivery.tenant?.email) {
         // Build item summary for PDF
