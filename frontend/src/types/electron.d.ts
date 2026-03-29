@@ -143,6 +143,15 @@ interface ElectronAPI {
   dbGetPendingCount: () => Promise<{ success: boolean; count?: number; error?: string }>;
   dbProcessPending: () => Promise<{ success: boolean; processed?: number; failed?: number; remaining?: number; error?: string }>;
   dbIsOnline: () => Promise<{ online: boolean }>;
+
+  // Delivery offline-first API
+  dbGetDeliveries: (status: string) => Promise<{ success: boolean; deliveries?: any[]; error?: string }>;
+  dbGetDeliveryByBarcode: (barcode: string) => Promise<{ success: boolean; delivery?: any; error?: string }>;
+  dbPackageDelivery: (deliveryId: string) => Promise<{ success: boolean; online?: boolean; queued?: boolean; error?: string }>;
+  dbCancelDelivery: (deliveryId: string) => Promise<{ success: boolean; online?: boolean; queued?: boolean; error?: string }>;
+  dbCreateWaybill: (deliveryIds: string[], bagCount?: number, notes?: string | null) => Promise<{ success: boolean; online?: boolean; queued?: boolean; result?: any; error?: string }>;
+  dbSyncDeliveries: () => Promise<{ success: boolean; count?: number; error?: string }>;
+
   onSyncStatus: (callback: (status: SyncStatus) => void) => () => void;
 }
 

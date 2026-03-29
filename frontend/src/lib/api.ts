@@ -76,15 +76,40 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Add response interceptor for network error handling
+api.interceptors.response.use(
+  (response) => response,
+  (error: AxiosError) => {
+    // Network error (no response received) - don't crash, just reject gracefully
+    if (!error.response && (error.code === 'ERR_NETWORK' || error.code === 'ECONNABORTED' || error.message === 'Network Error')) {
+      console.warn('[API] Ag hatasi - internet baglantisi yok veya sunucu erisilemiyor:', error.message);
+      // Create a more user-friendly error
+      const networkError = new AxiosError(
+        'Internet baglantisi yok',
+        error.code,
+        error.config,
+        error.request,
+        undefined
+      );
+      (networkError as any).isNetworkError = true;
+      return Promise.reject(networkError);
+    }
+    return Promise.reject(error);
+  }
+);
+
 // Error handling helper
 export function getErrorMessage(error: unknown): string {
   if (error instanceof AxiosError) {
-    return error.response?.data?.error || error.message || 'An error occurred';
+    if ((error as any).isNetworkError || error.code === 'ERR_NETWORK') {
+      return 'Internet baglantisi yok';
+    }
+    return error.response?.data?.error || error.message || 'Bir hata olustu';
   }
   if (error instanceof Error) {
     return error.message;
   }
-  return 'An unexpected error occurred';
+  return 'Beklenmeyen bir hata olustu';
 }
 
 // Auth API

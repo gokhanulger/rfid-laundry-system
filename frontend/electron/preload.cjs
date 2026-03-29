@@ -169,6 +169,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Debug: Search items in local database
   dbDebugSearch: (searchTerm) => ipcRenderer.invoke('db-debug-search', { searchTerm }),
 
+  // Get deliveries by status from local cache
+  dbGetDeliveries: (status) => ipcRenderer.invoke('db-get-deliveries', { status }),
+
+  // Get delivery by barcode from local cache
+  dbGetDeliveryByBarcode: (barcode) => ipcRenderer.invoke('db-get-delivery-by-barcode', { barcode }),
+
+  // Package delivery (with offline queue support)
+  dbPackageDelivery: (deliveryId) => ipcRenderer.invoke('db-package-delivery', { deliveryId }),
+
+  // Cancel delivery (with offline queue support)
+  dbCancelDelivery: (deliveryId) => ipcRenderer.invoke('db-cancel-delivery', { deliveryId }),
+
+  // Create waybill (with offline queue support)
+  dbCreateWaybill: (deliveryIds, bagCount, notes) => ipcRenderer.invoke('db-create-waybill', { deliveryIds, bagCount, notes }),
+
+  // Quick delivery sync
+  dbSyncDeliveries: () => ipcRenderer.invoke('db-sync-deliveries'),
+
   // Listen for sync status updates
   onSyncStatus: (callback) => {
     ipcRenderer.on('sync-status', (event, status) => callback(status));

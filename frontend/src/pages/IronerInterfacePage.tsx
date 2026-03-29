@@ -120,6 +120,13 @@ export function IronerInterfacePage() {
   const [isOffline, setIsOffline] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
 
+  // Stable refs for data used in RFID tag validation callback
+  // These prevent the UHF listener from being torn down/recreated when query data changes
+  const tenantsRef = useRef<Tenant[]>([]);
+  const itemTypesRef = useRef<{ id: string; name: string }[]>([]);
+  const activeHotelIdRef = useRef<string | null>(null);
+  const selectedHotelIdsRef = useRef<string[]>([]);
+
   // Legacy cache state (for backward compatibility, will be populated from SQLite)
   const itemsCacheLoadingRef = useRef(false);
   const [itemsCacheLastUpdate, setItemsCacheLastUpdate] = useState<Date | null>(null);
@@ -282,20 +289,58 @@ export function IronerInterfacePage() {
     queryFn: () => itemsApi.getDirty(),
   });
 
-  // Get tenants for grouping
+  // Get tenants for grouping - SQLite first in Electron, API fallback
   const { data: tenants } = useQuery({
     queryKey: ['tenants'],
-    queryFn: settingsApi.getTenants,
+    queryFn: async () => {
+      // In Electron: try SQLite first (works offline)
+      if (window.electronAPI?.dbGetTenants) {
+        const localResult = await window.electronAPI.dbGetTenants();
+        if (localResult.success && localResult.tenants && localResult.tenants.length > 0) {
+          // Return local data, attempt API refresh in background
+          settingsApi.getTenants().then(apiTenants => {
+            if (apiTenants?.length > 0) {
+              queryClient.setQueryData(['tenants'], apiTenants);
+            }
+          }).catch(() => { /* offline, ignore */ });
+          return localResult.tenants;
+        }
+      }
+      // Fallback to API
+      return settingsApi.getTenants();
+    },
+    staleTime: 5 * 60 * 1000, // 5 min - don't refetch too often
   });
 
   // Ensure tenants is always an array
   const tenantsArray = Array.isArray(tenants) ? tenants : [];
 
-  // Get item types
+  // Get item types - SQLite first in Electron, API fallback
   const { data: itemTypes } = useQuery({
     queryKey: ['item-types'],
-    queryFn: settingsApi.getItemTypes,
+    queryFn: async () => {
+      // In Electron: try SQLite first (works offline)
+      if (window.electronAPI?.dbGetItemTypes) {
+        const localResult = await window.electronAPI.dbGetItemTypes();
+        if (localResult.success && localResult.itemTypes && localResult.itemTypes.length > 0) {
+          settingsApi.getItemTypes().then(apiTypes => {
+            if (apiTypes?.length > 0) {
+              queryClient.setQueryData(['item-types'], apiTypes);
+            }
+          }).catch(() => { /* offline, ignore */ });
+          return localResult.itemTypes;
+        }
+      }
+      return settingsApi.getItemTypes();
+    },
+    staleTime: 5 * 60 * 1000,
   });
+
+  // Keep refs in sync with latest data (avoids recreating RFID callbacks)
+  tenantsRef.current = tenantsArray;
+  itemTypesRef.current = itemTypes || [];
+  activeHotelIdRef.current = activeHotelId;
+  selectedHotelIdsRef.current = selectedHotelIds;
 
   // Load database stats and trigger sync if needed (SQLite-based)
   const loadDbStats = useCallback(async (showToast = false) => {
@@ -451,6 +496,8 @@ export function IronerInterfacePage() {
   }, [loadDbStats]);
 
   // Validate scanned tag against SQLite database (fast local lookup <1ms)
+  // Uses refs instead of state to keep callback identity stable across renders
+  // This prevents the UHF listener from being torn down/recreated when query data changes
   const validateTagAsync = useCallback(async (epc: string): Promise<ScannedTagInfo> => {
     // Normalize EPC to uppercase for matching - DB stores same 24-char format
     const normalizedEpc = epc.toUpperCase();
@@ -465,14 +512,20 @@ export function IronerInterfacePage() {
           const item = result.item;
           console.log('[SQLite] Found item:', item);
 
+          // Read latest data from refs (always current, no stale closures)
+          const currentTenants = tenantsRef.current;
+          const currentItemTypes = itemTypesRef.current;
+          const currentActiveHotelId = activeHotelIdRef.current;
+          const currentSelectedHotelIds = selectedHotelIdsRef.current;
+
           // Find tenant and item type names from local queries
-          const hotel = tenantsArray.find((t: Tenant) => t.id === item.tenant_id);
-          const itemTypeInfo = itemTypes?.find((t: { id: string; name: string }) => t.id === item.item_type_id);
+          const hotel = currentTenants.find((t: Tenant) => t.id === item.tenant_id);
+          const itemTypeInfo = currentItemTypes.find((t: { id: string; name: string }) => t.id === item.item_type_id);
 
           // Check if tag belongs to selected hotel
-          const isValidHotel = activeHotelId
-            ? item.tenant_id === activeHotelId
-            : selectedHotelIds.includes(item.tenant_id);
+          const isValidHotel = currentActiveHotelId
+            ? item.tenant_id === currentActiveHotelId
+            : currentSelectedHotelIds.includes(item.tenant_id);
 
           return {
             epc,
@@ -498,7 +551,7 @@ export function IronerInterfacePage() {
       status: 'unregistered',
       lastSeen: Date.now(),
     };
-  }, [activeHotelId, selectedHotelIds, tenantsArray, itemTypes]);
+  }, []); // No dependencies - uses refs for latest data
 
   // UHF Reader setup - connect and listen for status/tags
   useEffect(() => {
@@ -547,8 +600,11 @@ export function IronerInterfacePage() {
       // }
     });
 
+    // Track which EPCs are already being validated to avoid duplicate lookups
+    const validatingEpcs = new Set<string>();
+
     // Listen for tag reads - SIMPLE: Map handles duplicates automatically
-    const unsubTag = window.electronAPI.onUhfTag(async (tag: UhfTag) => {
+    const unsubTag = window.electronAPI.onUhfTag((tag: UhfTag) => {
       // Skip if reading is paused (after print)
       if (isReadingPausedRef.current) {
         return;
@@ -558,17 +614,23 @@ export function IronerInterfacePage() {
       const tagRssi = tag.rssi ?? -100;
       if (tagRssi < rssiThresholdRef.current) return;
 
-      // Check if already in Map
-      setScannedTags(prev => {
-        const existing = prev.get(tag.epc);
-        if (existing) {
-          // Already exists - just update lastSeen
+      // Check if already seen - fast path: just update lastSeen, skip validation
+      if (seenEpcsRef.current.has(tag.epc)) {
+        setScannedTags(prev => {
+          const existing = prev.get(tag.epc);
+          if (!existing) return prev;
           const newMap = new Map(prev);
           newMap.set(tag.epc, { ...existing, lastSeen: Date.now(), rssi: tag.rssi });
           return newMap;
-        }
+        });
+        return;
+      }
 
-        // New tag - add with checking status, validate async
+      // New tag - mark as seen immediately to prevent duplicate validations
+      seenEpcsRef.current.add(tag.epc);
+
+      // Add to map with checking status (instant, no await)
+      setScannedTags(prev => {
         const newMap = new Map(prev);
         newMap.set(tag.epc, {
           epc: tag.epc,
@@ -579,25 +641,31 @@ export function IronerInterfacePage() {
         return newMap;
       });
 
-      // Async validation for new tags
-      const validated = await validateTagAsync(tag.epc);
+      // Skip if already validating this EPC
+      if (validatingEpcs.has(tag.epc)) return;
+      validatingEpcs.add(tag.epc);
 
-      setScannedTags(prev => {
-        if (!prev.has(tag.epc)) return prev;
-        const newMap = new Map(prev);
-        newMap.set(tag.epc, { ...validated, lastSeen: Date.now(), rssi: tag.rssi });
-        return newMap;
-      });
+      // Fire-and-forget async validation - does NOT block next tag processing
+      validateTagAsync(tag.epc).then(validated => {
+        validatingEpcs.delete(tag.epc);
 
-      // Add to confirmed items if valid
-      if ((validated.status === 'valid' || validated.status === 'wrong_hotel') && validated.itemTypeId && validated.hotelId) {
-        setConfirmedScannedItems(prev => {
-          if (prev.has(tag.epc)) return prev;
+        setScannedTags(prev => {
+          if (!prev.has(tag.epc)) return prev;
           const newMap = new Map(prev);
-          newMap.set(tag.epc, { ...validated, rssi: tag.rssi });
+          newMap.set(tag.epc, { ...validated, lastSeen: Date.now(), rssi: tag.rssi });
           return newMap;
         });
-      }
+
+        // Add to confirmed items if valid
+        if ((validated.status === 'valid' || validated.status === 'wrong_hotel') && validated.itemTypeId && validated.hotelId) {
+          setConfirmedScannedItems(prev => {
+            if (prev.has(tag.epc)) return prev;
+            const newMap = new Map(prev);
+            newMap.set(tag.epc, { ...validated, rssi: tag.rssi });
+            return newMap;
+          });
+        }
+      });
     });
 
     return () => {

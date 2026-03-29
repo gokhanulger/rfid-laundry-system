@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { FileText, QrCode, Printer, RefreshCw, CheckCircle, Package, X, Trash2, History, Search, Building2, ShoppingBag, Settings } from 'lucide-react';
 import { deliveriesApi, settingsApi, waybillsApi, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/Toast';
+import { useNetworkStatus } from '../hooks/useNetworkStatus';
 import type { Delivery, DeliveryPackage } from '../types';
 import { jsPDF } from 'jspdf';
 import JsBarcode from 'jsbarcode';
@@ -213,6 +214,7 @@ export function IrsaliyePage() {
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
   const queryClient = useQueryClient();
   const toast = useToast();
+  const { online } = useNetworkStatus();
 
   // Global barcode scanner buffer
   const scanBufferRef = useRef('');
@@ -338,29 +340,71 @@ export function IrsaliyePage() {
     toast.success(`Cuval etiketi yazicisi secildi: ${printerName}`);
   };
 
-  // Get tenants for hotel selection
-  const { data: tenants } = useQuery({
+  // Electron: check if we have local DB available
+  const hasLocalDb = !!(window as any).electronAPI?.dbGetDeliveries;
+
+  // Get tenants for hotel selection - SQLite first in Electron
+  const { data: tenants } = useQuery<Array<{ id: string; name: string; address?: string; [key: string]: any }>>({
     queryKey: ['tenants'],
-    queryFn: settingsApi.getTenants,
+    queryFn: async () => {
+      if ((window as any).electronAPI?.dbGetTenants) {
+        const localResult = await (window as any).electronAPI.dbGetTenants();
+        if (localResult.success && localResult.tenants?.length > 0) {
+          settingsApi.getTenants().then(apiTenants => {
+            if (apiTenants?.length > 0) queryClient.setQueryData(['tenants'], apiTenants);
+          }).catch(() => {});
+          return localResult.tenants;
+        }
+      }
+      return settingsApi.getTenants();
+    },
+    staleTime: 5 * 60 * 1000,
   });
 
-  // Get packaged deliveries ready for irsaliye - auto-refresh every 5 seconds
+  // Get packaged deliveries ready for irsaliye
+  // Electron: SQLite first, background API sync
   const { data: packagedDeliveries, isLoading, refetch } = useQuery({
     queryKey: ['deliveries', { status: 'packaged' }],
-    queryFn: () => deliveriesApi.getAll({ status: 'packaged', limit: 100 }),
-    refetchInterval: 5000,
+    queryFn: async () => {
+      if (hasLocalDb) {
+        const localResult = await (window as any).electronAPI.dbGetDeliveries('packaged');
+        if (localResult.success) {
+          if (online) {
+            (window as any).electronAPI.dbSyncDeliveries().then(() => {
+              (window as any).electronAPI.dbGetDeliveries('packaged').then((r: any) => {
+                if (r.success) {
+                  queryClient.setQueryData(['deliveries', { status: 'packaged' }], { data: r.deliveries, pagination: { total: r.deliveries.length } });
+                }
+              });
+            }).catch(() => {});
+          }
+          return { data: localResult.deliveries, pagination: { total: localResult.deliveries.length } };
+        }
+      }
+      return deliveriesApi.getAll({ status: 'packaged', limit: 100 });
+    },
+    refetchInterval: online ? 5000 : (hasLocalDb ? 2000 : false),
   });
 
-  // Get waybills for history tab - auto-refresh
+  // Get waybills for history tab - auto-refresh (API only, non-critical)
   const { data: waybillsData, refetch: refetchWaybills } = useQuery({
     queryKey: ['waybills'],
     queryFn: () => waybillsApi.getAll({ limit: 100 }),
-    refetchInterval: 5000,
+    refetchInterval: online ? 5000 : false,
   });
 
   const scanMutation = useMutation({
     mutationFn: async (barcode: string) => {
-      const delivery = await deliveriesApi.getByBarcode(barcode.replace(/-PKG\d+$/, ''));
+      const cleanBarcode = barcode.replace(/-PKG\d+$/, '');
+      // Electron: try local DB first
+      if (hasLocalDb) {
+        const localResult = await (window as any).electronAPI.dbGetDeliveryByBarcode(cleanBarcode);
+        if (localResult.success && localResult.delivery) {
+          return { delivery: localResult.delivery, barcode };
+        }
+      }
+      // Fallback: API
+      const delivery = await deliveriesApi.getByBarcode(cleanBarcode);
       return { delivery, barcode };
     },
     onSuccess: ({ delivery, barcode }) => {
@@ -388,7 +432,7 @@ export function IrsaliyePage() {
 
       let pkg: DeliveryPackage | undefined;
       if (barcode.includes('-PKG')) {
-        pkg = delivery.deliveryPackages?.find(p => p.packageBarcode === barcode);
+        pkg = delivery.deliveryPackages?.find((p: DeliveryPackage) => p.packageBarcode === barcode);
       } else {
         pkg = delivery.deliveryPackages?.[0];
       }
@@ -615,9 +659,30 @@ export function IrsaliyePage() {
 
       let waybill;
       try {
-        waybill = await waybillsApi.create(uniqueDeliveryIds, bags.length);
-        console.log('generateIrsaliyePDF: Waybill created:', waybill);
-        toast.success(`Irsaliye ${waybill.waybillNumber} olusturuldu. ${uniqueDeliveryIds.length} paket eklendi.`);
+        // Electron: try offline-first waybill creation
+        if (hasLocalDb) {
+          const result = await (window as any).electronAPI.dbCreateWaybill(uniqueDeliveryIds, bags.length, null);
+          if (result.success) {
+            if (result.online && result.result) {
+              waybill = result.result;
+            } else {
+              // Offline: create a temporary waybill for printing
+              waybill = {
+                waybillNumber: `OFFLINE-${Date.now()}`,
+                id: `offline-${Date.now()}`,
+              };
+              toast.info('Offline - irsaliye kaydedildi, internet gelince sunucuya gonderilecek');
+            }
+            console.log('generateIrsaliyePDF: Waybill created:', waybill);
+            toast.success(`Irsaliye ${waybill.waybillNumber} olusturuldu. ${uniqueDeliveryIds.length} paket eklendi.`);
+          } else {
+            throw new Error(result.error || 'Irsaliye olusturulamadi');
+          }
+        } else {
+          waybill = await waybillsApi.create(uniqueDeliveryIds, bags.length);
+          console.log('generateIrsaliyePDF: Waybill created:', waybill);
+          toast.success(`Irsaliye ${waybill.waybillNumber} olusturuldu. ${uniqueDeliveryIds.length} paket eklendi.`);
+        }
       } catch (error) {
         console.error('generateIrsaliyePDF: API error:', error);
         toast.error('Irsaliye olusturulamadi: ' + getErrorMessage(error));

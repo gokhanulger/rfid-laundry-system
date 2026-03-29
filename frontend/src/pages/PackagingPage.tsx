@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Package, CheckCircle, RefreshCw, QrCode, Box, Trash2 } from 'lucide-react';
 import { deliveriesApi, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/Toast';
+import { useNetworkStatus } from '../hooks/useNetworkStatus';
 import type { Delivery } from '../types';
 
 type TabType = 'packaging' | 'history';
@@ -128,6 +129,7 @@ export function PackagingPage() {
   const queryClient = useQueryClient();
   const toast = useToast();
   const barcodeInputRef = useRef<HTMLInputElement>(null);
+  const { online } = useNetworkStatus();
 
   // Global barcode scanner buffer (for scanners that send characters quickly)
   const scanBufferRef = useRef('');
@@ -257,23 +259,66 @@ export function PackagingPage() {
     localStorage.setItem(PRODUCT_COUNTER_KEY, JSON.stringify(newCounter));
   };
 
+  // Electron: check if we have local DB available
+  const hasLocalDb = !!(window as any).electronAPI?.dbGetDeliveries;
+
   // Get deliveries that have labels printed (ready for packaging)
-  // Auto-refresh every 5 seconds to catch new labels from ironer
+  // Electron: SQLite first, then background API sync
+  // Web: API with polling (stop when offline)
   const { data: deliveries, isLoading, refetch } = useQuery({
     queryKey: ['deliveries', { status: 'label_printed' }],
-    queryFn: () => deliveriesApi.getAll({ status: 'label_printed', limit: 10000 }),
-    refetchInterval: 5000, // Refresh every 5 seconds
+    queryFn: async () => {
+      if (hasLocalDb) {
+        // Electron: read from SQLite (instant, works offline)
+        const localResult = await (window as any).electronAPI.dbGetDeliveries('label_printed');
+        if (localResult.success) {
+          // Background: sync from API if online
+          if (online) {
+            (window as any).electronAPI.dbSyncDeliveries().then(() => {
+              // Re-read from SQLite after sync
+              (window as any).electronAPI.dbGetDeliveries('label_printed').then((r: any) => {
+                if (r.success) {
+                  queryClient.setQueryData(['deliveries', { status: 'label_printed' }], { data: r.deliveries, pagination: { total: r.deliveries.length } });
+                }
+              });
+            }).catch(() => { /* offline, ignore */ });
+          }
+          return { data: localResult.deliveries, pagination: { total: localResult.deliveries.length } };
+        }
+      }
+      // Fallback: API
+      return deliveriesApi.getAll({ status: 'label_printed', limit: 10000 });
+    },
+    refetchInterval: online ? 5000 : (hasLocalDb ? 2000 : false), // SQLite: poll locally even offline
   });
 
   // Get recently packaged - also auto-refresh
   const { data: packagedDeliveries } = useQuery({
     queryKey: ['deliveries', { status: 'packaged' }],
-    queryFn: () => deliveriesApi.getAll({ status: 'packaged', limit: 10000 }),
-    refetchInterval: 5000,
+    queryFn: async () => {
+      if (hasLocalDb) {
+        const localResult = await (window as any).electronAPI.dbGetDeliveries('packaged');
+        if (localResult.success) {
+          return { data: localResult.deliveries, pagination: { total: localResult.deliveries.length } };
+        }
+      }
+      return deliveriesApi.getAll({ status: 'packaged', limit: 10000 });
+    },
+    refetchInterval: online ? 5000 : (hasLocalDb ? 2000 : false),
   });
 
   const scanMutation = useMutation({
-    mutationFn: (barcode: string) => deliveriesApi.getByBarcode(barcode),
+    mutationFn: async (barcode: string) => {
+      // Electron: try local DB first (works offline)
+      if (hasLocalDb) {
+        const localResult = await (window as any).electronAPI.dbGetDeliveryByBarcode(barcode);
+        if (localResult.success && localResult.delivery) {
+          return localResult.delivery;
+        }
+      }
+      // Fallback: API
+      return deliveriesApi.getByBarcode(barcode);
+    },
     onSuccess: (delivery) => {
       if (delivery.status === 'label_printed') {
         // Doğru paket - horoz sesi çal
@@ -308,7 +353,20 @@ export function PackagingPage() {
   const [packagingDelivery, setPackagingDelivery] = useState<Delivery | null>(null);
 
   const packageMutation = useMutation({
-    mutationFn: deliveriesApi.package,
+    mutationFn: async (deliveryId: string) => {
+      // Electron: use local DB + offline queue
+      if (hasLocalDb) {
+        const result = await (window as any).electronAPI.dbPackageDelivery(deliveryId);
+        if (result.success) {
+          if (!result.online) {
+            toast.info('Offline - paketleme kaydedildi, internet gelince sunucuya gonderilecek');
+          }
+          return result;
+        }
+      }
+      // Fallback: API
+      return deliveriesApi.package(deliveryId);
+    },
     onSuccess: () => {
       toast.success('Teslimat başarıyla paketlendi! İrsaliye sayfasına yönlendiriliyor...');
 
@@ -344,7 +402,18 @@ export function PackagingPage() {
 
   // Cancel/delete delivery mutation
   const cancelMutation = useMutation({
-    mutationFn: deliveriesApi.cancel,
+    mutationFn: async (deliveryId: string) => {
+      if (hasLocalDb) {
+        const result = await (window as any).electronAPI.dbCancelDelivery(deliveryId);
+        if (result.success) {
+          if (!result.online) {
+            toast.info('Offline - silme kaydedildi, internet gelince sunucuya gonderilecek');
+          }
+          return;
+        }
+      }
+      return deliveriesApi.cancel(deliveryId);
+    },
     onSuccess: () => {
       toast.success('Teslimat silindi!');
       queryClient.invalidateQueries({ queryKey: ['deliveries'] });
@@ -370,11 +439,11 @@ export function PackagingPage() {
   };
 
   // Sort by createdAt descending (newest first)
-  const pendingDeliveries = (deliveries?.data || []).slice().sort((a, b) =>
+  const pendingDeliveries = ((deliveries?.data || []) as Delivery[]).slice().sort((a: Delivery, b: Delivery) =>
     new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
   // Sort by packagedAt descending (newest first)
-  const recentPackaged = (packagedDeliveries?.data || []).slice().sort((a, b) =>
+  const recentPackaged = ((packagedDeliveries?.data || []) as Delivery[]).slice().sort((a: Delivery, b: Delivery) =>
     new Date(b.packagedAt || 0).getTime() - new Date(a.packagedAt || 0).getTime()
   );
 
@@ -582,6 +651,11 @@ export function PackagingPage() {
                             <div className="flex-1">
                               <div className="flex items-center gap-3 mb-1">
                                 <span className="font-bold text-lg text-red-900">{delivery.tenant?.name}</span>
+                                {delivery.barcode && (
+                                  <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs font-mono">
+                                    {delivery.barcode}
+                                  </span>
+                                )}
                                 <span className="px-2 py-0.5 bg-red-200 text-red-800 rounded text-xs font-bold">
                                   🔴 Paketleme Bekliyor
                                 </span>
@@ -668,6 +742,11 @@ export function PackagingPage() {
                           <div className="flex-1">
                             <div className="flex items-center gap-3 mb-1">
                               <span className="font-bold text-lg text-gray-900">{delivery.tenant?.name}</span>
+                              {delivery.barcode && (
+                                <span className="px-2 py-0.5 bg-gray-200 text-gray-700 rounded text-xs font-mono">
+                                  {delivery.barcode}
+                                </span>
+                              )}
                               <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">
                                 Paketlendi
                               </span>

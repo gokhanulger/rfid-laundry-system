@@ -186,6 +186,23 @@ async function fullSync() {
       }
     }
 
+    // 4. Sync active deliveries (label_printed + packaged)
+    sendSyncStatus({ status: 'syncing', message: 'Teslimatlar yükleniyor...' });
+    let totalDeliveries = 0;
+    for (const deliveryStatus of ['label_printed', 'packaged']) {
+      try {
+        const response = await apiRequest(`/deliveries?status=${deliveryStatus}&limit=10000`);
+        const deliveries = response.data || [];
+        if (deliveries.length > 0) {
+          const count = db.upsertDeliveries(deliveries);
+          totalDeliveries += count;
+          console.log(`[Sync] Synced ${count} deliveries with status ${deliveryStatus}`);
+        }
+      } catch (e) {
+        console.log(`[Sync] Warning: Could not sync ${deliveryStatus} deliveries:`, e.message);
+      }
+    }
+
     // Update last sync time
     db.setLastSyncTime(new Date().toISOString());
 
@@ -196,13 +213,13 @@ async function fullSync() {
 
     sendSyncStatus({
       status: 'completed',
-      message: `Senkronizasyon tamamlandı (${totalItems} ürün)`,
+      message: `Senkronizasyon tamamlandı (${totalItems} ürün, ${totalDeliveries} teslimat)`,
       stats,
       sampleRfids
     });
 
     syncInProgress = false;
-    return { success: true, itemsCount: totalItems, stats };
+    return { success: true, itemsCount: totalItems, deliveriesCount: totalDeliveries, stats };
 
   } catch (error) {
     console.error('[Sync] Full sync error:', error);
@@ -366,6 +383,87 @@ async function markItemsClean(itemIds) {
 }
 
 // ==========================================
+// Delivery Operations (with offline support)
+// ==========================================
+
+async function packageDelivery(deliveryId) {
+  // Update local DB immediately
+  db.updateDeliveryStatus(deliveryId, 'packaged', { packagedAt: new Date().toISOString() });
+
+  if (onlineStatus) {
+    try {
+      const result = await apiRequest(`/deliveries/${deliveryId}/package`, 'POST');
+      return { success: true, online: true, result };
+    } catch (error) {
+      queueOperation('package_delivery', `/deliveries/${deliveryId}/package`, 'POST', {});
+      return { success: true, online: false, queued: true };
+    }
+  } else {
+    queueOperation('package_delivery', `/deliveries/${deliveryId}/package`, 'POST', {});
+    return { success: true, online: false, queued: true };
+  }
+}
+
+async function cancelDelivery(deliveryId) {
+  // Update local DB immediately
+  db.updateDeliveryStatus(deliveryId, 'cancelled');
+
+  if (onlineStatus) {
+    try {
+      const result = await apiRequest(`/deliveries/${deliveryId}/cancel`, 'POST');
+      return { success: true, online: true, result };
+    } catch (error) {
+      queueOperation('cancel_delivery', `/deliveries/${deliveryId}/cancel`, 'POST', {});
+      return { success: true, online: false, queued: true };
+    }
+  } else {
+    queueOperation('cancel_delivery', `/deliveries/${deliveryId}/cancel`, 'POST', {});
+    return { success: true, online: false, queued: true };
+  }
+}
+
+async function createWaybill(deliveryIds, bagCount, notes) {
+  const payload = { deliveryIds, bagCount, notes };
+
+  if (onlineStatus) {
+    try {
+      const result = await apiRequest('/waybills', 'POST', payload);
+      // Update local delivery statuses
+      for (const id of deliveryIds) {
+        db.updateDeliveryStatus(id, 'waybill_created');
+      }
+      return { success: true, online: true, result };
+    } catch (error) {
+      queueOperation('create_waybill', '/waybills', 'POST', payload);
+      return { success: true, online: false, queued: true };
+    }
+  } else {
+    queueOperation('create_waybill', '/waybills', 'POST', payload);
+    return { success: true, online: false, queued: true };
+  }
+}
+
+// Quick delivery sync - only syncs active deliveries (fast, for polling replacement)
+async function syncDeliveries() {
+  if (!onlineStatus || syncInProgress) return { success: false };
+
+  try {
+    let totalDeliveries = 0;
+    for (const status of ['label_printed', 'packaged']) {
+      const response = await apiRequest(`/deliveries?status=${status}&limit=10000`);
+      const deliveries = response.data || [];
+      if (deliveries.length > 0) {
+        totalDeliveries += db.upsertDeliveries(deliveries);
+      }
+    }
+    return { success: true, count: totalDeliveries };
+  } catch (error) {
+    onlineStatus = false;
+    return { success: false, error: error.message };
+  }
+}
+
+// ==========================================
 // Auto Sync (Disabled - Manual sync only)
 // ==========================================
 
@@ -417,9 +515,13 @@ module.exports = {
   isOnline,
   fullSync,
   deltaSync,
+  syncDeliveries,
   processPendingOperations,
   queueOperation,
   markItemsClean,
+  packageDelivery,
+  cancelDelivery,
+  createWaybill,
   startAutoSync,
   stopAutoSync
 };

@@ -124,6 +124,32 @@ function createTables() {
     )
   `);
 
+  // Deliveries table - cache of deliveries for packaging/irsaliye
+  db.run(`
+    CREATE TABLE IF NOT EXISTS deliveries (
+      id TEXT PRIMARY KEY,
+      barcode TEXT,
+      tenant_id TEXT,
+      tenant_name TEXT,
+      status TEXT NOT NULL,
+      notes TEXT,
+      item_count INTEGER DEFAULT 0,
+      package_count INTEGER DEFAULT 0,
+      packaged_at TEXT,
+      picked_up_at TEXT,
+      delivered_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      synced_at TEXT NOT NULL,
+      delivery_items_json TEXT,
+      delivery_packages_json TEXT
+    )
+  `);
+
+  db.run('CREATE INDEX IF NOT EXISTS idx_deliveries_barcode ON deliveries(barcode)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_deliveries_status ON deliveries(status)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_deliveries_tenant ON deliveries(tenant_id)');
+
   // Pending operations queue - for offline actions
   db.run(`
     CREATE TABLE IF NOT EXISTS pending_operations (
@@ -368,6 +394,164 @@ function getAllItemTypes() {
 }
 
 // ==========================================
+// Delivery Operations
+// ==========================================
+
+function upsertDeliveries(deliveries) {
+  if (!db || !deliveries || deliveries.length === 0) return 0;
+
+  const now = new Date().toISOString();
+  let count = 0;
+
+  db.run('BEGIN TRANSACTION');
+
+  try {
+    const stmt = db.prepare(`
+      INSERT OR REPLACE INTO deliveries
+        (id, barcode, tenant_id, tenant_name, status, notes, item_count, package_count,
+         packaged_at, picked_up_at, delivered_at, created_at, updated_at, synced_at,
+         delivery_items_json, delivery_packages_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    for (const d of deliveries) {
+      const tenantId = d.tenantId || d.tenant_id;
+      const tenantName = d.tenant?.name || d.tenant_name || '';
+      const barcode = d.barcode || '';
+      const itemCount = d.deliveryItems?.length || d.item_count || 0;
+      const packageCount = d.deliveryPackages?.length || d.package_count || 0;
+      const packagedAt = d.packagedAt || d.packaged_at || null;
+      const pickedUpAt = d.pickedUpAt || d.picked_up_at || null;
+      const deliveredAt = d.deliveredAt || d.delivered_at || null;
+      const createdAt = d.createdAt || d.created_at || now;
+      const updatedAt = d.updatedAt || d.updated_at || now;
+
+      // Store related items and packages as JSON for offline display
+      const deliveryItemsJson = d.deliveryItems ? JSON.stringify(d.deliveryItems) : (d.delivery_items_json || null);
+      const deliveryPackagesJson = d.deliveryPackages ? JSON.stringify(d.deliveryPackages) : (d.delivery_packages_json || null);
+
+      stmt.run([
+        d.id, barcode, tenantId, tenantName, d.status, d.notes || null,
+        itemCount, packageCount, packagedAt, pickedUpAt, deliveredAt,
+        createdAt, updatedAt, now, deliveryItemsJson, deliveryPackagesJson
+      ]);
+      count++;
+    }
+
+    stmt.free();
+    db.run('COMMIT');
+    markDirty();
+  } catch (error) {
+    db.run('ROLLBACK');
+    console.error('[SQLite] Error upserting deliveries:', error);
+    throw error;
+  }
+
+  return count;
+}
+
+function getDeliveriesByStatus(status) {
+  if (!db) return [];
+  const stmt = db.prepare(`
+    SELECT * FROM deliveries WHERE status = ? ORDER BY created_at DESC
+  `);
+  stmt.bind([status]);
+
+  const results = [];
+  while (stmt.step()) {
+    const row = stmt.getAsObject();
+    // Parse JSON fields back to objects
+    if (row.delivery_items_json) {
+      try { row.deliveryItems = JSON.parse(row.delivery_items_json); } catch (e) { row.deliveryItems = []; }
+    } else {
+      row.deliveryItems = [];
+    }
+    if (row.delivery_packages_json) {
+      try { row.deliveryPackages = JSON.parse(row.delivery_packages_json); } catch (e) { row.deliveryPackages = []; }
+    } else {
+      row.deliveryPackages = [];
+    }
+    // Map snake_case to camelCase for frontend compatibility
+    row.tenantId = row.tenant_id;
+    row.tenantName = row.tenant_name;
+    row.itemCount = row.item_count;
+    row.packageCount = row.package_count;
+    row.packagedAt = row.packaged_at;
+    row.pickedUpAt = row.picked_up_at;
+    row.deliveredAt = row.delivered_at;
+    row.createdAt = row.created_at;
+    row.updatedAt = row.updated_at;
+    // Add tenant object for compatibility
+    row.tenant = { id: row.tenant_id, name: row.tenant_name };
+    results.push(row);
+  }
+  stmt.free();
+  return results;
+}
+
+function getDeliveryByBarcode(barcode) {
+  if (!db) return null;
+  const stmt = db.prepare(`
+    SELECT * FROM deliveries WHERE barcode = ? OR barcode LIKE ?
+  `);
+  // Match exact barcode or barcode prefix (for PKG variants)
+  stmt.bind([barcode, barcode + '%']);
+
+  if (stmt.step()) {
+    const row = stmt.getAsObject();
+    if (row.delivery_items_json) {
+      try { row.deliveryItems = JSON.parse(row.delivery_items_json); } catch (e) { row.deliveryItems = []; }
+    } else {
+      row.deliveryItems = [];
+    }
+    if (row.delivery_packages_json) {
+      try { row.deliveryPackages = JSON.parse(row.delivery_packages_json); } catch (e) { row.deliveryPackages = []; }
+    } else {
+      row.deliveryPackages = [];
+    }
+    row.tenantId = row.tenant_id;
+    row.tenantName = row.tenant_name;
+    row.itemCount = row.item_count;
+    row.packageCount = row.package_count;
+    row.packagedAt = row.packaged_at;
+    row.pickedUpAt = row.picked_up_at;
+    row.deliveredAt = row.delivered_at;
+    row.createdAt = row.created_at;
+    row.updatedAt = row.updated_at;
+    row.tenant = { id: row.tenant_id, name: row.tenant_name };
+    stmt.free();
+    return row;
+  }
+  stmt.free();
+  return null;
+}
+
+function updateDeliveryStatus(id, status, extraFields) {
+  if (!db) return false;
+  const now = new Date().toISOString();
+  let sql = 'UPDATE deliveries SET status = ?, updated_at = ?';
+  const params = [status, now];
+
+  if (extraFields) {
+    if (extraFields.packagedAt) { sql += ', packaged_at = ?'; params.push(extraFields.packagedAt); }
+    if (extraFields.pickedUpAt) { sql += ', picked_up_at = ?'; params.push(extraFields.pickedUpAt); }
+    if (extraFields.deliveredAt) { sql += ', delivered_at = ?'; params.push(extraFields.deliveredAt); }
+  }
+
+  sql += ' WHERE id = ?';
+  params.push(id);
+  db.run(sql, params);
+  markDirty();
+  return true;
+}
+
+function getDeliveriesCount() {
+  if (!db) return 0;
+  const result = db.exec('SELECT COUNT(*) FROM deliveries');
+  return result.length > 0 && result[0].values.length > 0 ? result[0].values[0][0] : 0;
+}
+
+// ==========================================
 // Pending Operations (Offline Queue)
 // ==========================================
 
@@ -476,6 +660,7 @@ function getDatabaseStats() {
   if (!db) return null;
 
   const itemsCount = getItemsCount();
+  const deliveriesCount = getDeliveriesCount();
 
   let tenantsCount = 0;
   let itemTypesCount = 0;
@@ -495,6 +680,7 @@ function getDatabaseStats() {
 
   return {
     itemsCount,
+    deliveriesCount,
     tenantsCount,
     itemTypesCount,
     pendingOperationsCount: pendingCount,
@@ -578,6 +764,12 @@ module.exports = {
   // Item Types
   upsertItemTypes,
   getAllItemTypes,
+  // Deliveries
+  upsertDeliveries,
+  getDeliveriesByStatus,
+  getDeliveryByBarcode,
+  updateDeliveryStatus,
+  getDeliveriesCount,
   // Pending Operations
   addPendingOperation,
   getPendingOperations,

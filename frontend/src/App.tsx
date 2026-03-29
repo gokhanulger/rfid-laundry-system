@@ -1,11 +1,12 @@
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { SocketProvider } from './contexts/SocketContext';
 import { ToastProvider } from './components/Toast';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Layout } from './components/Layout';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { OfflineBanner } from './components/OfflineBanner';
 
 // Pages
 import { LoginPage } from './pages/LoginPage';
@@ -66,12 +67,39 @@ function RoleBasedRedirect() {
   return <Navigate to="/dashboard" replace />;
 }
 
+// Sync React Query's online state with browser events
+onlineManager.setEventListener((setOnline) => {
+  const onlineHandler = () => setOnline(true);
+  const offlineHandler = () => setOnline(false);
+  window.addEventListener('online', onlineHandler);
+  window.addEventListener('offline', offlineHandler);
+  return () => {
+    window.removeEventListener('online', onlineHandler);
+    window.removeEventListener('offline', offlineHandler);
+  };
+});
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 30000,
-      retry: 1,
+      gcTime: 1000 * 60 * 30, // Keep cached data for 30 minutes
+      retry: (failureCount, error: any) => {
+        // Don't retry on 4xx errors (client errors)
+        if (error?.response?.status && error.response.status >= 400 && error.response.status < 500) {
+          return false;
+        }
+        // Retry up to 3 times for network/server errors
+        return failureCount < 3;
+      },
+      retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
       refetchOnWindowFocus: false,
+      refetchOnReconnect: true, // Refetch when coming back online
+      networkMode: 'offlineFirst', // Use cache when offline, fetch when online
+    },
+    mutations: {
+      retry: 1,
+      networkMode: 'offlineFirst',
     },
   },
 });
@@ -83,6 +111,7 @@ function App() {
         <ToastProvider>
           <AuthProvider>
             <SocketProvider>
+            <OfflineBanner />
             <HashRouter>
             <Routes>
               <Route path="/login" element={<LoginPage />} />

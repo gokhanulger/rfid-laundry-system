@@ -1422,6 +1422,66 @@ ipcMain.handle('db-debug-search', async (event, { searchTerm }) => {
   }
 });
 
+// Get deliveries by status from local cache
+ipcMain.handle('db-get-deliveries', async (event, { status }) => {
+  try {
+    const deliveries = db.getDeliveriesByStatus(status);
+    return { success: true, deliveries };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Get delivery by barcode from local cache
+ipcMain.handle('db-get-delivery-by-barcode', async (event, { barcode }) => {
+  try {
+    const delivery = db.getDeliveryByBarcode(barcode);
+    return { success: true, delivery };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Package delivery (with offline queue support)
+ipcMain.handle('db-package-delivery', async (event, { deliveryId }) => {
+  try {
+    const result = await syncService.packageDelivery(deliveryId);
+    return result;
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Cancel delivery (with offline queue support)
+ipcMain.handle('db-cancel-delivery', async (event, { deliveryId }) => {
+  try {
+    const result = await syncService.cancelDelivery(deliveryId);
+    return result;
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Create waybill (with offline queue support)
+ipcMain.handle('db-create-waybill', async (event, { deliveryIds, bagCount, notes }) => {
+  try {
+    const result = await syncService.createWaybill(deliveryIds, bagCount, notes);
+    return result;
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Sync only deliveries (quick refresh)
+ipcMain.handle('db-sync-deliveries', async () => {
+  try {
+    const result = await syncService.syncDeliveries();
+    return result;
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
 // ==========================================
 // End SQLite Database IPC Handlers
 // ==========================================
@@ -1439,6 +1499,32 @@ app.whenReady().then(async () => {
 
   // Set main window for sync service
   syncService.setMainWindow(mainWindow);
+
+  // Auto-sync when app comes back online
+  // Check every 30 seconds, and when online: process pending ops + sync deliveries
+  let wasOffline = false;
+  setInterval(async () => {
+    const isOnline = syncService.isOnline();
+    if (isOnline && wasOffline) {
+      console.log('[Main] Back online! Processing pending operations and syncing...');
+      try {
+        const pendingResult = await syncService.processPendingOperations();
+        console.log('[Main] Pending operations result:', pendingResult);
+        const deliveryResult = await syncService.syncDeliveries();
+        console.log('[Main] Delivery sync result:', deliveryResult);
+        // Notify renderer that sync completed
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('sync-status', {
+            status: 'completed',
+            message: `Online - ${pendingResult.processed || 0} bekleyen islem gonderildi`
+          });
+        }
+      } catch (e) {
+        console.error('[Main] Auto-sync error:', e.message);
+      }
+    }
+    wasOffline = !isOnline;
+  }, 30000);
 
   // Register global shortcut for DevTools (F12)
   globalShortcut.register('F12', () => {
