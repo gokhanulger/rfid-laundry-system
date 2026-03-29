@@ -6,6 +6,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -337,13 +339,19 @@ fun HomeScreen(
     var scanProgress by remember { mutableIntStateOf(0) }
     var foundIps by remember { mutableStateOf(listOf<String>()) }
     val context = androidx.compose.ui.platform.LocalContext.current
+    val antennaMask by viewModel.reader.antennaMask.collectAsState()
+    val antennaPower by viewModel.reader.antennaPower.collectAsState()
+    val antennaTagCounts by viewModel.reader.antennaTagCounts.collectAsState()
 
     if (showReaderSettings) {
         AlertDialog(
             onDismissRequest = { if (!isScanning) showReaderSettings = false },
             title = { Text("Anten Ayarları") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.heightIn(max = 500.dp).verticalScroll(rememberScrollState())
+                ) {
                     Text(
                         "Durum: ${readerStateText(readerState)}",
                         style = MaterialTheme.typography.bodyMedium,
@@ -420,6 +428,56 @@ fun HomeScreen(
                                 Text("Anten bulundu: $ip", fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
                             }
                         }
+                    }
+
+                    // ==========================================
+                    // Antenna Configuration
+                    // ==========================================
+                    Divider()
+                    Text("Anten Secimi", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Text("Aktif antenleri secin (birden fazla secilebilir)", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        for (i in 0..3) {
+                            val isEnabled = (antennaMask shr i) and 1 == 1
+                            val tagCount = antennaTagCounts[i]
+                            FilterChip(
+                                selected = isEnabled,
+                                onClick = {
+                                    val newMask = antennaMask xor (1 shl i)
+                                    if (newMask > 0) viewModel.reader.setAntennaMask(newMask)
+                                },
+                                label = {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("Ant ${i + 1}", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        if (tagCount > 0) {
+                                            Text("$tagCount tag", fontSize = 10.sp, color = Color.Gray)
+                                        }
+                                    }
+                                },
+                                leadingIcon = if (isEnabled) {
+                                    { Icon(Icons.Default.Check, null, modifier = Modifier.size(16.dp)) }
+                                } else null,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+
+                    // RF Power slider
+                    Text("RF Guc: ${antennaPower[0]} dBm", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+                    Slider(
+                        value = antennaPower[0].toFloat(),
+                        onValueChange = { viewModel.reader.setAllAntennaPower(it.toInt()) },
+                        valueRange = 5f..30f,
+                        steps = 24,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("5 dBm", fontSize = 10.sp, color = Color.Gray)
+                        Text("30 dBm (Max)", fontSize = 10.sp, color = Color.Gray)
                     }
                 }
             },

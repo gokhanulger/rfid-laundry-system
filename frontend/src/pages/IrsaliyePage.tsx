@@ -393,6 +393,42 @@ export function IrsaliyePage() {
     refetchInterval: online ? 5000 : false,
   });
 
+  // Delete delivery mutation
+  const cancelMutation = useMutation({
+    mutationFn: async (deliveryId: string) => {
+      if (hasLocalDb) {
+        const result = await (window as any).electronAPI.dbCancelDelivery(deliveryId);
+        if (result.success) {
+          if (!result.online) {
+            toast.info('Offline - silme kaydedildi, internet gelince sunucuya gonderilecek');
+          }
+          return;
+        }
+      }
+      return deliveriesApi.cancel(deliveryId);
+    },
+    onSuccess: () => {
+      toast.success('Teslimat silindi!');
+      queryClient.invalidateQueries({ queryKey: ['deliveries'] });
+    },
+    onError: (err) => toast.error('Silme basarisiz', getErrorMessage(err)),
+  });
+
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  const handleDeleteDelivery = (deliveryId: string) => {
+    setDeleteConfirmId(deliveryId);
+  };
+
+  const confirmDelete = () => {
+    if (deleteConfirmId) {
+      cancelMutation.mutate(deleteConfirmId);
+      // Remove from scanned packages if present
+      setScannedPackages(prev => prev.filter(sp => sp.delivery.id !== deleteConfirmId));
+      setDeleteConfirmId(null);
+    }
+  };
+
   const scanMutation = useMutation({
     mutationFn: async (barcode: string) => {
       const cleanBarcode = barcode.replace(/-PKG\d+$/, '');
@@ -2333,9 +2369,23 @@ export function IrsaliyePage() {
                                     </p>
                                   )}
 
-                                  <p className={`font-mono text-xs font-bold mb-2 ${inBag ? 'text-white' : isScanned ? 'text-white' : 'text-yellow-800'}`}>
-                                    {delivery.barcode.slice(-8)}
-                                  </p>
+                                  <div className="flex items-center justify-between mb-2">
+                                    <p className={`font-mono text-xs font-bold ${inBag ? 'text-white' : isScanned ? 'text-white' : 'text-yellow-800'}`}>
+                                      {delivery.barcode.slice(-8)}
+                                    </p>
+                                    {!inBag && !isScanned && (
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleDeleteDelivery(delivery.id);
+                                        }}
+                                        className="p-1 rounded hover:bg-red-200 text-red-400 hover:text-red-600 transition-colors"
+                                        title="Paketi Sil"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                  </div>
 
                                   <div className={`space-y-0.5 text-xs ${inBag ? 'text-green-100' : isScanned ? 'text-green-100' : 'text-yellow-700'}`}>
                                     {deliveryItems.slice(0, 3).map((item, idx) => (
@@ -2796,6 +2846,31 @@ export function IrsaliyePage() {
         </div>
       </div>
 
+      {/* Delete confirmation dialog */}
+      {deleteConfirmId && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-sm w-full mx-4 shadow-xl">
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Paketi Sil</h3>
+            <p className="text-gray-600 mb-6">Bu paketi silmek istediginize emin misiniz? Bu islem geri alinamaz.</p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setDeleteConfirmId(null)}
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+              >
+                Iptal
+              </button>
+              <button
+                onClick={confirmDelete}
+                disabled={cancelMutation.isPending}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                {cancelMutation.isPending ? 'Siliniyor...' : 'Evet, Sil'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
