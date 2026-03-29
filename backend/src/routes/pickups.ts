@@ -67,11 +67,12 @@ pickupsRouter.post('/', requireRole('driver', 'laundry_manager', 'system_admin')
     }
 
     // Send email notification to hotel owner
+    const pickupTenantEmail = tenant.email?.trim();
     try {
-      if (tenant.email) {
+      if (pickupTenantEmail) {
         const itemCount = itemIds?.length || 0;
-        await sendPickupConfirmation(tenant.email, tenant.name, bagCode, itemCount);
-        console.log(`📧 Pickup email sent to ${tenant.email} for tenant ${tenant.name}`);
+        await sendPickupConfirmation(pickupTenantEmail, tenant.name, bagCode, itemCount);
+        console.log(`📧 Pickup email sent to ${pickupTenantEmail} for tenant ${tenant.name}`);
       } else {
         console.warn(`⚠️ No email configured for tenant ${tenant.name} (${tenantId})`);
       }
@@ -257,10 +258,11 @@ pickupsRouter.post('/from-tags', requireRole('driver', 'laundry_manager', 'syste
     }
 
     // Send email notification to hotel owner
+    const tagTenantEmail = tenant.email?.trim();
     try {
-      if (tenant.email) {
-        await sendPickupConfirmation(tenant.email, tenant.name, bagCode, itemIds.length);
-        console.log(`📧 Pickup email sent to ${tenant.email} for tenant ${tenant.name}`);
+      if (tagTenantEmail) {
+        await sendPickupConfirmation(tagTenantEmail, tenant.name, bagCode, itemIds.length);
+        console.log(`📧 Pickup email sent to ${tagTenantEmail} for tenant ${tenant.name}`);
       } else {
         console.warn(`⚠️ No email configured for tenant ${tenant.name} (${tenantId})`);
       }

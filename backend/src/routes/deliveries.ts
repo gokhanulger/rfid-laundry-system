@@ -662,9 +662,10 @@ deliveriesRouter.post('/:id/deliver', requireRole('driver', 'laundry_manager', '
     });
 
     // Send email notification with PDF waybill to hotel owner
-    console.log(`📧 Delivery email check - tenant:`, JSON.stringify(existingDelivery.tenant, null, 2));
+    const tenantEmail = existingDelivery.tenant?.email?.trim();
+    console.log(`📧 Delivery email check - tenant: ${existingDelivery.tenant?.name}, email: "${tenantEmail || ''}"`);
     try {
-      if (existingDelivery.tenant?.email) {
+      if (tenantEmail) {
         // Build item summary for PDF
         const deliveryItemsWithTypes = await db.query.deliveryItems.findMany({
           where: eq(deliveryItems.deliveryId, id),
@@ -722,7 +723,7 @@ deliveriesRouter.post('/:id/deliver', requireRole('driver', 'laundry_manager', '
         });
 
         await sendWaybillDeliveryEmail(
-          existingDelivery.tenant.email,
+          tenantEmail,
           existingDelivery.tenant.name,
           updatedDelivery.barcode,
           totalItems,
