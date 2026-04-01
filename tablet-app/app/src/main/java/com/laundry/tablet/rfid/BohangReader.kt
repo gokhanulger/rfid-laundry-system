@@ -41,7 +41,7 @@ sealed class ReaderState {
 enum class ConnectionMode { USB_SERIAL, TCP }
 
 @Singleton
-class BohangReader @Inject constructor() {
+class BohangReader @Inject constructor() : RfidReader {
 
     companion object {
         private const val TAG = "BohangReader"
@@ -63,16 +63,26 @@ class BohangReader @Inject constructor() {
         private const val CMD_START_AUTO_READ: Byte = 0x2E
         private const val CMD_SET_RF_POWER: Byte = 0x76
         private val CMD_SET_ANTENNA_POWER: Byte = 0xB6.toByte()
+        private const val CMD_GET_ANT_CONFIG: Byte = 0x32 // EraLink GetAntConfig
+        private const val CMD_SET_ANTENNA: Byte = 0x33 // EraLink SetAntConfig
+
+        // 0xA0 Protocol (UHF RFID Serial Interface Protocol)
+        private val HEADER_A0 = 0xA0.toByte()
+        private const val A0_ADDRESS = 0xFF.toByte() // Public address
+        private val A0_CMD_SET_WORK_ANTENNA = 0x74.toByte()
+        private val A0_CMD_REAL_TIME_INVENTORY = 0x89.toByte()
+        private val A0_CMD_FAST_SWITCH_ANT_INVENTORY = 0x8A.toByte()
+        private val A0_CMD_SET_OUTPUT_POWER = 0x76.toByte()
     }
 
     private val _state = MutableStateFlow<ReaderState>(ReaderState.Disconnected)
-    val state: StateFlow<ReaderState> = _state.asStateFlow()
+    override val state: StateFlow<ReaderState> = _state.asStateFlow()
 
     private val _tags = MutableSharedFlow<RfidTag>(extraBufferCapacity = 100)
-    val tags: SharedFlow<RfidTag> = _tags.asSharedFlow()
+    override val tags: SharedFlow<RfidTag> = _tags.asSharedFlow()
 
     private val scannedTags = ConcurrentHashMap<String, RfidTag>()
-    val allTags: Map<String, RfidTag> get() = scannedTags.toMap()
+    override val allTags: Map<String, RfidTag> get() = scannedTags.toMap()
 
     private var dataBuffer = ByteArray(0)
 
@@ -89,6 +99,7 @@ class BohangReader @Inject constructor() {
     private var heartbeatJob: Job? = null
     private var healthCheckJob: Job? = null
     private var reconnectJob: Job? = null
+    private var inventoryPollJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private var currentIp: String = ""
@@ -97,22 +108,22 @@ class BohangReader @Inject constructor() {
     private var lastDataReceived: Long = 0
 
     // Antenna configuration
-    private val _antennaMask = MutableStateFlow(0x0F) // Default: all 4 antennas
-    val antennaMask: StateFlow<Int> = _antennaMask.asStateFlow()
+    private val _antennaMask = MutableStateFlow(0x03) // Default: antenna 1 + antenna 2
+    override val antennaMask: StateFlow<Int> = _antennaMask.asStateFlow()
 
     private val _antennaPower = MutableStateFlow(intArrayOf(30, 30, 30, 30)) // Per-antenna power (dBm)
-    val antennaPower: StateFlow<IntArray> = _antennaPower.asStateFlow()
+    override val antennaPower: StateFlow<IntArray> = _antennaPower.asStateFlow()
 
     // Per-antenna tag count stats
     private val _antennaTagCounts = MutableStateFlow(intArrayOf(0, 0, 0, 0))
-    val antennaTagCounts: StateFlow<IntArray> = _antennaTagCounts.asStateFlow()
+    override val antennaTagCounts: StateFlow<IntArray> = _antennaTagCounts.asStateFlow()
 
-    fun setAntennaMask(mask: Int) {
+    override fun setAntennaMask(mask: Int) {
         _antennaMask.value = mask and 0x0F
         Log.i(TAG, "Antenna mask set: 0x${Integer.toHexString(mask)} -> antennas: ${maskToAntennaList(mask)}")
     }
 
-    fun setAntennaPower(antennaIndex: Int, power: Int) {
+    override fun setAntennaPower(antennaIndex: Int, power: Int) {
         val p = _antennaPower.value.copyOf()
         p[antennaIndex] = power.coerceIn(0, 30)
         _antennaPower.value = p
@@ -125,7 +136,7 @@ class BohangReader @Inject constructor() {
         }
     }
 
-    fun setAllAntennaPower(power: Int) {
+    override fun setAllAntennaPower(power: Int) {
         val p = power.coerceIn(0, 30)
         _antennaPower.value = intArrayOf(p, p, p, p)
         scope.launch {
@@ -146,7 +157,7 @@ class BohangReader @Inject constructor() {
     /**
      * Find FTDI/CH340/CP2102 USB serial devices
      */
-    fun findUsbDevices(context: Context): List<UsbSerialDriver> {
+    override fun findUsbDevices(context: Context): List<UsbSerialDriver> {
         val manager = context.getSystemService(Context.USB_SERVICE) as UsbManager
         return UsbSerialProber.getDefaultProber().findAllDrivers(manager)
     }
@@ -154,7 +165,7 @@ class BohangReader @Inject constructor() {
     /**
      * Connect via USB Serial (FTDI FT232R etc.)
      */
-    fun connectUsb(context: Context, driver: UsbSerialDriver? = null) {
+    override fun connectUsb(context: Context, driver: UsbSerialDriver?) {
         connectionMode = ConnectionMode.USB_SERIAL
         userWantsConnection = true
         reconnectJob?.cancel()
@@ -261,8 +272,9 @@ class BohangReader @Inject constructor() {
                     }
                     if (bytesRead > 0) {
                         lastDataReceived = System.currentTimeMillis()
-                        Log.d(TAG, "USB received $bytesRead bytes")
-                        handleData(buffer.copyOf(bytesRead))
+                        val raw = buffer.copyOf(bytesRead)
+                        Log.d(TAG, "USB RX ${bytesRead}b: [${raw.take(30).joinToString(",") { "0x%02X".format(it) }}]")
+                        handleData(raw)
                     }
                 }
                 Log.w(TAG, "USB read loop ended, isActive=$isActive")
@@ -270,7 +282,7 @@ class BohangReader @Inject constructor() {
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "USB connection error: ${e.message}")
-                _state.value = ReaderState.Error(e.message ?: "USB bağlantı hatası")
+                _state.value = ReaderState.Error("USB baglanti hatasi. Kabloyu kontrol edin.")
             } finally {
                 closeAll()
                 if (_state.value !is ReaderState.Disconnected) {
@@ -298,7 +310,7 @@ class BohangReader @Inject constructor() {
     // TCP Connection (for network antenna)
     // ==========================================
 
-    fun connectTcp(ip: String, port: Int = DEFAULT_PORT) {
+    override fun connectTcp(ip: String, port: Int) {
         connectionMode = ConnectionMode.TCP
         currentIp = ip
         currentPort = port
@@ -348,7 +360,7 @@ class BohangReader @Inject constructor() {
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "TCP connection error: ${e.message}")
-                _state.value = ReaderState.Error(e.message ?: "TCP bağlantı hatası")
+                _state.value = ReaderState.Error("Anten baglantisi kurulamadi. IP adresini ve ag baglantisini kontrol edin.")
             } finally {
                 closeAll()
                 if (_state.value !is ReaderState.Disconnected) {
@@ -372,10 +384,10 @@ class BohangReader @Inject constructor() {
         }
     }
 
-    fun scanNetwork(
-        networkPrefix: String = "192.168.1",
-        onProgress: (Int) -> Unit = {},
-        onFound: (String) -> Unit = {}
+    override fun scanNetwork(
+        networkPrefix: String,
+        onProgress: (Int) -> Unit,
+        onFound: (String) -> Unit
     ): Job {
         return scope.launch {
             Log.i(TAG, "Scanning network $networkPrefix.*...")
@@ -421,10 +433,11 @@ class BohangReader @Inject constructor() {
     // Common
     // ==========================================
 
-    fun stopInventory() {
+    override fun stopInventory() {
+        inventoryPollJob?.cancel()
         scope.launch {
             try {
-                // Send multiple times - BOHANG sometimes ignores single command
+                // Stop via CM protocol
                 sendCommand(CMD_STOP_INVENTORY)
                 delay(100)
                 sendCommand(CMD_STOP_INVENTORY)
@@ -438,24 +451,82 @@ class BohangReader @Inject constructor() {
         }
     }
 
-    fun startInventory() {
+    override fun startInventory() {
         scope.launch {
             try {
-                val mask = _antennaMask.value.toByte()
+                val mask = _antennaMask.value
+                val enabledAntennas = (0..3).filter { (mask shr it) and 1 == 1 }
+
+                // Set only 1 antenna active, start auto-read
+                if (enabledAntennas.isNotEmpty()) {
+                    setSingleAntennaConfig(enabledAntennas[0])
+                    delay(200)
+                }
+
                 sendCommand(CMD_START_AUTO_READ)
-                delay(200)
-                sendCommand(CMD_START_INVENTORY, byteArrayOf(mask))
-                delay(300)
-                sendCommand(CMD_START_INVENTORY)
-                Log.i(TAG, "START_INVENTORY sent (antenna mask=0x${Integer.toHexString(_antennaMask.value)}, antennas: ${maskToAntennaList(_antennaMask.value)})")
+                Log.i(TAG, "START_AUTO_READ sent (antenna ${enabledAntennas.firstOrNull()?.plus(1) ?: 1})")
                 _state.value = ReaderState.Scanning
+
+                // Cycle through antennas if multiple enabled
+                if (enabledAntennas.size > 1) {
+                    startAntennaCycling(enabledAntennas)
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start inventory: ${e.message}")
             }
         }
     }
 
-    fun disconnect() {
+    /**
+     * Set antenna config via CM 0x33.
+     * Each antenna = 12 bytes:
+     *   [0-3] u32_LE: enable (0=off, 1=on)
+     *   [4-7] u32_LE: dwelltime in ms
+     *   [8-11] u32_LE: power in dBm * 10 (e.g. 30dBm = 300)
+     */
+    private fun setSingleAntennaConfig(antennaIndex: Int) {
+        val payload = ByteArray(48)
+        val powers = _antennaPower.value
+        val dwelltime = 100 // 100ms per antenna (reader default)
+        for (i in 0..3) {
+            val off = i * 12
+            val enabled = if (i == antennaIndex) 1 else 0
+            val powerX10 = powers[i] * 10 // dBm * 10
+
+            // [0-3] enable u32 LE
+            payload[off] = (enabled and 0xFF).toByte()
+            // [4-7] dwelltime u32 LE
+            payload[off + 4] = (dwelltime and 0xFF).toByte()
+            payload[off + 5] = ((dwelltime shr 8) and 0xFF).toByte()
+            // [8-11] power u32 LE
+            payload[off + 8] = (powerX10 and 0xFF).toByte()
+            payload[off + 9] = ((powerX10 shr 8) and 0xFF).toByte()
+        }
+        sendCommand(CMD_SET_ANTENNA, payload)
+        Log.i(TAG, "SetAntConfig: ant${antennaIndex + 1} active, dwell=${dwelltime}ms, power=${powers[antennaIndex]}dBm")
+    }
+
+    private fun startAntennaCycling(enabledAntennas: List<Int>) {
+        inventoryPollJob?.cancel()
+        var index = 0
+        inventoryPollJob = scope.launch {
+            while (isActive) {
+                delay(2000) // 2s per antenna - enough time to read
+                try {
+                    sendCommand(CMD_STOP_INVENTORY)
+                    delay(150)
+                    index++
+                    val antId = enabledAntennas[index % enabledAntennas.size]
+                    setSingleAntennaConfig(antId)
+                    delay(150)
+                    sendCommand(CMD_START_AUTO_READ)
+                    Log.d(TAG, "Cycled to antenna ${antId + 1}")
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
+    override fun disconnect() {
         userWantsConnection = false
         reconnectJob?.cancel()
         heartbeatJob?.cancel()
@@ -470,12 +541,12 @@ class BohangReader @Inject constructor() {
         _state.value = ReaderState.Disconnected
     }
 
-    fun clearTags() {
+    override fun clearTags() {
         scannedTags.clear()
         _antennaTagCounts.value = intArrayOf(0, 0, 0, 0)
     }
 
-    fun destroy() {
+    override fun destroy() {
         userWantsConnection = false
         scope.cancel()
         closeAll()
@@ -490,9 +561,10 @@ class BohangReader @Inject constructor() {
         val p = _antennaPower.value
         sendCommand(CMD_SET_RF_POWER, byteArrayOf(p[0].toByte(), p[1].toByte(), p[2].toByte(), p[3].toByte()))
         delay(200)
-        sendCommand(CMD_SET_ANTENNA_POWER, byteArrayOf(p[0].toByte()))
+        // Query antenna config
+        sendCommand(CMD_GET_ANT_CONFIG)
         delay(200)
-        Log.i(TAG, "BOHANG initialized - RF power [${p[0]},${p[1]},${p[2]},${p[3]}] dBm, antenna mask=0x${Integer.toHexString(_antennaMask.value)}")
+        Log.i(TAG, "BOHANG initialized - RF power ${p[0]} dBm, antenna mask=0x${Integer.toHexString(_antennaMask.value)}")
     }
 
     private fun startHeartbeat() {
@@ -523,6 +595,7 @@ class BohangReader @Inject constructor() {
 
     private fun sendCommand(cmd: Byte, data: ByteArray = ByteArray(0)) {
         val frame = buildCommand(cmd, data)
+        Log.d(TAG, "TX cmd=0x${"%02X".format(cmd)} data=[${data.joinToString(",") { "0x%02X".format(it) }}] frame=[${frame.joinToString(",") { "0x%02X".format(it) }}]")
         try {
             when (connectionMode) {
                 ConnectionMode.USB_SERIAL -> serialPort?.write(frame, 100)
@@ -547,19 +620,58 @@ class BohangReader @Inject constructor() {
     }
 
     // ==========================================
+    // 0xA0 Protocol (UHF RFID Serial Interface)
+    // ==========================================
+
+    private fun buildA0Command(cmd: Byte, data: ByteArray = ByteArray(0)): ByteArray {
+        // Format: Head(0xA0) | Len | Address | Cmd | Data... | Check
+        val len = (3 + data.size).toByte() // Address + Cmd + Data + Check
+        val frame = ByteArray(4 + data.size + 1) // Head + Len + Address + Cmd + Data + Check
+        frame[0] = HEADER_A0
+        frame[1] = len
+        frame[2] = A0_ADDRESS
+        frame[3] = cmd
+        data.copyInto(frame, 4)
+        // Checksum: sum of all bytes except Head and Check
+        var checksum = 0
+        for (i in 1 until frame.size - 1) {
+            checksum += frame[i].toInt() and 0xFF
+        }
+        frame[frame.size - 1] = (checksum and 0xFF).toByte()
+        return frame
+    }
+
+    private fun sendA0Command(cmd: Byte, data: ByteArray = ByteArray(0)) {
+        val frame = buildA0Command(cmd, data)
+        Log.d(TAG, "TX A0 cmd=0x${"%02X".format(cmd)} frame=[${frame.joinToString(",") { "0x%02X".format(it) }}]")
+        try {
+            when (connectionMode) {
+                ConnectionMode.USB_SERIAL -> serialPort?.write(frame, 100)
+                ConnectionMode.TCP -> { tcpOutput?.write(frame); tcpOutput?.flush() }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Send A0 error: ${e.message}")
+        }
+    }
+
+    // ==========================================
     // BOHANG CM Protocol
     // ==========================================
 
     private fun buildCommand(cmd: Byte, data: ByteArray = ByteArray(0)): ByteArray {
-        val frame = ByteArray(5 + data.size + 2)
-        frame[0] = HEADER_H
-        frame[1] = HEADER_L
-        frame[2] = cmd
-        frame[3] = 0x00
-        frame[4] = data.size.toByte()
-        data.copyInto(frame, 5)
-        frame[frame.size - 2] = 0x00
-        frame[frame.size - 1] = 0x00
+        // CM frame: 'C' 'M' CMD ADDR LEN_LO LEN_HI [PAYLOAD] BCC
+        val frame = ByteArray(7 + data.size)
+        frame[0] = HEADER_H                                    // 'C'
+        frame[1] = HEADER_L                                    // 'M'
+        frame[2] = cmd                                         // Command
+        frame[3] = 0x00                                        // Address
+        frame[4] = (data.size and 0xFF).toByte()               // Length LSB
+        frame[5] = ((data.size shr 8) and 0xFF).toByte()       // Length MSB
+        data.copyInto(frame, 6)                                // Payload
+        // BCC = XOR of payload bytes
+        var bcc: Byte = 0
+        for (b in data) { bcc = (bcc.toInt() xor b.toInt()).toByte() }
+        frame[frame.size - 1] = bcc
         return frame
     }
 
@@ -570,32 +682,41 @@ class BohangReader @Inject constructor() {
             if (buffer[offset] != HEADER_H ||
                 (offset + 1 < buffer.size && buffer[offset + 1] != HEADER_L)
             ) { offset++; continue }
-            if (buffer.size - offset < 5) break
+            if (buffer.size - offset < 7) break // min: C M CMD ADDR LEN_LO LEN_HI BCC
             val cmd = buffer[offset + 2]
-            val dataLen = buffer[offset + 4].toInt() and 0xFF
-            val frameLen = 5 + dataLen
+            val lenLo = buffer[offset + 4].toInt() and 0xFF
+            val lenHi = buffer[offset + 5].toInt() and 0xFF
+            val dataLen = lenLo or (lenHi shl 8)
+            if (dataLen > 4096) { offset++; continue } // sanity check
+            val frameLen = 7 + dataLen // header(6) + payload + BCC(1)
             if (buffer.size - offset < frameLen) break
-            val data = buffer.copyOfRange(offset + 5, offset + 5 + dataLen)
+            val data = buffer.copyOfRange(offset + 6, offset + 6 + dataLen)
             results.add(CmFrame(cmd, data))
             offset += frameLen
-            while (offset < buffer.size && buffer[offset] == 0x00.toByte() &&
-                (offset + 1 >= buffer.size || buffer[offset + 1] != HEADER_L)) { offset++ }
         }
         val remaining = if (offset < buffer.size) buffer.copyOfRange(offset, buffer.size) else ByteArray(0)
         return Pair(results, remaining)
     }
 
     private fun handleData(data: ByteArray) {
+        lastDataReceived = System.currentTimeMillis()
         dataBuffer = dataBuffer + data
         if (dataBuffer.size > 8192) {
             dataBuffer = dataBuffer.copyOfRange(dataBuffer.size - 4096, dataBuffer.size)
         }
+
+        // Strip 0xA0 response frames from buffer before CM parsing
+        // (0xA0 responses from set_work_antenna etc corrupt CM parser)
+        stripA0Frames()
+
+        // Parse CM protocol frames
         val (frames, remaining) = parseResponse(dataBuffer)
         dataBuffer = remaining
         val foundInPacket = mutableSetOf<String>()
         for (frame in frames) {
-            if (frame.cmd == CMD_HEARTBEAT) {
-                try { sendCommand(CMD_HEARTBEAT) } catch (_: Exception) { }
+            if (frame.cmd == CMD_HEARTBEAT) continue
+            if (frame.cmd == CMD_GET_VERSION || frame.cmd == CMD_GET_ANT_CONFIG || frame.cmd == CMD_SET_ANTENNA) {
+                Log.i(TAG, "Response cmd=0x${"%02X".format(frame.cmd)} len=${frame.data.size} data=[${frame.data.joinToString(",") { "0x%02X".format(it) }}]")
                 continue
             }
             if (frame.data.size >= 12) {
@@ -603,13 +724,11 @@ class BohangReader @Inject constructor() {
                 if (epc != null && epc !in foundInPacket) {
                     foundInPacket.add(epc)
                     val existing = scannedTags[epc]
-                    // BOHANG: first byte of inventory response is often antenna number
                     val antenna = if (frame.data.isNotEmpty()) (frame.data[0].toInt() and 0x0F) else 0
                     val rssi = if (frame.data.size >= 2) (frame.data[frame.data.size - 1].toInt()) else -50
                     val tag = RfidTag(epc, rssi, (existing?.count ?: 0) + 1, antenna, System.currentTimeMillis())
                     scannedTags[epc] = tag
                     _tags.tryEmit(tag)
-                    // Update per-antenna tag count
                     if (antenna in 1..4) {
                         val counts = _antennaTagCounts.value.copyOf()
                         counts[antenna - 1]++
@@ -617,6 +736,24 @@ class BohangReader @Inject constructor() {
                     }
                 }
             }
+        }
+    }
+
+    /** Remove 0xA0 protocol response frames from buffer so they don't corrupt CM parsing */
+    private fun stripA0Frames() {
+        var i = 0
+        while (i < dataBuffer.size) {
+            if (dataBuffer[i] == HEADER_A0 && i + 1 < dataBuffer.size) {
+                val len = dataBuffer[i + 1].toInt() and 0xFF
+                val totalLen = 2 + len
+                if (i + totalLen <= dataBuffer.size) {
+                    // Remove this 0xA0 frame
+                    dataBuffer = dataBuffer.copyOfRange(0, i) +
+                        (if (i + totalLen < dataBuffer.size) dataBuffer.copyOfRange(i + totalLen, dataBuffer.size) else ByteArray(0))
+                    continue // Don't increment, check same position
+                }
+            }
+            i++
         }
     }
 

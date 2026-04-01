@@ -36,9 +36,14 @@ import androidx.lifecycle.viewModelScope
 import com.laundry.tablet.data.Repository
 import com.laundry.tablet.data.SyncState
 import com.laundry.tablet.data.TenantDto
+import com.laundry.tablet.data.friendlyError
 import com.laundry.tablet.di.AppModule
-import com.laundry.tablet.rfid.BohangReader
+import com.laundry.tablet.rfid.ReaderManager
 import com.laundry.tablet.rfid.ReaderState
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -54,12 +59,15 @@ import javax.inject.Inject
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val repository: Repository,
-    val reader: BohangReader,
+    val reader: ReaderManager,
     @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: Context
 ) : ViewModel() {
 
     private val _tenants = MutableStateFlow<List<TenantDto>>(emptyList())
     val tenants: StateFlow<List<TenantDto>> = _tenants.asStateFlow()
+
+    private val _loadedTenantIds = MutableStateFlow<Set<String>>(emptySet())
+    val loadedTenantIds: StateFlow<Set<String>> = _loadedTenantIds.asStateFlow()
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
@@ -80,17 +88,28 @@ class HomeViewModel @Inject constructor(
 
     private var autoSyncJob: Job? = null
 
+    private val prefs = appContext.getSharedPreferences("reader_settings", Context.MODE_PRIVATE)
+
     init {
+        // Restore saved antenna mask
+        val savedMask = prefs.getInt("antenna_mask", 0x03)
+        reader.setAntennaMask(savedMask)
+
         if (AppModule.authToken != null) {
             _isLoggedIn.value = true
             loadTenants()
             syncItemsToLocal()
         } else {
-            // Auto login
             autoLogin()
         }
         startAutoSync()
         autoConnectUsb()
+        watchNetwork()
+    }
+
+    fun saveAntennaMask(mask: Int) {
+        reader.setAntennaMask(mask)
+        prefs.edit().putInt("antenna_mask", mask).apply()
     }
 
     private fun autoConnectUsb() {
@@ -106,6 +125,26 @@ class HomeViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    private fun watchNetwork() {
+        val cm = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+        cm.registerNetworkCallback(request, object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                Log.i("HomeVM", "Network available - triggering auto sync")
+                viewModelScope.launch {
+                    delay(2000) // Wait for connection to stabilize
+                    if (_isLoggedIn.value) {
+                        repository.syncItems(force = false)
+                    } else {
+                        autoLogin()
+                    }
+                }
+            }
+        })
     }
 
     private fun startAutoSync() {
@@ -146,7 +185,7 @@ class HomeViewModel @Inject constructor(
                     loadTenants() // Will load from local DB
                     _loginError.value = null
                 } else {
-                    _loginError.value = "Internet baglantisi yok ve yerel veri bulunamadi"
+                    _loginError.value = "${friendlyError(e)}\nHenuz yerel veri yok - ilk kullanim icin internet gerekli."
                 }
             } finally {
                 _isLoading.value = false
@@ -163,11 +202,20 @@ class HomeViewModel @Inject constructor(
             _isLoading.value = true
             try {
                 _tenants.value = repository.getTenants(forceRefresh = true)
+                _loadedTenantIds.value = repository.getLoadedTenantIds().toSet()
             } catch (e: Exception) {
                 // Keep cached
             } finally {
                 _isLoading.value = false
             }
+        }
+    }
+
+    fun refreshLoadedTenants() {
+        viewModelScope.launch {
+            try {
+                _loadedTenantIds.value = repository.getLoadedTenantIds().toSet()
+            } catch (_: Exception) {}
         }
     }
 
@@ -193,6 +241,7 @@ class HomeViewModel @Inject constructor(
 fun HomeScreen(
     onNavigateToDirtyScan: (tenantId: String, tenantName: String) -> Unit,
     onNavigateToDelivery: (tenantId: String, tenantName: String) -> Unit,
+    onNavigateToVehicleLoad: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val isLoggedIn by viewModel.isLoggedIn.collectAsState()
@@ -205,6 +254,7 @@ fun HomeScreen(
     val itemCount by viewModel.itemCount.collectAsState()
     val isOnline by viewModel.isOnline.collectAsState()
     val pendingOpsCount by viewModel.pendingCount.collectAsState()
+    val loadedTenantIds by viewModel.loadedTenantIds.collectAsState()
 
     var selectedMode by remember { mutableStateOf<String?>(null) } // "dirty" or "delivery"
     var searchQuery by remember { mutableStateOf("") }
@@ -304,16 +354,31 @@ fun HomeScreen(
                 modifier = Modifier,
                 onSelectDirty = { selectedMode = "dirty" },
                 onSelectDelivery = { selectedMode = "delivery" },
+                onSelectVehicleLoad = onNavigateToVehicleLoad,
                 syncState = syncState,
                 itemCount = itemCount,
                 onSync = { viewModel.syncItemsToLocal(force = true) }
             )
         } else {
+            // Refresh loaded tenants when entering delivery mode
+            LaunchedEffect(selectedMode) {
+                if (selectedMode == "delivery") {
+                    viewModel.refreshLoadedTenants()
+                }
+            }
+
+            // For delivery mode, only show hotels that have loaded packages
+            val displayTenants = if (selectedMode == "delivery") {
+                tenants.filter { it.id in loadedTenantIds }
+            } else {
+                tenants
+            }
+
             // Hotel selection
             HotelSelectionContent(
                 modifier = Modifier,
                 mode = selectedMode!!,
-                tenants = tenants,
+                tenants = displayTenants,
                 searchQuery = searchQuery,
                 isLoading = isLoading,
                 onSearchChanged = { searchQuery = it },
@@ -356,6 +421,15 @@ fun HomeScreen(
                         "Durum: ${readerStateText(readerState)}",
                         style = MaterialTheme.typography.bodyMedium,
                         color = readerStateColor(readerState)
+                    )
+                    val readerTypeName = when (viewModel.reader.detectedType) {
+                        com.laundry.tablet.rfid.ReaderType.BOHANG -> "Bohang CM"
+                        com.laundry.tablet.rfid.ReaderType.MW8817 -> "MW-8817 MM"
+                    }
+                    Text(
+                        "Reader: $readerTypeName",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray
                     )
 
                     // USB Serial connect button
@@ -448,7 +522,7 @@ fun HomeScreen(
                                 selected = isEnabled,
                                 onClick = {
                                     val newMask = antennaMask xor (1 shl i)
-                                    if (newMask > 0) viewModel.reader.setAntennaMask(newMask)
+                                    if (newMask > 0) viewModel.saveAntennaMask(newMask)
                                 },
                                 label = {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -586,6 +660,7 @@ private fun ModeSelectionContent(
     modifier: Modifier = Modifier,
     onSelectDirty: () -> Unit,
     onSelectDelivery: () -> Unit,
+    onSelectVehicleLoad: () -> Unit = {},
     syncState: SyncState = SyncState.Idle,
     itemCount: Int = 0,
     onSync: () -> Unit = {}
@@ -618,7 +693,7 @@ private fun ModeSelectionContent(
                     }
                     is SyncState.Error -> {
                         Icon(Icons.Default.Error, null, tint = Color(0xFFC62828), modifier = Modifier.size(24.dp))
-                        Text("Sync hatasi: ${syncState.message}", fontSize = 16.sp)
+                        Text("Senkronizasyon basarisiz. Internet baglantinizi kontrol edin.", fontSize = 16.sp)
                     }
                     else -> {
                         Icon(Icons.Default.Storage, null, tint = Color.Gray, modifier = Modifier.size(24.dp))
@@ -638,7 +713,7 @@ private fun ModeSelectionContent(
 
         Row(
             modifier = Modifier.fillMaxSize(),
-            horizontalArrangement = Arrangement.spacedBy(32.dp, Alignment.CenterHorizontally),
+            horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically
         ) {
             ModeCard(
@@ -650,7 +725,21 @@ private fun ModeSelectionContent(
                     Icon(
                         Icons.Default.LocalShipping,
                         contentDescription = null,
-                        modifier = Modifier.size(120.dp),
+                        modifier = Modifier.size(100.dp),
+                        tint = Color.White
+                    )
+                }
+            )
+            ModeCard(
+                title = "Araca\nYukle",
+                color = Color(0xFF1565C0),
+                modifier = Modifier.weight(1f).fillMaxHeight(0.9f),
+                onClick = onSelectVehicleLoad,
+                iconContent = {
+                    Icon(
+                        Icons.Default.DirectionsCar,
+                        contentDescription = null,
+                        modifier = Modifier.size(100.dp),
                         tint = Color.White
                     )
                 }
@@ -660,7 +749,7 @@ private fun ModeSelectionContent(
                 color = Color(0xFF2E7D32),
                 modifier = Modifier.weight(1f).fillMaxHeight(0.9f),
                 onClick = onSelectDelivery,
-                iconContent = { StackedTowelsIcon(modifier = Modifier.size(120.dp)) }
+                iconContent = { StackedTowelsIcon(modifier = Modifier.size(100.dp)) }
             )
         }
     }
@@ -777,7 +866,10 @@ private fun HotelSelectionContent(
                 Icon(Icons.Default.ArrowBack, "Geri", modifier = Modifier.size(32.dp))
             }
             Text(
-                if (mode == "dirty") "Kirli Tarama - Otel Secin" else "Temiz Teslim - Otel Secin",
+                when (mode) {
+                    "dirty" -> "Kirli Tarama - Otel Secin"
+                    else -> "Temiz Teslim - Otel Secin"
+                },
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f)
@@ -808,7 +900,32 @@ private fun HotelSelectionContent(
             }
         } else if (filteredTenants.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Otel bulunamadi", fontSize = 24.sp)
+                if (mode == "delivery") {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            Icons.Default.LocalShipping, null,
+                            modifier = Modifier.size(80.dp),
+                            tint = Color.Gray.copy(alpha = 0.4f)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            "Teslimata hazir otel yok",
+                            fontSize = 26.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.Gray
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            "Once \"Araca Yukle\" ekranindan teslim edilecek\notellerin paket barkodlarini okutarak\nteslimata hazir hale getirin.",
+                            fontSize = 20.sp,
+                            color = Color(0xFF777777),
+                            textAlign = TextAlign.Center,
+                            lineHeight = 28.sp
+                        )
+                    }
+                } else {
+                    Text("Otel bulunamadi", fontSize = 24.sp)
+                }
             }
         } else {
             LazyVerticalGrid(

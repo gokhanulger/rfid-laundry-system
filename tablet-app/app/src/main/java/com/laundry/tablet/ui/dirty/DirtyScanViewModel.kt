@@ -5,7 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.laundry.tablet.data.MatchedItem
 import com.laundry.tablet.data.Repository
-import com.laundry.tablet.rfid.BohangReader
+import com.laundry.tablet.data.friendlyError
+import com.laundry.tablet.rfid.ReaderManager
 import com.laundry.tablet.rfid.ReaderState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.*
@@ -34,7 +35,7 @@ data class WhatsAppMessage(
 @HiltViewModel
 class DirtyScanViewModel @Inject constructor(
     private val repository: Repository,
-    val reader: BohangReader
+    val reader: ReaderManager
 ) : ViewModel() {
 
     companion object {
@@ -151,7 +152,7 @@ class DirtyScanViewModel @Inject constructor(
                 }
             } catch (e: Exception) {
                 _uiState.update {
-                    it.copy(isSubmitting = false, error = "Kayit hatasi: ${e.message}")
+                    it.copy(isSubmitting = false, error = "Kayit yapilamadi: ${friendlyError(e)}")
                 }
             }
         }
