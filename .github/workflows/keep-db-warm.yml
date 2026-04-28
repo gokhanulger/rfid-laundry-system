@@ -21,5 +21,5 @@ jobs:
             ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
             code=$(curl -s -o /dev/null -w "%{http_code} %{time_total}s" --max-time 30 "$URL" || echo "000 timeout")
             echo "[$ts] ping $i -> $code"
-            [ $i -lt 3 ] && sleep 90
+            if [ $i -lt 3 ]; then sleep 90; fi
           done
