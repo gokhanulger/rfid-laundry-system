@@ -3,8 +3,8 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { db } from '../db';
 import { users } from '../db/schema';
-import { eq } from 'drizzle-orm';
-import { requireAuth, AuthRequest } from '../middleware/auth';
+import { eq, and } from 'drizzle-orm';
+import { requireAuth, AuthRequest, requireRole } from '../middleware/auth';
 
 export const authRouter = Router();
 
@@ -156,4 +156,61 @@ authRouter.get('/me', requireAuth, async (req: AuthRequest, res) => {
     tenantId: req.user!.tenantId,
     tenantName: user?.tenant?.name || null,
   });
+});
+
+// Impersonate a hotel account (admin only) - logs in as the hotel's owner user.
+// Returns a JWT for that hotel_owner so admin can view/operate the hotel portal.
+authRouter.post('/impersonate', requireAuth, requireRole('system_admin', 'laundry_manager'), async (req: AuthRequest, res) => {
+  try {
+    const { tenantId } = req.body;
+    if (!tenantId) {
+      return res.status(400).json({ error: 'tenantId gerekli' });
+    }
+
+    // Find an active hotel_owner user belonging to this hotel
+    const target = await db.query.users.findFirst({
+      where: and(
+        eq(users.tenantId, tenantId),
+        eq(users.role, 'hotel_owner'),
+        eq(users.isActive, true)
+      ),
+      with: { tenant: true },
+    });
+
+    if (!target) {
+      return res.status(404).json({
+        error: 'Bu otel için kullanıcı hesabı bulunamadı. Önce bu otele hotel_owner rolünde bir kullanıcı oluşturun.',
+      });
+    }
+
+    const token = jwt.sign(
+      {
+        id: target.id,
+        email: target.email,
+        firstName: target.firstName,
+        lastName: target.lastName,
+        role: target.role,
+        tenantId: target.tenantId,
+      },
+      JWT_SECRET as string,
+      { expiresIn: JWT_EXPIRES_IN }
+    );
+
+    console.log(`🔓 Impersonation: ${req.user!.email} (${req.user!.role}) -> ${target.email} (hotel: ${target.tenant?.name})`);
+
+    res.json({
+      id: target.id,
+      email: target.email,
+      firstName: target.firstName,
+      lastName: target.lastName,
+      role: target.role,
+      tenantId: target.tenantId,
+      tenantName: target.tenant?.name || null,
+      token,
+      impersonating: true,
+    });
+  } catch (error) {
+    console.error('Impersonate error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });

@@ -5,6 +5,7 @@ import { eq, and, inArray, desc } from 'drizzle-orm';
 import { requireAuth, AuthRequest, requireRole } from '../middleware/auth';
 import { z } from 'zod';
 import { sendWaybillDeliveryEmail } from '../services/email';
+import { sendDeliveryWhatsApp } from '../services/whatsapp';
 import { generateWaybillPdf } from '../services/waybill-pdf';
 import { emitDeliveryCreated, emitDeliveryUpdated, emitDashboardUpdate } from '../services/realtime';
 
@@ -661,61 +662,65 @@ deliveriesRouter.post('/:id/deliver', requireRole('driver', 'laundry_manager', '
       return { updatedDelivery: updated, deliveryItemsList: itemsList };
     });
 
-    // Send email notification with PDF waybill to hotel owner
+    // Notify hotel: email PDF irsaliye + WhatsApp message (hotel receives clean laundry)
     const tenantEmail = existingDelivery.tenant?.email?.trim();
-    console.log(`📧 Delivery email check - tenant: ${existingDelivery.tenant?.name}, email: "${tenantEmail || ''}"`);
+    const tenantPhone = (existingDelivery.tenant?.notificationPhone || existingDelivery.tenant?.phone)?.trim();
+    console.log(`📧 Delivery notify - tenant: ${existingDelivery.tenant?.name}, email: "${tenantEmail || ''}", phone: "${tenantPhone || ''}"`);
     try {
-      if (tenantEmail) {
-        // Build item summary for PDF
-        const deliveryItemsWithTypes = await db.query.deliveryItems.findMany({
-          where: eq(deliveryItems.deliveryId, id),
-          with: {
-            item: {
-              with: {
-                itemType: true,
-              },
+      // Build item summary once (shared by PDF email and WhatsApp)
+      const deliveryItemsWithTypes = await db.query.deliveryItems.findMany({
+        where: eq(deliveryItems.deliveryId, id),
+        with: {
+          item: {
+            with: {
+              itemType: true,
             },
           },
+        },
+      });
+
+      const itemSummaryMap: Record<string, { typeName: string; count: number }> = {};
+      let totalItems = 0;
+
+      // Check notes for label data first
+      if (updatedDelivery.notes) {
+        try {
+          const labelData = JSON.parse(updatedDelivery.notes);
+          if (Array.isArray(labelData)) {
+            labelData.forEach((item: any) => {
+              const typeName = item.typeName || 'Bilinmeyen';
+              const count = item.count || 0;
+              if (!itemSummaryMap[typeName]) {
+                itemSummaryMap[typeName] = { typeName, count: 0 };
+              }
+              itemSummaryMap[typeName].count += count;
+              totalItems += count;
+            });
+          }
+        } catch {}
+      }
+
+      // Fallback to delivery items
+      if (totalItems === 0) {
+        deliveryItemsWithTypes.forEach((di: any) => {
+          const typeName = di.item?.itemType?.name || 'Bilinmeyen';
+          if (!itemSummaryMap[typeName]) {
+            itemSummaryMap[typeName] = { typeName, count: 0 };
+          }
+          itemSummaryMap[typeName].count++;
+          totalItems++;
         });
+      }
 
-        const itemSummaryMap: Record<string, { typeName: string; count: number }> = {};
-        let totalItems = 0;
+      const deliveryDate = new Date().toLocaleDateString('tr-TR');
 
-        // Check notes for label data first
-        if (updatedDelivery.notes) {
-          try {
-            const labelData = JSON.parse(updatedDelivery.notes);
-            if (Array.isArray(labelData)) {
-              labelData.forEach((item: any) => {
-                const typeName = item.typeName || 'Bilinmeyen';
-                const count = item.count || 0;
-                if (!itemSummaryMap[typeName]) {
-                  itemSummaryMap[typeName] = { typeName, count: 0 };
-                }
-                itemSummaryMap[typeName].count += count;
-                totalItems += count;
-              });
-            }
-          } catch {}
-        }
-
-        // Fallback to delivery items
-        if (totalItems === 0) {
-          deliveryItemsWithTypes.forEach((di: any) => {
-            const typeName = di.item?.itemType?.name || 'Bilinmeyen';
-            if (!itemSummaryMap[typeName]) {
-              itemSummaryMap[typeName] = { typeName, count: 0 };
-            }
-            itemSummaryMap[typeName].count++;
-            totalItems++;
-          });
-        }
-
+      // 1) Email PDF waybill to hotel
+      if (tenantEmail) {
         const pdfBuffer = await generateWaybillPdf({
           waybillNumber: updatedDelivery.barcode,
           hotelName: existingDelivery.tenant.name,
           hotelAddress: existingDelivery.tenant.address || undefined,
-          date: new Date().toLocaleDateString('tr-TR'),
+          date: deliveryDate,
           itemSummary: Object.values(itemSummaryMap),
           bagCount: 0,
           packageCount: updatedDelivery.packageCount || 1,
@@ -732,9 +737,22 @@ deliveriesRouter.post('/:id/deliver', requireRole('driver', 'laundry_manager', '
       } else {
         console.warn(`⚠️ No email configured for tenant ${existingDelivery.tenant?.name} (${existingDelivery.tenantId})`);
       }
-    } catch (emailError) {
-      console.error('Failed to send delivery notification:', emailError);
-      // Don't fail the request if email fails
+
+      // 2) WhatsApp notification to hotel phone
+      if (tenantPhone) {
+        await sendDeliveryWhatsApp({
+          toPhone: tenantPhone,
+          hotelName: existingDelivery.tenant.name,
+          waybillNumber: updatedDelivery.barcode,
+          totalItems,
+          date: deliveryDate,
+        });
+      } else {
+        console.warn(`⚠️ No phone configured for WhatsApp - tenant ${existingDelivery.tenant?.name} (${existingDelivery.tenantId})`);
+      }
+    } catch (notifyError) {
+      console.error('Failed to send delivery notifications:', notifyError);
+      // Don't fail the request if notifications fail
     }
 
     // Return updated delivery with relations

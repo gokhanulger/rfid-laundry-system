@@ -3,12 +3,105 @@ import { db } from '../db';
 import { items, pickups, deliveries, waybills, waybillDeliveries, deliveryItems, pickupItems, tenants } from '../db/schema';
 import { eq, and, desc, sql, count, gte, lte, inArray } from 'drizzle-orm';
 import { requireAuth, AuthRequest, requireRole } from '../middleware/auth';
+import { z } from 'zod';
 
 export const portalRouter = Router();
+
+// Laundry bank/payment info shown to hotels for payment.
+// Defaults to the laundry's known accounts; override via env LAUNDRY_BANK_ACCOUNTS
+// (JSON array of {bankName, accountHolder, iban, branch}). Optional env:
+// LAUNDRY_BANK_HOLDER (applied to defaults), LAUNDRY_PAYMENT_NOTE.
+interface PaymentAccount {
+  bankName: string | null;
+  accountHolder: string | null;
+  iban: string | null;
+  branch: string | null;
+}
+
+function getLaundryPaymentInfo(): { accounts: PaymentAccount[]; note: string | null } | null {
+  const holder = process.env.LAUNDRY_BANK_HOLDER?.trim() || null;
+  let accounts: PaymentAccount[] = [];
+
+  const envJson = process.env.LAUNDRY_BANK_ACCOUNTS?.trim();
+  if (envJson) {
+    try {
+      const parsed = JSON.parse(envJson);
+      if (Array.isArray(parsed)) {
+        accounts = parsed.map((a: any) => ({
+          bankName: a.bankName || null,
+          accountHolder: a.accountHolder || holder,
+          iban: a.iban || null,
+          branch: a.branch || null,
+        }));
+      }
+    } catch {
+      // Malformed env, fall back to defaults below
+    }
+  }
+
+  if (accounts.length === 0) {
+    accounts = [
+      { bankName: 'Finansbank', accountHolder: holder, iban: 'TR250011100000000065089677', branch: 'Beyazıt Şubesi' },
+      { bankName: 'TEB', accountHolder: holder, iban: 'TR790003200000000017437644', branch: 'Laleli Şubesi' },
+    ];
+  }
+
+  const note = process.env.LAUNDRY_PAYMENT_NOTE?.trim() || null;
+  return { accounts, note };
+}
 
 // All portal routes require hotel_owner role
 portalRouter.use(requireAuth);
 portalRouter.use(requireRole('hotel_owner', 'system_admin'));
+
+// Update own hotel contact info (email + phone) for delivery notifications
+const updateProfileSchema = z.object({
+  email: z.string().email('Geçersiz e-posta adresi').optional().or(z.literal('')),
+  phone: z.string().max(30, 'Telefon çok uzun').optional().or(z.literal('')),
+});
+
+portalRouter.patch('/profile', async (req: AuthRequest, res) => {
+  try {
+    const user = req.user!;
+    const tenantId = user.tenantId;
+
+    if (!tenantId) {
+      return res.status(403).json({ error: 'Hesabınıza bir otel atanmamış' });
+    }
+
+    const validation = updateProfileSchema.safeParse(req.body);
+    if (!validation.success) {
+      return res.status(400).json({
+        error: 'Doğrulama hatası',
+        details: validation.error.errors,
+      });
+    }
+
+    const { email, phone } = validation.data;
+    const updateData: Record<string, any> = { updatedAt: new Date() };
+    if (email !== undefined) updateData.email = email || null;
+    if (phone !== undefined) updateData.phone = phone || null;
+
+    const [updated] = await db.update(tenants)
+      .set(updateData)
+      .where(eq(tenants.id, tenantId))
+      .returning();
+
+    if (!updated) {
+      return res.status(404).json({ error: 'Otel bulunamadı' });
+    }
+
+    res.json({
+      id: updated.id,
+      name: updated.name,
+      email: updated.email,
+      phone: updated.phone,
+    });
+  } catch (error) {
+    console.error('Update portal profile error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 // Get portal summary - comprehensive hotel overview
 portalRouter.get('/summary', async (req: AuthRequest, res) => {
@@ -175,7 +268,10 @@ portalRouter.get('/summary', async (req: AuthRequest, res) => {
         name: hotel.name,
         address: hotel.address,
         phone: hotel.phone,
+        email: hotel.email,
+        notificationPhone: hotel.notificationPhone,
       } : null,
+      paymentInfo: getLaundryPaymentInfo(),
       items: {
         total: hotelItems.length,
         atHotel: itemsByStatus['at_hotel'] || 0,

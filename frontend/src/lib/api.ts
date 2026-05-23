@@ -128,6 +128,11 @@ export const authApi = {
     return data;
   },
 
+  impersonate: async (tenantId: string): Promise<User & { token: string; impersonating: boolean }> => {
+    const { data } = await api.post('/auth/impersonate', { tenantId });
+    return data;
+  },
+
   register: async (userData: {
     email: string;
     password: string;
@@ -564,13 +569,28 @@ export const reportsApi = {
 };
 
 // Portal API Types
+export interface PaymentAccount {
+  bankName: string | null;
+  accountHolder: string | null;
+  iban: string | null;
+  branch: string | null;
+}
+
+export interface PaymentInfo {
+  accounts: PaymentAccount[];
+  note: string | null;
+}
+
 export interface PortalSummary {
   hotel: {
     id: string;
     name: string;
     address: string | null;
     phone: string | null;
+    email: string | null;
+    notificationPhone: string | null;
   } | null;
+  paymentInfo: PaymentInfo | null;
   items: {
     total: number;
     atHotel: number;
@@ -737,6 +757,16 @@ export const portalApi = {
 
   getActivity: async (limit?: number): Promise<PortalActivity[]> => {
     const { data } = await api.get<PortalActivity[]>('/portal/activity', { params: { limit } });
+    return data;
+  },
+
+  updateProfile: async (payload: { email?: string; phone?: string }): Promise<{
+    id: string;
+    name: string;
+    email: string | null;
+    phone: string | null;
+  }> => {
+    const { data } = await api.patch('/portal/profile', payload);
     return data;
   },
 };

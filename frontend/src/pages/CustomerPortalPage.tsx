@@ -1,5 +1,6 @@
-import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Link, useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import {
@@ -17,6 +18,13 @@ import {
   Activity,
   Wifi,
   WifiOff,
+  Mail,
+  Phone,
+  Save,
+  Check,
+  CreditCard,
+  LogOut,
+  Copy,
 } from 'lucide-react';
 import { portalApi } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -24,8 +32,15 @@ import { useRealtime } from '../hooks/useRealtime';
 import { useSocket } from '../contexts/SocketContext';
 
 export function CustomerPortalPage() {
-  const { user } = useAuth();
+  const { user, isImpersonating, stopImpersonation } = useAuth();
   const { isConnected } = useSocket();
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+
+  const handleStopImpersonation = async () => {
+    await stopImpersonation();
+    navigate('/hotels');
+  };
 
   // Real-time updates - auto-invalidates queries when events arrive
   useRealtime({});
@@ -35,6 +50,29 @@ export function CustomerPortalPage() {
     queryFn: portalApi.getSummary,
     refetchInterval: isConnected ? false : 30000, // Only poll if WebSocket not connected
   });
+
+  // Contact info (email + phone) editing for delivery notifications
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [contactSaved, setContactSaved] = useState(false);
+
+  useEffect(() => {
+    if (summary?.hotel) {
+      setEmail(summary.hotel.email || '');
+      setPhone(summary.hotel.phone || '');
+    }
+  }, [summary?.hotel?.email, summary?.hotel?.phone]);
+
+  const updateContact = useMutation({
+    mutationFn: () => portalApi.updateProfile({ email: email.trim(), phone: phone.trim() }),
+    onSuccess: () => {
+      setContactSaved(true);
+      setTimeout(() => setContactSaved(false), 2500);
+      queryClient.invalidateQueries({ queryKey: ['portal', 'summary'] });
+    },
+  });
+
+  const paymentInfo = summary?.paymentInfo;
 
   const { data: activity } = useQuery({
     queryKey: ['portal', 'activity'],
@@ -110,6 +148,22 @@ export function CustomerPortalPage() {
 
   return (
     <div className="p-4 md:p-6 bg-gray-50 min-h-screen">
+      {/* Impersonation banner - admin viewing a hotel account */}
+      {isImpersonating && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-lg bg-amber-100 border border-amber-300 px-4 py-2 text-amber-900">
+          <span className="text-sm font-medium">
+            Admin olarak <strong>{summary?.hotel?.name || user?.tenantName || 'otel'}</strong> hesabını görüntülüyorsunuz.
+          </span>
+          <button
+            onClick={handleStopImpersonation}
+            className="flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700"
+          >
+            <LogOut className="w-4 h-4" />
+            Admin'e dön
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-center justify-between">
@@ -189,6 +243,117 @@ export function CustomerPortalPage() {
               <p className="text-sm text-gray-500">Yolda</p>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Contact Info + Payment Info */}
+      <div className="grid lg:grid-cols-2 gap-6 mb-6">
+        {/* Editable contact info for delivery notifications */}
+        <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+          <h3 className="font-semibold text-gray-900 flex items-center gap-2 mb-1">
+            <Mail className="w-5 h-5 text-blue-600" />
+            İletişim & Bildirim Bilgileri
+          </h3>
+          <p className="text-sm text-gray-500 mb-4">
+            Teslimat tamamlandığında bu e-postaya PDF irsaliye, bu telefona WhatsApp mesajı gönderilir.
+          </p>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              updateContact.mutate();
+            }}
+            className="space-y-4"
+          >
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">E-posta</label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="ornek@otel.com"
+                  className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Telefon (WhatsApp)</label>
+              <div className="relative">
+                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="0532 123 45 67"
+                  className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+            </div>
+            {updateContact.isError && (
+              <p className="text-sm text-red-600">
+                {(updateContact.error as any)?.response?.data?.error || 'Kaydedilemedi'}
+              </p>
+            )}
+            <button
+              type="submit"
+              disabled={updateContact.isPending}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60"
+            >
+              {updateContact.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : contactSaved ? (
+                <Check className="w-4 h-4" />
+              ) : (
+                <Save className="w-4 h-4" />
+              )}
+              {contactSaved ? 'Kaydedildi' : 'Kaydet'}
+            </button>
+          </form>
+        </div>
+
+        {/* Laundry bank/payment info */}
+        <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+          <h3 className="font-semibold text-gray-900 flex items-center gap-2 mb-1">
+            <CreditCard className="w-5 h-5 text-emerald-600" />
+            Ödeme Bilgileri
+          </h3>
+          <p className="text-sm text-gray-500 mb-4">Çamaşırhane banka hesap bilgileri.</p>
+          {paymentInfo && paymentInfo.accounts.length > 0 ? (
+            <div className="space-y-3">
+              {paymentInfo.accounts.map((acc, idx) => (
+                <div key={idx} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-semibold text-gray-900">
+                      {acc.bankName || 'Banka'}
+                      {acc.branch && <span className="font-normal text-gray-500"> · {acc.branch}</span>}
+                    </span>
+                  </div>
+                  {acc.accountHolder && (
+                    <p className="mt-0.5 text-xs text-gray-500">Hesap Sahibi: {acc.accountHolder}</p>
+                  )}
+                  {acc.iban && (
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <span className="font-mono text-sm font-semibold text-gray-900 break-all">{acc.iban}</span>
+                      <button
+                        type="button"
+                        onClick={() => navigator.clipboard?.writeText((acc.iban || '').replace(/\s/g, ''))}
+                        className="shrink-0 p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded"
+                        title="IBAN'ı kopyala"
+                      >
+                        <Copy className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {paymentInfo.note && (
+                <p className="pt-1 text-sm text-gray-600">{paymentInfo.note}</p>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-400 py-4 text-center">Ödeme bilgisi tanımlanmamış</p>
+          )}
         </div>
       </div>
 

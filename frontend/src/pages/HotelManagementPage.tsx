@@ -1,11 +1,13 @@
 import { useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Building2, Plus, Edit, Trash2, RefreshCw, X, Check, QrCode, Download, Printer, Upload, FileSpreadsheet } from 'lucide-react';
+import { Building2, Plus, Edit, Trash2, RefreshCw, X, Check, QrCode, Download, Printer, Upload, FileSpreadsheet, LogIn } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import QRCode from 'qrcode';
 import * as XLSX from 'xlsx';
 import api, { getErrorMessage } from '../lib/api';
 import { useToast } from '../components/Toast';
+import { useAuth } from '../contexts/AuthContext';
 
 interface Tenant {
   id: string;
@@ -49,6 +51,21 @@ export function HotelManagementPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const toast = useToast();
+  const { impersonate } = useAuth();
+  const navigate = useNavigate();
+  const [impersonatingId, setImpersonatingId] = useState<string | null>(null);
+
+  // Admin: log in as a hotel and open its portal
+  const handleImpersonate = async (tenant: Tenant) => {
+    setImpersonatingId(tenant.id);
+    try {
+      await impersonate(tenant.id);
+      navigate('/portal');
+    } catch (err) {
+      toast.error(getErrorMessage(err) || 'Otel hesabına giriş yapılamadı');
+      setImpersonatingId(null);
+    }
+  };
 
   const { data: tenants, isLoading, refetch } = useQuery({
     queryKey: ['tenants'],
@@ -568,6 +585,18 @@ export function HotelManagementPage() {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex gap-2">
+                      <button
+                        onClick={() => handleImpersonate(tenant)}
+                        disabled={impersonatingId === tenant.id}
+                        title="Otel olarak gir"
+                        className="p-1 text-emerald-600 hover:bg-emerald-50 rounded disabled:opacity-50"
+                      >
+                        {impersonatingId === tenant.id ? (
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <LogIn className="w-4 h-4" />
+                        )}
+                      </button>
                       <button
                         onClick={() => openEditModal(tenant)}
                         className="p-1 text-blue-600 hover:bg-blue-50 rounded"

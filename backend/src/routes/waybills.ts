@@ -4,6 +4,7 @@ import { waybills, waybillDeliveries, deliveries, items, tenants } from '../db/s
 import { eq, desc, and, inArray } from 'drizzle-orm';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { sendWaybillDeliveryEmail } from '../services/email';
+import { sendDeliveryWhatsApp } from '../services/whatsapp';
 import { generateWaybillPdf } from '../services/waybill-pdf';
 
 export const waybillsRouter = Router();
@@ -361,9 +362,23 @@ waybillsRouter.post('/:id/deliver', async (req: AuthRequest, res: Response) => {
       } else {
         console.log(`No email configured for tenant ${waybill.tenantId}, skipping waybill email`);
       }
+
+      // WhatsApp notification to hotel phone
+      const waybillPhone = (tenant?.notificationPhone || tenant?.phone)?.trim();
+      if (waybillPhone) {
+        await sendDeliveryWhatsApp({
+          toPhone: waybillPhone,
+          hotelName: tenant!.name,
+          waybillNumber: waybill.waybillNumber,
+          totalItems: waybill.totalItems || 0,
+          date: new Date(waybill.printedAt || waybill.createdAt).toLocaleDateString('tr-TR'),
+        });
+      } else {
+        console.log(`No phone configured for tenant ${waybill.tenantId}, skipping waybill WhatsApp`);
+      }
     } catch (emailError) {
-      console.error('Failed to send waybill delivery email:', emailError);
-      // Don't fail the delivery if email fails
+      console.error('Failed to send waybill delivery notifications:', emailError);
+      // Don't fail the delivery if notifications fail
     }
 
     res.json({ success: true, message: 'Waybill marked as delivered' });
