@@ -12,8 +12,9 @@ RUN npm ci --workspace=backend --include-workspace-root
 # Copy backend source
 COPY backend/ ./backend/
 
-# Build - only compile TypeScript, skip db:migrate (needs DATABASE_URL at runtime)
-RUN cd backend && npx tsc
+# Build - compile TypeScript AND copy non-TS assets (fonts for PDF). Uses the
+# package.json "build" script (tsc + copy src/fonts -> dist/fonts), skip db:migrate.
+RUN cd backend && npm run build
 
 # Start - run migrations then start server
 WORKDIR /app/backend
