@@ -4,10 +4,61 @@ import { pickups, pickupItems, items, tenants } from '../db/schema';
 import { eq, and, inArray } from 'drizzle-orm';
 import { requireAuth, AuthRequest, requireRole } from '../middleware/auth';
 import { z } from 'zod';
-import { sendPickupConfirmation } from '../services/email';
+import { sendPickupWaybillEmail } from '../services/email';
+import { generateWaybillPdf } from '../services/waybill-pdf';
+import { resolveHotelEmail } from '../services/hotel-contact';
 
 export const pickupsRouter = Router();
 pickupsRouter.use(requireAuth);
+
+// Kirli ürün teslim alma irsaliyesi (PDF) e-postasını gönderir.
+// E-posta tenant'ta yoksa otelin hotel_owner kullanıcısına düşer.
+async function sendDirtyPickupIrsaliye(
+  tenant: { id: string; name: string; email: string | null; address: string | null },
+  bagCode: string,
+  itemIds: string[]
+): Promise<void> {
+  try {
+    const recipientEmail = await resolveHotelEmail(tenant.id, tenant.email);
+    if (!recipientEmail) {
+      console.warn(`⚠️ Pickup: email yok (tenant ${tenant.name}), irsaliye gönderilmedi`);
+      return;
+    }
+
+    // Ürün tür özeti
+    const itemSummaryMap: Record<string, number> = {};
+    let totalItems = itemIds.length;
+    if (itemIds.length > 0) {
+      const rows = await db.query.items.findMany({
+        where: inArray(items.id, itemIds),
+        with: { itemType: true },
+      });
+      rows.forEach((it: any) => {
+        const name = it.itemType?.name || 'Bilinmeyen';
+        itemSummaryMap[name] = (itemSummaryMap[name] || 0) + 1;
+      });
+      totalItems = rows.length;
+    }
+    const itemSummary = Object.entries(itemSummaryMap).map(([typeName, count]) => ({ typeName, count }));
+
+    const pdfBuffer = await generateWaybillPdf({
+      title: 'KİRLİ ÜRÜN TESLİM ALMA İRSALİYESİ',
+      waybillNumber: bagCode,
+      hotelName: tenant.name,
+      hotelAddress: tenant.address || undefined,
+      date: new Date().toLocaleDateString('tr-TR'),
+      itemSummary,
+      bagCount: 0,
+      packageCount: 0,
+      totalItems,
+    });
+
+    await sendPickupWaybillEmail(recipientEmail, tenant.name, bagCode, totalItems, pdfBuffer);
+    console.log(`📧 Kirli teslim alma irsaliyesi gönderildi -> ${recipientEmail} (${bagCode})`);
+  } catch (err) {
+    console.error('Failed to send dirty pickup irsaliye:', err);
+  }
+}
 
 // Validation schemas
 const createPickupSchema = z.object({
@@ -66,19 +117,8 @@ pickupsRouter.post('/', requireRole('driver', 'laundry_manager', 'system_admin')
         .where(inArray(items.id, itemIds));
     }
 
-    // Send email notification to hotel owner
-    const pickupTenantEmail = tenant.email?.trim();
-    try {
-      if (pickupTenantEmail) {
-        const itemCount = itemIds?.length || 0;
-        await sendPickupConfirmation(pickupTenantEmail, tenant.name, bagCode, itemCount);
-        console.log(`📧 Pickup email sent to ${pickupTenantEmail} for tenant ${tenant.name}`);
-      } else {
-        console.warn(`⚠️ No email configured for tenant ${tenant.name} (${tenantId})`);
-      }
-    } catch (emailError) {
-      console.error('Failed to send pickup email:', emailError);
-    }
+    // Send dirty pickup irsaliye (PDF) email to hotel
+    await sendDirtyPickupIrsaliye(tenant, bagCode, itemIds || []);
 
     res.status(201).json(newPickup);
   } catch (error) {
@@ -257,18 +297,8 @@ pickupsRouter.post('/from-tags', requireRole('driver', 'laundry_manager', 'syste
         .where(inArray(items.id, itemIds));
     }
 
-    // Send email notification to hotel owner
-    const tagTenantEmail = tenant.email?.trim();
-    try {
-      if (tagTenantEmail) {
-        await sendPickupConfirmation(tagTenantEmail, tenant.name, bagCode, itemIds.length);
-        console.log(`📧 Pickup email sent to ${tagTenantEmail} for tenant ${tenant.name}`);
-      } else {
-        console.warn(`⚠️ No email configured for tenant ${tenant.name} (${tenantId})`);
-      }
-    } catch (emailError) {
-      console.error('Failed to send pickup email:', emailError);
-    }
+    // Send dirty pickup irsaliye (PDF) email to hotel
+    await sendDirtyPickupIrsaliye(tenant, bagCode, itemIds);
 
     res.status(201).json({
       ...newPickup,

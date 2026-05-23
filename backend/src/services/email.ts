@@ -1,4 +1,79 @@
 import nodemailer from 'nodemailer';
+import path from 'path';
+import fs from 'fs';
+
+// ---- Brand (Demet Laundry logosu ile uyumlu) ----
+const BRAND_NAVY = '#1b2a66'; // koyu lacivert (logodaki "Demet" / "D")
+const BRAND_BLUE = '#1e5fd8'; // kraliyet mavisi (logodaki "Laundry" / dalga)
+const BRAND_BG = '#eef1f6';
+const LOGO_CID = 'demetlogo';
+
+// Logoyu birden cok olasi konumda arar (dist/assets yoksa src/assets bulunur — fontlarla ayni mantik)
+function resolveAssetPath(filename: string): string | null {
+  const dirs = [
+    path.join(__dirname, '..', 'assets'),
+    path.join(process.cwd(), 'dist', 'assets'),
+    path.join(process.cwd(), 'src', 'assets'),
+    path.join(process.cwd(), 'backend', 'dist', 'assets'),
+    path.join(process.cwd(), 'backend', 'src', 'assets'),
+  ];
+  for (const d of dirs) {
+    const p = path.join(d, filename);
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
+
+const LOGO_PATH = resolveAssetPath('demet-laundry-logo.jpeg');
+const LOGO_BUFFER = LOGO_PATH ? fs.readFileSync(LOGO_PATH) : null;
+
+function logoBlock(): string {
+  if (!LOGO_BUFFER) {
+    return `<div style="font-size:24px;font-weight:bold;color:${BRAND_NAVY};">Demet <span style="color:${BRAND_BLUE}">Laundry</span></div>`;
+  }
+  return `<img src="cid:${LOGO_CID}" alt="Demet Laundry" width="210" style="display:block;margin:0 auto;width:210px;max-width:78%;height:auto;" />`;
+}
+
+// Tum e-postalar icin ortak markali sablon
+function brandEmail(opts: { title: string; accent?: string; bodyHtml: string }): string {
+  const accent = opts.accent || BRAND_BLUE;
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+</head>
+<body style="margin:0;padding:24px 0;background:${BRAND_BG};font-family:Arial,Helvetica,sans-serif;color:#1f2937;">
+  <div style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:14px;overflow:hidden;border:1px solid #e5e7eb;">
+    <div style="padding:26px 20px 14px;text-align:center;background:#ffffff;">
+      ${logoBlock()}
+    </div>
+    <div style="background:${BRAND_NAVY};padding:16px 24px;text-align:center;">
+      <h1 style="margin:0;color:#ffffff;font-size:18px;letter-spacing:.3px;">${opts.title}</h1>
+    </div>
+    <div style="padding:24px 28px;line-height:1.6;font-size:14px;color:#374151;">
+      ${opts.bodyHtml}
+    </div>
+    <div style="border-top:3px solid ${accent};padding:16px 24px;text-align:center;color:#6b7280;font-size:12px;">
+      <strong style="color:${BRAND_NAVY};">Demet Laundry</strong> &middot; Otel Tekstil RFID Sistemi
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+// Bilgi kutusu (anahtar/deger satirlari)
+function infoBox(rows: Array<[string, string]>, accent = BRAND_BLUE): string {
+  const trs = rows
+    .map(
+      ([k, v]) =>
+        `<tr><td style="padding:5px 0;color:#6b7280;">${k}</td><td style="padding:5px 0;text-align:right;font-weight:bold;color:#111827;">${v}</td></tr>`
+    )
+    .join('');
+  return `<div style="background:#f8fafc;border-left:4px solid ${accent};border-radius:8px;padding:14px 16px;margin:16px 0;">
+    <table style="width:100%;font-size:14px;border-collapse:collapse;">${trs}</table>
+  </div>`;
+}
 
 // Create transporter
 const createTransporter = () => {
@@ -46,17 +121,28 @@ async function sendEmail(options: EmailOptions): Promise<boolean> {
   }
 
   try {
+    // Logoyu her e-postaya inline (CID) ekle
+    const attachments: any[] = (options.attachments || []).map((a) => ({
+      filename: a.filename,
+      content: a.content,
+      contentType: a.contentType,
+    }));
+    if (LOGO_BUFFER) {
+      attachments.push({
+        filename: 'demet-laundry-logo.jpeg',
+        content: LOGO_BUFFER,
+        cid: LOGO_CID,
+        contentType: 'image/jpeg',
+      });
+    }
+
     await transporter.sendMail({
       from: process.env.SMTP_FROM || process.env.SMTP_USER,
       to: options.to,
       subject: options.subject,
       html: options.html,
       text: options.text,
-      attachments: options.attachments?.map(a => ({
-        filename: a.filename,
-        content: a.content,
-        contentType: a.contentType,
-      })),
+      attachments,
     });
     console.log('Email sent successfully to:', options.to);
     return true;
@@ -72,64 +158,20 @@ export async function sendDeliveryNotification(
   barcode: string,
   itemCount: number
 ): Promise<boolean> {
-  const subject = `Laundry Delivery Completed - ${barcode}`;
-  const html = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background: #2563eb; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
-        .content { background: #f9fafb; padding: 20px; border-radius: 0 0 8px 8px; }
-        .info-box { background: white; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #2563eb; }
-        .footer { text-align: center; margin-top: 20px; color: #6b7280; font-size: 12px; }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-        <div class="header">
-          <h1>Laundry Delivery Complete</h1>
-        </div>
-        <div class="content">
-          <p>Dear ${hotelName},</p>
-          <p>Your laundry delivery has been completed successfully.</p>
-
-          <div class="info-box">
-            <p><strong>Delivery Reference:</strong> ${barcode}</p>
-            <p><strong>Items Delivered:</strong> ${itemCount} item${itemCount !== 1 ? 's' : ''}</p>
-            <p><strong>Delivery Date:</strong> ${new Date().toLocaleDateString()}</p>
-          </div>
-
-          <p>All items have been returned to your location. Please verify the delivery and contact us if you have any questions.</p>
-
-          <p>Thank you for choosing our laundry service!</p>
-        </div>
-        <div class="footer">
-          <p>This is an automated notification from the RFID Laundry Tracking System</p>
-        </div>
-      </div>
-    </body>
-    </html>
+  const subject = `Temiz Teslim İrsaliyesi - ${barcode}`;
+  const bodyHtml = `
+    <p>Sayın <strong>${hotelName}</strong>,</p>
+    <p>Çamaşırhane teslimatınız başarıyla tamamlanmıştır.</p>
+    ${infoBox([
+      ['İrsaliye No', barcode],
+      ['Teslim Edilen', `${itemCount} adet`],
+      ['Teslimat Tarihi', new Date().toLocaleDateString('tr-TR')],
+    ])}
+    <p>Lütfen teslimatı kontrol ediniz. Herhangi bir sorunuz olursa bizimle iletişime geçebilirsiniz.</p>
+    <p>İyi günler dileriz.</p>
   `;
-
-  const text = `
-    Laundry Delivery Complete
-
-    Dear ${hotelName},
-
-    Your laundry delivery has been completed successfully.
-
-    Delivery Reference: ${barcode}
-    Items Delivered: ${itemCount} item${itemCount !== 1 ? 's' : ''}
-    Delivery Date: ${new Date().toLocaleDateString()}
-
-    All items have been returned to your location. Please verify the delivery and contact us if you have any questions.
-
-    Thank you for choosing our laundry service!
-  `;
-
-  return sendEmail({ to, subject, html, text });
+  const text = `Sayın ${hotelName},\n\nTemiz teslimatınız tamamlanmıştır.\nİrsaliye No: ${barcode}\nTeslim Edilen: ${itemCount} adet\nTarih: ${new Date().toLocaleDateString('tr-TR')}`;
+  return sendEmail({ to, subject, html: brandEmail({ title: 'Temiz Teslim İrsaliyesi', bodyHtml }), text });
 }
 
 export async function sendPickupConfirmation(
@@ -138,48 +180,20 @@ export async function sendPickupConfirmation(
   bagCode: string,
   itemCount: number
 ): Promise<boolean> {
-  const subject = `Laundry Pickup Confirmed - ${bagCode}`;
-  const html = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background: #059669; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
-        .content { background: #f9fafb; padding: 20px; border-radius: 0 0 8px 8px; }
-        .info-box { background: white; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #059669; }
-        .footer { text-align: center; margin-top: 20px; color: #6b7280; font-size: 12px; }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-        <div class="header">
-          <h1>Laundry Pickup Confirmed</h1>
-        </div>
-        <div class="content">
-          <p>Dear ${hotelName},</p>
-          <p>Your laundry has been picked up and is on its way to our facility.</p>
-
-          <div class="info-box">
-            <p><strong>Bag Code:</strong> ${bagCode}</p>
-            <p><strong>Items Collected:</strong> ${itemCount} item${itemCount !== 1 ? 's' : ''}</p>
-            <p><strong>Pickup Date:</strong> ${new Date().toLocaleDateString()}</p>
-          </div>
-
-          <p>We will notify you when your items are ready for delivery.</p>
-
-          <p>Thank you for choosing our laundry service!</p>
-        </div>
-        <div class="footer">
-          <p>This is an automated notification from the RFID Laundry Tracking System</p>
-        </div>
-      </div>
-    </body>
-    </html>
+  const subject = `Kirli Ürün Teslim Alma İrsaliyesi - ${bagCode}`;
+  const bodyHtml = `
+    <p>Sayın <strong>${hotelName}</strong>,</p>
+    <p>Kirli ürünleriniz teslim alınmış ve çamaşırhanemize ulaşmıştır.</p>
+    ${infoBox([
+      ['Çuval / Kod', bagCode],
+      ['Teslim Alınan', `${itemCount} adet`],
+      ['Teslim Alma Tarihi', new Date().toLocaleDateString('tr-TR')],
+    ])}
+    <p>Ürünleriniz hazır olduğunda sizi ayrıca bilgilendireceğiz.</p>
+    <p>İyi günler dileriz.</p>
   `;
-
-  return sendEmail({ to, subject, html, text: `Pickup confirmed. Bag Code: ${bagCode}` });
+  const text = `Sayın ${hotelName},\n\nKirli ürünleriniz teslim alınmıştır.\nÇuval/Kod: ${bagCode}\nTeslim Alınan: ${itemCount} adet\nTarih: ${new Date().toLocaleDateString('tr-TR')}`;
+  return sendEmail({ to, subject, html: brandEmail({ title: 'Kirli Ürün Teslim Alma İrsaliyesi', bodyHtml }), text });
 }
 
 export async function sendAlertNotification(
@@ -189,50 +203,23 @@ export async function sendAlertNotification(
   severity: string
 ): Promise<boolean> {
   const severityColors: Record<string, string> = {
-    low: '#3b82f6',
+    low: BRAND_BLUE,
     medium: '#f59e0b',
     high: '#ef4444',
     critical: '#dc2626',
   };
-
-  const color = severityColors[severity] || '#6b7280';
-  const subject = `[${severity.toUpperCase()}] Alert: ${alertTitle}`;
-
-  const html = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background: ${color}; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
-        .content { background: #f9fafb; padding: 20px; border-radius: 0 0 8px 8px; }
-        .severity { display: inline-block; padding: 5px 15px; border-radius: 20px; background: ${color}; color: white; font-weight: bold; }
-        .footer { text-align: center; margin-top: 20px; color: #6b7280; font-size: 12px; }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-        <div class="header">
-          <h1>System Alert</h1>
-        </div>
-        <div class="content">
-          <p><span class="severity">${severity.toUpperCase()}</span></p>
-          <h2>${alertTitle}</h2>
-          <p>${alertMessage}</p>
-          <p><small>Generated at: ${new Date().toLocaleString()}</small></p>
-        </div>
-        <div class="footer">
-          <p>This is an automated alert from the RFID Laundry Tracking System</p>
-        </div>
-      </div>
-    </body>
-    </html>
+  const accent = severityColors[severity] || BRAND_BLUE;
+  const subject = `[${severity.toUpperCase()}] Uyarı: ${alertTitle}`;
+  const bodyHtml = `
+    <p><span style="display:inline-block;padding:5px 14px;border-radius:20px;background:${accent};color:#fff;font-weight:bold;font-size:12px;">${severity.toUpperCase()}</span></p>
+    <h2 style="color:${BRAND_NAVY};font-size:18px;margin:12px 0 8px;">${alertTitle}</h2>
+    <p>${alertMessage}</p>
+    <p style="color:#9ca3af;font-size:12px;">Oluşturulma: ${new Date().toLocaleString('tr-TR')}</p>
   `;
-
-  return sendEmail({ to, subject, html });
+  return sendEmail({ to, subject, html: brandEmail({ title: 'Sistem Uyarısı', accent, bodyHtml }) });
 }
 
+// Temiz teslim irsaliyesi (PDF ekli)
 export async function sendWaybillDeliveryEmail(
   to: string,
   hotelName: string,
@@ -240,61 +227,58 @@ export async function sendWaybillDeliveryEmail(
   totalItems: number,
   pdfBuffer: Buffer
 ): Promise<boolean> {
-  const subject = `Teslimat İrsaliyesi - ${waybillNumber}`;
-  const html = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="UTF-8">
-      <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background: #0d9488; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
-        .content { background: #f9fafb; padding: 20px; border-radius: 0 0 8px 8px; }
-        .info-box { background: white; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #0d9488; }
-        .footer { text-align: center; margin-top: 20px; color: #6b7280; font-size: 12px; }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-        <div class="header">
-          <h1>Teslimat Tamamland&#305;</h1>
-        </div>
-        <div class="content">
-          <p>Say&#305;n ${hotelName},</p>
-          <p>&#199;ama&#351;&#305;rhane teslimat&#305;n&#305;z ba&#351;ar&#305;yla tamamlanm&#305;&#351;t&#305;r. &#304;rsaliye detaylar&#305; ekte yer almaktad&#305;r.</p>
-
-          <div class="info-box">
-            <p><strong>&#304;rsaliye No:</strong> ${waybillNumber}</p>
-            <p><strong>Toplam &#220;r&#252;n:</strong> ${totalItems} adet</p>
-            <p><strong>Teslimat Tarihi:</strong> ${new Date().toLocaleDateString('tr-TR')}</p>
-          </div>
-
-          <p>L&#252;tfen teslimat&#305; kontrol ediniz. Herhangi bir sorunuz varsa bizimle ileti&#351;ime ge&#231;iniz.</p>
-
-          <p>&#304;yi g&#252;nler dileriz.</p>
-        </div>
-        <div class="footer">
-          <p>Demet Laundry - RFID &#199;ama&#351;&#305;rhane Takip Sistemi</p>
-        </div>
-      </div>
-    </body>
-    </html>
+  const subject = `Temiz Teslim İrsaliyesi - ${waybillNumber}`;
+  const bodyHtml = `
+    <p>Sayın <strong>${hotelName}</strong>,</p>
+    <p>Çamaşırhane teslimatınız başarıyla tamamlanmıştır. İrsaliye detayları ekteki PDF'te yer almaktadır.</p>
+    ${infoBox([
+      ['İrsaliye No', waybillNumber],
+      ['Toplam Ürün', `${totalItems} adet`],
+      ['Teslimat Tarihi', new Date().toLocaleDateString('tr-TR')],
+    ])}
+    <p>Lütfen teslimatı kontrol ediniz. Herhangi bir sorunuz olursa bizimle iletişime geçebilirsiniz.</p>
+    <p>İyi günler dileriz.</p>
   `;
-
-  const text = `Sayın ${hotelName},\n\nÇamaşırhane teslimatınız tamamlanmıştır.\nİrsaliye No: ${waybillNumber}\nToplam Ürün: ${totalItems} adet\nTeslimat Tarihi: ${new Date().toLocaleDateString('tr-TR')}\n\nİrsaliye PDF ekte yer almaktadır.`;
-
+  const text = `Sayın ${hotelName},\n\nTemiz teslimatınız tamamlanmıştır.\nİrsaliye No: ${waybillNumber}\nToplam Ürün: ${totalItems} adet\nTarih: ${new Date().toLocaleDateString('tr-TR')}\n\nİrsaliye PDF ekte yer almaktadır.`;
   return sendEmail({
     to,
     subject,
-    html,
+    html: brandEmail({ title: 'Temiz Teslim İrsaliyesi', bodyHtml }),
     text,
     attachments: [
-      {
-        filename: `irsaliye-${waybillNumber}.pdf`,
-        content: pdfBuffer,
-        contentType: 'application/pdf',
-      },
+      { filename: `temiz-teslim-irsaliye-${waybillNumber}.pdf`, content: pdfBuffer, contentType: 'application/pdf' },
+    ],
+  });
+}
+
+// Kirli ürün teslim alma irsaliyesi (PDF ekli)
+export async function sendPickupWaybillEmail(
+  to: string,
+  hotelName: string,
+  bagCode: string,
+  totalItems: number,
+  pdfBuffer: Buffer
+): Promise<boolean> {
+  const subject = `Kirli Ürün Teslim Alma İrsaliyesi - ${bagCode}`;
+  const bodyHtml = `
+    <p>Sayın <strong>${hotelName}</strong>,</p>
+    <p>Kirli ürünleriniz teslim alınmıştır. İrsaliye detayları ekteki PDF'te yer almaktadır.</p>
+    ${infoBox([
+      ['İrsaliye / Çuval No', bagCode],
+      ['Teslim Alınan', `${totalItems} adet`],
+      ['Teslim Alma Tarihi', new Date().toLocaleDateString('tr-TR')],
+    ])}
+    <p>Ürünleriniz hazır olduğunda sizi ayrıca bilgilendireceğiz.</p>
+    <p>İyi günler dileriz.</p>
+  `;
+  const text = `Sayın ${hotelName},\n\nKirli ürünleriniz teslim alınmıştır.\nİrsaliye/Çuval No: ${bagCode}\nTeslim Alınan: ${totalItems} adet\nTarih: ${new Date().toLocaleDateString('tr-TR')}\n\nİrsaliye PDF ekte yer almaktadır.`;
+  return sendEmail({
+    to,
+    subject,
+    html: brandEmail({ title: 'Kirli Ürün Teslim Alma İrsaliyesi', bodyHtml }),
+    text,
+    attachments: [
+      { filename: `kirli-teslim-alma-irsaliye-${bagCode}.pdf`, content: pdfBuffer, contentType: 'application/pdf' },
     ],
   });
 }

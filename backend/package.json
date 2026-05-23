@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc && node -e \"require('fs').cpSync('src/fonts','dist/fonts',{recursive:true})\"",
+    "build": "tsc && node -e \"const fs=require('fs');for(const d of ['fonts','assets'])if(fs.existsSync('src/'+d))fs.cpSync('src/'+d,'dist/'+d,{recursive:true})\"",
     "start": "node dist/index.js",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",

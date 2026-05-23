@@ -33,6 +33,8 @@ interface WaybillPdfData {
   bagCount: number;
   packageCount: number;
   totalItems: number;
+  // İrsaliye başlığı: temiz teslim için varsayılan; kirli teslim alma için override edilir
+  title?: string;
 }
 
 export function generateWaybillPdf(data: WaybillPdfData): Promise<Buffer> {
@@ -54,7 +56,7 @@ export function generateWaybillPdf(data: WaybillPdfData): Promise<Buffer> {
 
     // Header - right aligned
     doc.fontSize(20).font('Roboto-Bold');
-    doc.text('TEMİZ İRSALİYESİ', margin, 40, { align: 'right' });
+    doc.text(data.title || 'TEMİZ TESLİM İRSALİYESİ', margin, 40, { align: 'right' });
 
     // Hotel name - left side
     doc.fontSize(10).font('Roboto-Bold');
