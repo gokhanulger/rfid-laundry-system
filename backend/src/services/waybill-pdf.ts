@@ -1,8 +1,28 @@
 import PDFDocument from 'pdfkit';
 import path from 'path';
+import fs from 'fs';
 
-const FONT_REGULAR = path.join(__dirname, '..', 'fonts', 'Roboto-Regular.ttf');
-const FONT_BOLD = path.join(__dirname, '..', 'fonts', 'Roboto-Bold.ttf');
+// Fontu birden cok olasi konumda arar. tsc dist'e .ttf kopyalamayabiliyor;
+// ama Dockerfile "COPY backend/" ile kaynak src/fonts container'da hep var.
+// Bu yuzden dist/fonts yoksa src/fonts (cwd'ye gore) bulunur.
+function resolveFontPath(filename: string): string {
+  const candidates = [
+    path.join(__dirname, '..', 'fonts', filename),          // dist/fonts (prod) | src/fonts (tsx dev)
+    path.join(__dirname, 'fonts', filename),
+    path.join(process.cwd(), 'dist', 'fonts', filename),
+    path.join(process.cwd(), 'src', 'fonts', filename),     // /app/backend/src/fonts (Docker)
+    path.join(process.cwd(), 'backend', 'dist', 'fonts', filename),
+    path.join(process.cwd(), 'backend', 'src', 'fonts', filename),
+  ];
+  const found = candidates.find((p) => fs.existsSync(p));
+  if (!found) {
+    console.error(`[waybill-pdf] Font bulunamadi: ${filename}. Aranan yerler:`, candidates);
+  }
+  return found || candidates[0];
+}
+
+const FONT_REGULAR = resolveFontPath('Roboto-Regular.ttf');
+const FONT_BOLD = resolveFontPath('Roboto-Bold.ttf');
 
 interface WaybillPdfData {
   waybillNumber: string;
