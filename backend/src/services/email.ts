@@ -114,6 +114,36 @@ interface EmailOptions {
   attachments?: EmailAttachment[];
 }
 
+// SMTP teşhis: bağlantı + auth + gerçek gönderim sonucunu döndürür (admin debug)
+export async function testSmtp(to: string): Promise<any> {
+  const cfg = {
+    host: process.env.SMTP_HOST,
+    port: process.env.SMTP_PORT,
+    user: process.env.SMTP_USER,
+    from: process.env.SMTP_FROM,
+    passSet: !!process.env.SMTP_PASS,
+  };
+  if (!transporter) {
+    return { ok: false, stage: 'config', error: 'transporter null (SMTP_* eksik)', cfg };
+  }
+  try {
+    await transporter.verify();
+  } catch (e: any) {
+    return { ok: false, stage: 'verify', code: e.code, error: e.message, cfg };
+  }
+  try {
+    const info = await transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to,
+      subject: 'Demet Laundry - SMTP test',
+      text: 'Bu bir SMTP test mailidir.',
+    });
+    return { ok: true, messageId: info.messageId, accepted: info.accepted, rejected: info.rejected, response: info.response, cfg };
+  } catch (e: any) {
+    return { ok: false, stage: 'send', code: e.code, error: e.message, cfg };
+  }
+}
+
 async function sendEmail(options: EmailOptions): Promise<boolean> {
   if (!transporter) {
     console.log('Email not configured. Would have sent:', options.subject, 'to', options.to);

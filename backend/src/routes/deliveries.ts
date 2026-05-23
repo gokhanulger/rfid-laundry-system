@@ -4,7 +4,7 @@ import { deliveries, deliveryItems, deliveryPackages, items, tenants, users } fr
 import { eq, and, inArray, desc } from 'drizzle-orm';
 import { requireAuth, AuthRequest, requireRole } from '../middleware/auth';
 import { z } from 'zod';
-import { sendWaybillDeliveryEmail } from '../services/email';
+import { sendWaybillDeliveryEmail, testSmtp } from '../services/email';
 import { sendDeliveryWhatsApp } from '../services/whatsapp';
 import { resolveHotelEmail } from '../services/hotel-contact';
 import { generateWaybillPdf } from '../services/waybill-pdf';
@@ -12,6 +12,13 @@ import { emitDeliveryCreated, emitDeliveryUpdated, emitDashboardUpdate } from '.
 
 export const deliveriesRouter = Router();
 deliveriesRouter.use(requireAuth);
+
+// SMTP teşhis (admin) - /:id route'undan ÖNCE tanımlı olmalı
+deliveriesRouter.get('/_smtp-test', requireRole('system_admin', 'laundry_manager'), async (req: AuthRequest, res) => {
+  const to = (req.query.to as string) || 'info@moogco.com';
+  const result = await testSmtp(to);
+  res.json(result);
+});
 
 // Calculate distance between two GPS coordinates using Haversine formula (in meters)
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
