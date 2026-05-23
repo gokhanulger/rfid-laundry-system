@@ -6,6 +6,7 @@ import { requireAuth, AuthRequest, requireRole } from '../middleware/auth';
 import { z } from 'zod';
 import { sendWaybillDeliveryEmail } from '../services/email';
 import { sendDeliveryWhatsApp } from '../services/whatsapp';
+import { resolveHotelEmail } from '../services/hotel-contact';
 import { generateWaybillPdf } from '../services/waybill-pdf';
 import { emitDeliveryCreated, emitDeliveryUpdated, emitDashboardUpdate } from '../services/realtime';
 
@@ -663,7 +664,7 @@ deliveriesRouter.post('/:id/deliver', requireRole('driver', 'laundry_manager', '
     });
 
     // Notify hotel: email PDF irsaliye + WhatsApp message (hotel receives clean laundry)
-    const tenantEmail = existingDelivery.tenant?.email?.trim();
+    const tenantEmail = await resolveHotelEmail(existingDelivery.tenantId, existingDelivery.tenant?.email);
     const tenantPhone = (existingDelivery.tenant?.notificationPhone || existingDelivery.tenant?.phone)?.trim();
     console.log(`📧 Delivery notify - tenant: ${existingDelivery.tenant?.name}, email: "${tenantEmail || ''}", phone: "${tenantPhone || ''}"`);
     try {
@@ -807,8 +808,9 @@ deliveriesRouter.post('/:id/send-waybill', requireRole('driver', 'laundry_manage
       return res.status(404).json({ error: 'Delivery not found' });
     }
 
-    if (!delivery.tenant?.email) {
-      return res.status(400).json({ error: 'Otelin email adresi tanımlı değil' });
+    const recipientEmail = await resolveHotelEmail(delivery.tenantId, delivery.tenant?.email);
+    if (!recipientEmail) {
+      return res.status(400).json({ error: 'Otelin email adresi tanımlı değil (ne otel kaydında ne de kullanıcı hesabında)' });
     }
 
     // Build item summary
@@ -855,15 +857,15 @@ deliveriesRouter.post('/:id/send-waybill', requireRole('driver', 'laundry_manage
     });
 
     await sendWaybillDeliveryEmail(
-      delivery.tenant.email,
+      recipientEmail,
       delivery.tenant.name,
       delivery.barcode,
       totalItems,
       pdfBuffer
     );
 
-    console.log(`📧 Waybill email sent for delivery ${id} to ${delivery.tenant.email}`);
-    res.json({ success: true, email: delivery.tenant.email, totalItems });
+    console.log(`📧 Waybill email sent for delivery ${id} to ${recipientEmail}`);
+    res.json({ success: true, email: recipientEmail, totalItems });
   } catch (error) {
     console.error('Send waybill error:', error);
     res.status(500).json({ error: 'Email gönderilemedi' });

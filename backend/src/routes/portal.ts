@@ -19,7 +19,7 @@ interface PaymentAccount {
 }
 
 function getLaundryPaymentInfo(): { accounts: PaymentAccount[]; note: string | null } | null {
-  const holder = process.env.LAUNDRY_BANK_HOLDER?.trim() || null;
+  const holder = process.env.LAUNDRY_BANK_HOLDER?.trim() || 'Demet Çamaşır Yıkama';
   let accounts: PaymentAccount[] = [];
 
   const envJson = process.env.LAUNDRY_BANK_ACCOUNTS?.trim();

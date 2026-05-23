@@ -5,6 +5,7 @@ import { eq, desc, and, inArray } from 'drizzle-orm';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { sendWaybillDeliveryEmail } from '../services/email';
 import { sendDeliveryWhatsApp } from '../services/whatsapp';
+import { resolveHotelEmail } from '../services/hotel-contact';
 import { generateWaybillPdf } from '../services/waybill-pdf';
 
 export const waybillsRouter = Router();
@@ -335,7 +336,8 @@ waybillsRouter.post('/:id/deliver', async (req: AuthRequest, res: Response) => {
         where: eq(tenants.id, waybill.tenantId),
       });
 
-      if (tenant?.email) {
+      const recipientEmail = await resolveHotelEmail(waybill.tenantId, tenant?.email);
+      if (recipientEmail) {
         let itemSummary: Array<{ typeName: string; count: number }> = [];
         try {
           itemSummary = JSON.parse(waybill.itemSummary || '[]');
@@ -343,7 +345,7 @@ waybillsRouter.post('/:id/deliver', async (req: AuthRequest, res: Response) => {
 
         const pdfBuffer = await generateWaybillPdf({
           waybillNumber: waybill.waybillNumber,
-          hotelName: tenant.name,
+          hotelName: tenant?.name || '',
           date: new Date(waybill.printedAt || waybill.createdAt).toLocaleDateString('tr-TR'),
           itemSummary,
           bagCount: waybill.bagCount || 0,
@@ -352,13 +354,13 @@ waybillsRouter.post('/:id/deliver', async (req: AuthRequest, res: Response) => {
         });
 
         await sendWaybillDeliveryEmail(
-          tenant.email,
-          tenant.name,
+          recipientEmail,
+          tenant?.name || '',
           waybill.waybillNumber,
           waybill.totalItems || 0,
           pdfBuffer
         );
-        console.log(`Waybill delivery email sent to ${tenant.email} for ${waybill.waybillNumber}`);
+        console.log(`Waybill delivery email sent to ${recipientEmail} for ${waybill.waybillNumber}`);
       } else {
         console.log(`No email configured for tenant ${waybill.tenantId}, skipping waybill email`);
       }
