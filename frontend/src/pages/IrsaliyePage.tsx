@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { FileText, QrCode, Printer, RefreshCw, CheckCircle, Package, X, Trash2, History, Search, Building2, ShoppingBag, Settings } from 'lucide-react';
+import { FileText, QrCode, Printer, RefreshCw, CheckCircle, Package, X, Trash2, History, Search, Building2, ShoppingBag, Settings, Clock } from 'lucide-react';
 import { deliveriesApi, settingsApi, waybillsApi, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/Toast';
 import { useNetworkStatus } from '../hooks/useNetworkStatus';
+import { useLanSync } from '../hooks/useLanSync';
 import type { Delivery, DeliveryPackage } from '../types';
 import { jsPDF } from 'jspdf';
 import JsBarcode from 'jsbarcode';
@@ -61,6 +62,9 @@ interface IrsaliyeSettings {
   // Sağ nüsha - Miktar ve Tarih
   sagMiktarSol: number;   // Sağ nüsha miktar sütunu (soldan mm)
   sagTarihSag: number;    // Sağ nüsha tarih (sağdan mm)
+
+  // Yazıcı yönü
+  dondur180: boolean;     // 180° döndür (matbu form ters/baş aşağı basıyorsa)
 }
 
 const defaultIrsaliyeSettings: IrsaliyeSettings = {
@@ -76,6 +80,7 @@ const defaultIrsaliyeSettings: IrsaliyeSettings = {
   solTarihSag: 5,         // Sol nüsha tarih
   sagMiktarSol: 70,       // Sağ nüsha miktar
   sagTarihSag: 5,         // Sağ nüsha tarih
+  dondur180: false,       // Varsayılan: düz bas
 };
 
 function getIrsaliyeSettings(): IrsaliyeSettings {
@@ -92,6 +97,35 @@ function getIrsaliyeSettings(): IrsaliyeSettings {
 
 function saveIrsaliyeSettings(settings: IrsaliyeSettings) {
   localStorage.setItem('irsaliyeSettings', JSON.stringify(settings));
+}
+
+// Aktif irsaliye oturumu (taranan paketler, cuvallar, secili otel) localStorage'da saklanir.
+// Boylece irsaliyeci sayfadan cikip girince veya uygulamayi yeniden baslatinca
+// daha once okuttugu paketleri tekrar okutmak zorunda kalmaz.
+const IRSALIYE_SESSION_KEY = 'laundry_irsaliye_session';
+const IRSALIYE_SESSION_TTL = 24 * 60 * 60 * 1000; // 24 saat - eski oturumlar otomatik temizlenir
+
+function loadIrsaliyeSession(): { scannedPackages: ScannedPackage[]; bags: Bag[]; selectedHotelId: string | null } {
+  const empty = { scannedPackages: [] as ScannedPackage[], bags: [] as Bag[], selectedHotelId: null };
+  try {
+    const raw = localStorage.getItem(IRSALIYE_SESSION_KEY);
+    if (!raw) return empty;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.savedAt !== 'number' || Date.now() - parsed.savedAt > IRSALIYE_SESSION_TTL) {
+      return empty;
+    }
+    return {
+      scannedPackages: Array.isArray(parsed.scannedPackages) ? parsed.scannedPackages : [],
+      // createdAt JSON'da string'e donusur; Date'e geri cevir (toLocaleString icin gerekli)
+      bags: Array.isArray(parsed.bags)
+        ? parsed.bags.map((b: any) => ({ ...b, createdAt: new Date(b.createdAt) }))
+        : [],
+      selectedHotelId: parsed.selectedHotelId ?? null,
+    };
+  } catch (e) {
+    console.warn('[Irsaliye] Oturum geri yuklenemedi:', e);
+    return empty;
+  }
 }
 
 // Horoz sesi için Audio element
@@ -206,28 +240,32 @@ function playErrorSound() {
 }
 
 export function IrsaliyePage() {
+  // Onceki oturumu (taranan paketler, cuvallar, secili otel) localStorage'dan geri yukle
+  const [restoredSession] = useState(loadIrsaliyeSession);
   const [activeTab, setActiveTab] = useState<TabType>('create');
   const [barcodeInput, setBarcodeInput] = useState('');
-  const [scannedPackages, setScannedPackages] = useState<ScannedPackage[]>([]);
-  const [selectedHotelId, setSelectedHotelId] = useState<string | null>(null);
+  const [scannedPackages, setScannedPackages] = useState<ScannedPackage[]>(restoredSession.scannedPackages);
+  const [selectedHotelId, setSelectedHotelId] = useState<string | null>(restoredSession.selectedHotelId);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
   const queryClient = useQueryClient();
   const toast = useToast();
   const { online } = useNetworkStatus();
+  useLanSync(); // Listen for LAN delivery updates from other computers
 
   // Global barcode scanner buffer
   const scanBufferRef = useRef('');
   const scanTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const doScanRef = useRef<(barcode: string) => void>(() => {});
 
-  // Bags state - holds created bags for current hotel session
-  const [bags, setBags] = useState<Bag[]>([]);
+  // Bags state - holds created bags for current hotel session (oturumdan geri yuklenir)
+  const [bags, setBags] = useState<Bag[]>(restoredSession.bags);
 
   // History tab state
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedHotelFilter, setSelectedHotelFilter] = useState<string>('');
   const [expandedDeliveryId, setExpandedDeliveryId] = useState<string | null>(null);
+  const [selectedWaybillIds, setSelectedWaybillIds] = useState<Set<string>>(new Set());
 
   // Printer settings
   const [printers, setPrinters] = useState<PrinterType[]>([]);
@@ -252,6 +290,31 @@ export function IrsaliyePage() {
       getPrinters().then(setPrinters);
     }
   }, []);
+
+  // Taranan paketleri / cuvallari / secili oteli kalici sakla (Sorun 3)
+  // Sayfadan cikip girince veya uygulama yeniden baslayinca paketler korunur.
+  // localStorage Electron yeniden baslayinca silinebildigi icin (yazici ayarlari gibi)
+  // ayni veriyi dosya deposuna da (app-settings.json) yaziyoruz; acilista geri yuklenir.
+  useEffect(() => {
+    const settingsSet = (window as any).electronAPI?.settingsSet;
+    try {
+      if (scannedPackages.length === 0 && bags.length === 0 && !selectedHotelId) {
+        localStorage.removeItem(IRSALIYE_SESSION_KEY);
+        if (isElectron() && settingsSet) settingsSet(IRSALIYE_SESSION_KEY, '');
+      } else {
+        const json = JSON.stringify({
+          savedAt: Date.now(),
+          scannedPackages,
+          bags,
+          selectedHotelId,
+        });
+        localStorage.setItem(IRSALIYE_SESSION_KEY, json);
+        if (isElectron() && settingsSet) settingsSet(IRSALIYE_SESSION_KEY, json);
+      }
+    } catch (e) {
+      console.warn('[Irsaliye] Oturum kaydedilemedi:', e);
+    }
+  }, [scannedPackages, bags, selectedHotelId]);
 
   // Global barcode scanner listener for irsaliye create tab
   useEffect(() => {
@@ -362,28 +425,19 @@ export function IrsaliyePage() {
   });
 
   // Get packaged deliveries ready for irsaliye
-  // Electron: SQLite first, background API sync
+  // Electron: read from SQLite (auto-sync keeps it fresh via IPC events)
   const { data: packagedDeliveries, isLoading, refetch } = useQuery({
     queryKey: ['deliveries', { status: 'packaged' }],
     queryFn: async () => {
       if (hasLocalDb) {
         const localResult = await (window as any).electronAPI.dbGetDeliveries('packaged');
         if (localResult.success) {
-          if (online) {
-            (window as any).electronAPI.dbSyncDeliveries().then(() => {
-              (window as any).electronAPI.dbGetDeliveries('packaged').then((r: any) => {
-                if (r.success) {
-                  queryClient.setQueryData(['deliveries', { status: 'packaged' }], { data: r.deliveries, pagination: { total: r.deliveries.length } });
-                }
-              });
-            }).catch(() => {});
-          }
           return { data: localResult.deliveries, pagination: { total: localResult.deliveries.length } };
         }
       }
       return deliveriesApi.getAll({ status: 'packaged', limit: 100 });
     },
-    refetchInterval: online ? 5000 : (hasLocalDb ? 2000 : false),
+    refetchInterval: hasLocalDb ? 3000 : (online ? 5000 : false),
   });
 
   // Get waybills for history tab - auto-refresh (API only, non-critical)
@@ -393,9 +447,70 @@ export function IrsaliyePage() {
     refetchInterval: online ? 5000 : false,
   });
 
+  // Track locally deleted delivery IDs - persists in localStorage
+  const DELETED_IDS_KEY = 'laundry_deleted_delivery_ids';
+  const [deletedIds, setDeletedIds] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem(DELETED_IDS_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const now = Date.now();
+        const valid = Object.entries(parsed).filter(([, ts]) => now - (ts as number) < 24 * 60 * 60 * 1000);
+        return new Set(valid.map(([id]) => id));
+      }
+    } catch {}
+    return new Set();
+  });
+
+  const addDeletedId = (id: string) => {
+    setDeletedIds(prev => {
+      const next = new Set(prev);
+      next.add(id);
+      try {
+        const saved = JSON.parse(localStorage.getItem(DELETED_IDS_KEY) || '{}');
+        saved[id] = Date.now();
+        localStorage.setItem(DELETED_IDS_KEY, JSON.stringify(saved));
+      } catch {}
+      return next;
+    });
+  };
+
+  // Irsaliyesi basilan teslimat ID'leri - packaged listesinden hemen gizlenir.
+  // (Online'da yerel durum waybill_created'a doner; offline/yavas senkronda bile
+  //  ekrandan aninda gitmesini garanti eder.) localStorage'da 24 saat tutulur.
+  const WAYBILLED_IDS_KEY = 'laundry_waybilled_delivery_ids';
+  const [waybilledIds, setWaybilledIds] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem(WAYBILLED_IDS_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const now = Date.now();
+        const valid = Object.entries(parsed).filter(([, ts]) => now - (ts as number) < 24 * 60 * 60 * 1000);
+        return new Set(valid.map(([id]) => id));
+      }
+    } catch {}
+    return new Set();
+  });
+
+  const addWaybilledIds = (ids: string[]) => {
+    setWaybilledIds(prev => {
+      const next = new Set(prev);
+      try {
+        const saved = JSON.parse(localStorage.getItem(WAYBILLED_IDS_KEY) || '{}');
+        const now = Date.now();
+        ids.forEach(id => { next.add(id); saved[id] = now; });
+        localStorage.setItem(WAYBILLED_IDS_KEY, JSON.stringify(saved));
+      } catch {}
+      return next;
+    });
+  };
+
   // Delete delivery mutation
   const cancelMutation = useMutation({
     mutationFn: async (deliveryId: string) => {
+      // Immediately hide from UI
+      addDeletedId(deliveryId);
+
       if (hasLocalDb) {
         const result = await (window as any).electronAPI.dbCancelDelivery(deliveryId);
         if (result.success) {
@@ -432,16 +547,24 @@ export function IrsaliyePage() {
   const scanMutation = useMutation({
     mutationFn: async (barcode: string) => {
       const cleanBarcode = barcode.replace(/-PKG\d+$/, '');
-      // Electron: try local DB first
-      if (hasLocalDb) {
-        const localResult = await (window as any).electronAPI.dbGetDeliveryByBarcode(cleanBarcode);
-        if (localResult.success && localResult.delivery) {
-          return { delivery: localResult.delivery, barcode };
+      console.log('[Scan-Irsaliye] Looking up barcode:', cleanBarcode);
+      // Always try API first for fresh data
+      try {
+        const delivery = await deliveriesApi.getByBarcode(cleanBarcode);
+        console.log('[Scan-Irsaliye] API result:', delivery ? `found (status: ${delivery.status})` : 'not found');
+        return { delivery, barcode };
+      } catch (apiErr) {
+        console.log('[Scan-Irsaliye] API failed, trying local DB...', apiErr);
+        // Offline fallback: use local DB
+        if (hasLocalDb) {
+          const localResult = await (window as any).electronAPI.dbGetDeliveryByBarcode(cleanBarcode);
+          if (localResult.success && localResult.delivery) {
+            console.log('[Scan-Irsaliye] Local DB result:', localResult.delivery.status);
+            return { delivery: localResult.delivery, barcode };
+          }
         }
+        throw apiErr;
       }
-      // Fallback: API
-      const delivery = await deliveriesApi.getByBarcode(cleanBarcode);
-      return { delivery, barcode };
     },
     onSuccess: ({ delivery, barcode }) => {
       if (delivery.status !== 'packaged') {
@@ -848,9 +971,18 @@ export function IrsaliyePage() {
     doc.setFontSize(8);
     doc.text('RFID Camasirhane Sistemi', pageWidth / 2, yPos, { align: 'center' });
 
-    // Generate HTML for printing - A5 kağıt, yan yana 2 nüsha
+    // Generate HTML for printing - yan yana 2 nüsha, 205mm x 217.5mm kağıt
     const hotelAddress = hotel?.address || '';
     const s = irsaliyeSettings; // kısa erişim için
+
+    // Kağıt genişliği 205mm. Rotasyon sonrası header'ın kağıda sığması için
+    // translateY'yi otelUst değerine göre ayarla.
+    // Formül: fiziksel_x = translateOffset - css_y, fiziksel_x <= 205 olmalı
+    const paperWidth = 205; // mm
+    const baseOffset = 148; // mm (body CSS width)
+    const translateOffset = s.otelUst < 0
+      ? Math.min(baseOffset, paperWidth + s.otelUst)
+      : baseOffset;
 
     const printHtml = `
       <!DOCTYPE html>
@@ -859,7 +991,7 @@ export function IrsaliyePage() {
         <meta charset="UTF-8">
         <style>
           @page {
-            size: A5 portrait;
+            size: 205mm 217.5mm;
             margin: 0;
           }
           * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -868,8 +1000,8 @@ export function IrsaliyePage() {
             font-size: ${s.fontSize}pt;
             width: 148mm;
             height: 210mm;
-            /* 90 derece saat yönünde döndür */
-            transform: rotate(90deg) translateY(-148mm);
+            /* 90 derece saat yönünde döndür; dondur180 ise sayfa merkezinde 180 derece daha çevir */
+            transform: ${s.dondur180 ? 'translate(205mm, 217.5mm) rotate(180deg) ' : ''}rotate(90deg) translateY(-${translateOffset}mm);
             transform-origin: top left;
             position: relative;
           }
@@ -1028,6 +1160,8 @@ export function IrsaliyePage() {
 
     // Clear everything and exit hotel view
     console.log('generateIrsaliyePDF: Clearing data and refreshing');
+    // Irsaliyesi basilan teslimatlari packaged listesinden hemen gizle (ekrandan gitsin)
+    addWaybilledIds(uniqueDeliveryIds);
     handleClearAll();
     setSelectedHotelId(null);
 
@@ -1073,6 +1207,14 @@ export function IrsaliyePage() {
     const totalPackageCount = waybill.packageCount || 0;
     const s = irsaliyeSettings;
 
+    // Kağıt genişliği 205mm. Rotasyon sonrası header'ın kağıda sığması için
+    // translateY'yi otelUst değerine göre ayarla.
+    const paperWidth2 = 205;
+    const baseOffset2 = 148;
+    const translateOffset2 = s.otelUst < 0
+      ? Math.min(baseOffset2, paperWidth2 + s.otelUst)
+      : baseOffset2;
+
     const printHtml = `
       <!DOCTYPE html>
       <html>
@@ -1080,7 +1222,7 @@ export function IrsaliyePage() {
         <meta charset="UTF-8">
         <style>
           @page {
-            size: A5 portrait;
+            size: 205mm 217.5mm;
             margin: 0;
           }
           * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -1089,8 +1231,8 @@ export function IrsaliyePage() {
             font-size: ${s.fontSize}pt;
             width: 148mm;
             height: 210mm;
-            /* 90 derece saat yönünde döndür */
-            transform: rotate(90deg) translateY(-148mm);
+            /* 90 derece saat yönünde döndür; dondur180 ise sayfa merkezinde 180 derece daha çevir */
+            transform: ${s.dondur180 ? 'translate(205mm, 217.5mm) rotate(180deg) ' : ''}rotate(90deg) translateY(-${translateOffset2}mm);
             transform-origin: top left;
             position: relative;
           }
@@ -1487,7 +1629,7 @@ export function IrsaliyePage() {
 
   const selectedHotel = tenants?.find(t => t.id === selectedHotelId);
   const totals = calculateTotals();
-  const packagedList = packagedDeliveries?.data || [];
+  const packagedList = (packagedDeliveries?.data || []).filter((d: any) => !deletedIds.has(d.id) && !waybilledIds.has(d.id));
 
   // Group packaged deliveries by hotel with item summary
   const hotelPackageStatuses: HotelPackageStatus[] = (tenants || []).map(tenant => {
@@ -1558,12 +1700,17 @@ export function IrsaliyePage() {
   // Handle hotel card click - toggle selection
   const handleHotelClick = (hotelId: string) => {
     if (selectedHotelId === hotelId) {
-      // Deselect if clicking same hotel
+      // Ayni otele tiklandi: paneli kapat ama taranan paketleri KORU (yesil kalsin, kalici)
       setSelectedHotelId(null);
-      setScannedPackages([]);
     } else {
+      // Farkli otel acildi: eldeki taranan paketler/cuvallar baska otele aitse temizle
+      const sessionTenantId = scannedPackages[0]?.delivery.tenantId
+        ?? bags[0]?.packages[0]?.delivery.tenantId;
+      if (sessionTenantId && sessionTenantId !== hotelId) {
+        setScannedPackages([]);
+        setBags([]);
+      }
       setSelectedHotelId(hotelId);
-      setScannedPackages([]);
     }
   };
 
@@ -1778,6 +1925,24 @@ export function IrsaliyePage() {
             </p>
 
             <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
+              {/* Yazici Yonu */}
+              <div className="bg-amber-50 p-3 rounded-lg border border-amber-200">
+                <h3 className="text-sm font-semibold text-amber-800 mb-2">Yazici Yonu</h3>
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={irsaliyeSettings.dondur180}
+                    onChange={(e) => setIrsaliyeSettings(prev => ({ ...prev, dondur180: e.target.checked }))}
+                    className="w-5 h-5 mt-0.5 rounded border-gray-300 text-amber-600 flex-shrink-0"
+                  />
+                  <span className="text-sm text-gray-700">
+                    <strong>180° ters cevir</strong>
+                    <br />
+                    <span className="text-xs text-gray-500">Yazilar matbu formda ters / bas asagi cikiyorsa isaretleyin.</span>
+                  </span>
+                </label>
+              </div>
+
               {/* Yatay Pozisyonlar */}
               <div className="bg-blue-50 p-3 rounded-lg">
                 <h3 className="text-sm font-semibold text-blue-800 mb-2">Yatay Pozisyonlar (soldan mm)</h3>
@@ -2108,7 +2273,8 @@ export function IrsaliyePage() {
                         </div>
                       </div>
                       <button
-                        onClick={() => { setSelectedHotelId(null); handleClearAll(); }}
+                        onClick={() => setSelectedHotelId(null)}
+                        title="Kapat (taranan paketler korunur)"
                         className="p-2 text-white hover:bg-white/20 rounded-lg"
                       >
                         <X className="w-5 h-5" />
@@ -2322,18 +2488,39 @@ export function IrsaliyePage() {
                                 deliveryItems = Object.values(itemTotals);
                               }
 
+                              // Paketleme saati - paketlendiyse packagedAt, yoksa olusturulma zamani
+                              const pkgTimeRaw = delivery.packagedAt || delivery.createdAt;
+                              const pkgTimeLabel = pkgTimeRaw
+                                ? new Date(pkgTimeRaw).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+                                : '';
+
                               return (
                                 <button
                                   key={delivery.id}
                                   onClick={() => {
                                     if (inBag) {
-                                      // Already in bag, don't allow changes
                                       toast.warning('Bu paket zaten bir cuvalda!');
                                       return;
                                     }
                                     if (!isScanned) {
-                                      setBarcodeInput(delivery.barcode);
-                                      setTimeout(() => handleScan(), 100);
+                                      // Doğrudan scannedPackages'a ekle (setBarcodeInput+handleScan debounce sorunu yaratıyordu)
+                                      const pkg = delivery.deliveryPackages?.[0] || {
+                                        id: `virtual-${delivery.id}`,
+                                        deliveryId: delivery.id,
+                                        packageBarcode: delivery.barcode,
+                                        sequenceNumber: 1,
+                                        status: 'created',
+                                        scannedAt: null,
+                                        scannedBy: null,
+                                        pickedUpAt: null,
+                                        createdAt: delivery.createdAt,
+                                      };
+                                      if (!selectedHotelId) {
+                                        setSelectedHotelId(delivery.tenantId);
+                                      }
+                                      playSuccessSound();
+                                      setScannedPackages(prev => [...prev, { delivery, pkg }]);
+                                      toast.success(`Paket eklendi: ${pkg.packageBarcode}`);
                                     } else {
                                       // Remove from scanned
                                       const idx = scannedPackages.findIndex(sp => sp.delivery.id === delivery.id);
@@ -2386,6 +2573,13 @@ export function IrsaliyePage() {
                                       </button>
                                     )}
                                   </div>
+
+                                  {pkgTimeLabel && (
+                                    <p className={`flex items-center gap-1 text-[10px] font-medium mb-1.5 ${inBag || isScanned ? 'text-green-100' : 'text-yellow-700'}`}>
+                                      <Clock className="w-3 h-3 flex-shrink-0" />
+                                      {pkgTimeLabel}
+                                    </p>
+                                  )}
 
                                   <div className={`space-y-0.5 text-xs ${inBag ? 'text-green-100' : isScanned ? 'text-green-100' : 'text-yellow-700'}`}>
                                     {deliveryItems.slice(0, 3).map((item, idx) => (
@@ -2672,6 +2866,28 @@ export function IrsaliyePage() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Waybills List */}
                 <div className="space-y-2 max-h-[600px] overflow-y-auto">
+                  {filteredWaybills.length > 0 && (
+                    <div className="flex items-center justify-between mb-2 px-2">
+                      <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="w-4 h-4 rounded border-gray-300 text-teal-600"
+                          checked={selectedWaybillIds.size === filteredWaybills.length && filteredWaybills.length > 0}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedWaybillIds(new Set(filteredWaybills.map(w => w.id)));
+                            } else {
+                              setSelectedWaybillIds(new Set());
+                            }
+                          }}
+                        />
+                        Tumunu Sec ({filteredWaybills.length})
+                      </label>
+                      {selectedWaybillIds.size > 0 && (
+                        <span className="text-sm font-medium text-teal-600">{selectedWaybillIds.size} secili</span>
+                      )}
+                    </div>
+                  )}
                   {filteredWaybills.length === 0 ? (
                     <div className="p-12 text-center bg-gray-50 rounded-xl">
                       <FileText className="w-16 h-16 mx-auto text-gray-300 mb-4" />
@@ -2680,20 +2896,39 @@ export function IrsaliyePage() {
                     </div>
                   ) : (
                     filteredWaybills.map(waybill => {
-                      const isSelected = expandedDeliveryId === waybill.id;
+                      const isChecked = selectedWaybillIds.has(waybill.id);
+                      const isPreview = expandedDeliveryId === waybill.id;
 
                       return (
                         <div
                           key={waybill.id}
                           className={`bg-white border rounded-xl overflow-hidden cursor-pointer transition-all ${
-                            isSelected ? 'border-teal-500 ring-2 ring-teal-200' : 'hover:border-gray-300'
+                            isChecked ? 'border-teal-500 ring-2 ring-teal-200' : 'hover:border-gray-300'
                           }`}
-                          onClick={() => setExpandedDeliveryId(isSelected ? null : waybill.id)}
+                          onClick={() => {
+                            setSelectedWaybillIds(prev => {
+                              const next = new Set(prev);
+                              if (next.has(waybill.id)) {
+                                next.delete(waybill.id);
+                              } else {
+                                next.add(waybill.id);
+                              }
+                              return next;
+                            });
+                            setExpandedDeliveryId(isPreview ? null : waybill.id);
+                          }}
                         >
                           <div className="p-4">
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-3">
-                                <div className={`p-2 rounded-lg ${isSelected ? 'bg-teal-500 text-white' : 'bg-gray-100'}`}>
+                                <input
+                                  type="checkbox"
+                                  className="w-5 h-5 rounded border-gray-300 text-teal-600"
+                                  checked={isChecked}
+                                  onChange={() => {}}
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                                <div className={`p-2 rounded-lg ${isChecked ? 'bg-teal-500 text-white' : 'bg-gray-100'}`}>
                                   <FileText className="w-5 h-5" />
                                 </div>
                                 <div>
@@ -2719,125 +2954,74 @@ export function IrsaliyePage() {
 
                 {/* Preview Panel - Right Side */}
                 <div className="bg-gray-100 rounded-xl p-6 sticky top-0">
-                  {!expandedDeliveryId ? (
+                  {selectedWaybillIds.size === 0 ? (
                     <div className="h-full flex flex-col items-center justify-center text-gray-400 py-20">
                       <FileText className="w-20 h-20 mb-4" />
-                      <p className="text-lg">Onizleme icin bir irsaliye secin</p>
+                      <p className="text-lg">Yazdirmak icin irsaliye secin</p>
                     </div>
                   ) : (
-                    (() => {
-                      const selectedWaybill = filteredWaybills.find(w => w.id === expandedDeliveryId);
-                      if (!selectedWaybill) return null;
+                    <div className="space-y-4">
+                      {/* Selected waybills summary */}
+                      <div className="bg-white rounded-lg shadow-lg p-4 border">
+                        <h3 className="font-bold text-lg mb-3">{selectedWaybillIds.size} Irsaliye Secili</h3>
+                        <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                          {filteredWaybills
+                            .filter(w => selectedWaybillIds.has(w.id))
+                            .map(waybill => {
+                              let itemTotals: { name: string; count: number }[] = [];
+                              try {
+                                const parsed = JSON.parse(waybill.itemSummary || '[]');
+                                itemTotals = parsed.map((item: any) => ({
+                                  name: item.typeName || 'Bilinmeyen',
+                                  count: item.count || 0,
+                                }));
+                              } catch {}
 
-                      // Parse item summary from waybill
-                      let itemTotals: { name: string; count: number }[] = [];
-                      try {
-                        const parsed = JSON.parse(selectedWaybill.itemSummary || '[]');
-                        itemTotals = parsed.map((item: any) => ({
-                          name: item.typeName || 'Bilinmeyen',
-                          count: item.count || 0,
-                        }));
-                      } catch {}
-
-                      return (
-                        <div className="space-y-4">
-                          {/* Document Preview */}
-                          <div className="bg-white rounded-lg shadow-lg p-6 border" style={{ fontFamily: 'serif' }}>
-                            {/* Document Header */}
-                            <div className="flex justify-between items-start mb-4 pb-2 border-b-2 border-gray-800">
-                              <div>
-                                <p className="text-xs text-gray-500">Sayin:</p>
-                                <p className="text-lg font-bold">{selectedWaybill.tenant?.name}</p>
-                              </div>
-                              <div className="text-right">
-                                <p className="text-lg font-bold">TEMIZ IRSALIYESI</p>
-                              </div>
-                            </div>
-
-                            {/* Document Info */}
-                            <div className="flex justify-between text-sm mb-4">
-                              <div>
-                                <p className="text-gray-500">Belge No:</p>
-                                <p className="font-mono font-bold">{selectedWaybill.waybillNumber}</p>
-                              </div>
-                              <div className="text-right">
-                                <p className="text-gray-500">Tarih:</p>
-                                <p className="font-medium">{new Date(selectedWaybill.printedAt || selectedWaybill.createdAt).toLocaleDateString('tr-TR')}</p>
-                              </div>
-                            </div>
-
-                            {/* Items Table */}
-                            <div className="border-t border-b border-gray-300 py-2 mb-4">
-                              <div className="flex justify-between font-bold text-sm border-b border-gray-200 pb-1 mb-2">
-                                <span>CINSI</span>
-                                <span>MIKTARI</span>
-                              </div>
-                              {itemTotals.map((item, idx) => (
-                                <div key={idx} className="flex justify-between text-sm py-1">
-                                  <span>{item.name.toUpperCase()}</span>
-                                  <span className="font-bold">{item.count} adet</span>
+                              return (
+                                <div key={waybill.id} className="border rounded-lg p-3">
+                                  <div className="flex justify-between items-start mb-2">
+                                    <div>
+                                      <p className="font-bold">{waybill.tenant?.name}</p>
+                                      <p className="font-mono text-sm text-gray-500">{waybill.waybillNumber}</p>
+                                    </div>
+                                    <div className="text-right text-sm">
+                                      <p className="text-gray-500">{new Date(waybill.printedAt || waybill.createdAt).toLocaleDateString('tr-TR')}</p>
+                                      <div className="mt-1">{getStatusBadge(waybill.status)}</div>
+                                    </div>
+                                  </div>
+                                  <div className="text-sm text-gray-600">
+                                    {itemTotals.map((item, idx) => (
+                                      <span key={idx}>
+                                        {item.name}: {item.count}
+                                        {idx < itemTotals.length - 1 ? ' | ' : ''}
+                                      </span>
+                                    ))}
+                                  </div>
+                                  <div className="flex gap-4 mt-1 text-xs text-gray-500">
+                                    <span>Paket: {waybill.packageCount || 0}</span>
+                                    <span>Toplam: {waybill.totalItems || 0}</span>
+                                  </div>
                                 </div>
-                              ))}
-                            </div>
-
-                            {/* Totals */}
-                            <div className="space-y-2 mb-4">
-                              <div className="flex justify-between font-bold text-lg">
-                                <span>CUVAL SAYISI:</span>
-                                <span>{selectedWaybill.bagCount || 0}</span>
-                              </div>
-                              <div className="flex justify-between font-bold text-lg">
-                                <span>PAKET SAYISI:</span>
-                                <span>{selectedWaybill.packageCount || 0}</span>
-                              </div>
-                              <div className="flex justify-between text-sm">
-                                <span>TOPLAM URUN:</span>
-                                <span className="font-bold">{selectedWaybill.totalItems || 0}</span>
-                              </div>
-                            </div>
-
-                            {/* Signature Section */}
-                            <div className="border-t border-gray-300 pt-4">
-                              <div className="flex justify-between">
-                                <div className="text-center flex-1">
-                                  <p className="text-xs text-gray-500 mb-6">Teslim Eden</p>
-                                  <div className="border-t border-gray-400 w-24 mx-auto"></div>
-                                </div>
-                                <div className="text-center flex-1">
-                                  <p className="text-xs text-gray-500 mb-6">Teslim Alan</p>
-                                  <div className="border-t border-gray-400 w-24 mx-auto"></div>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Footer */}
-                            <div className="text-center text-xs text-gray-400 mt-4 pt-2 border-t">
-                              RFID Camasirhane Sistemi
-                            </div>
-                          </div>
-
-                          {/* Actions */}
-                          <div className="flex gap-3">
-                            <div className="flex-1 bg-white rounded-lg p-3 shadow flex items-center gap-3">
-                              {getStatusBadge(selectedWaybill.status)}
-                              <span className="text-sm text-gray-500">
-                                {selectedWaybill.status === 'delivered' ? 'Teslim edildi' : 'Bekliyor'}
-                              </span>
-                            </div>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleReprintWaybill(selectedWaybill);
-                              }}
-                              className="px-6 py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-medium flex items-center gap-2 shadow"
-                            >
-                              <Printer className="w-5 h-5" />
-                              Yazdir
-                            </button>
-                          </div>
+                              );
+                            })}
                         </div>
-                      );
-                    })()
+                      </div>
+
+                      {/* Print All Button */}
+                      <button
+                        onClick={async () => {
+                          const waybillsToPrint = filteredWaybills.filter(w => selectedWaybillIds.has(w.id));
+                          for (const waybill of waybillsToPrint) {
+                            await handleReprintWaybill(waybill);
+                          }
+                          toast.success(`${waybillsToPrint.length} irsaliye yaziciya gonderildi!`);
+                        }}
+                        className="w-full px-6 py-4 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-medium flex items-center justify-center gap-2 shadow text-lg"
+                      >
+                        <Printer className="w-6 h-6" />
+                        {selectedWaybillIds.size} Irsaliye Yazdir
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>

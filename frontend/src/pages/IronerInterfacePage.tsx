@@ -5,7 +5,7 @@ import { itemsApi, deliveriesApi, settingsApi, getErrorMessage, getStoredToken }
 import { useToast } from '../components/Toast';
 import { generateDeliveryLabel } from '../lib/pdfGenerator';
 import { isElectron, getPrinters, savePreferredPrinter, getPreferredPrinter, type Printer as PrinterType } from '../lib/printer';
-import type { Item, Tenant } from '../types';
+import type { Item, Tenant, Delivery } from '../types';
 import type { UhfTag, UhfReaderStatus } from '../types/electron';
 
 // Storage keys
@@ -227,6 +227,19 @@ export function IronerInterfacePage() {
     return () => clearInterval(refreshInterval);
   }, []);
 
+  // Aktif otel değiştiğinde, o otelin son basılan türünü dropdown'da seç
+  useEffect(() => {
+    if (activeHotelId && lastPrintedType[activeHotelId]) {
+      setAddingTypeId(prev => {
+        // Sadece henüz seçim yapılmamışsa (boş ise) otomatik seç
+        if (!prev[activeHotelId]) {
+          return { ...prev, [activeHotelId]: lastPrintedType[activeHotelId] };
+        }
+        return prev;
+      });
+    }
+  }, [activeHotelId, lastPrintedType]);
+
   // Save selected hotels to localStorage
   const saveSelectedHotels = (hotelIds: string[]) => {
     setSelectedHotelIds(hotelIds);
@@ -287,6 +300,10 @@ export function IronerInterfacePage() {
   const { data: dirtyItems, refetch: refetchDirty } = useQuery({
     queryKey: ['dirty-items'],
     queryFn: () => itemsApi.getDirty(),
+    staleTime: 2 * 60 * 1000, // 2 min - don't refetch too often, prevents slow API from blocking UI
+    gcTime: 10 * 60 * 1000, // Keep cached data for 10 min
+    retry: 1, // Only retry once on failure
+    retryDelay: 5000,
   });
 
   // Get tenants for grouping - SQLite first in Electron, API fallback
@@ -727,6 +744,8 @@ export function IronerInterfacePage() {
   const { refetch: refetchPrinted } = useQuery({
     queryKey: ['deliveries', { status: 'label_printed' }],
     queryFn: () => deliveriesApi.getAll({ status: 'label_printed', limit: 10 }),
+    staleTime: 2 * 60 * 1000,
+    retry: 1,
   });
 
   // Type for label extra data
@@ -741,38 +760,74 @@ export function IronerInterfacePage() {
   // Mark items clean and create delivery mutation
   const processAndPrintMutation = useMutation({
     mutationFn: async ({ hotelId, itemIds, labelCount, labelExtraData }: { hotelId: string; itemIds: string[]; labelCount: number; labelExtraData?: LabelExtraItem[] }) => {
-      // First mark items as ready for delivery (skip if no items)
-      if (itemIds.length > 0) {
-        await itemsApi.markClean(itemIds);
+      let fullDelivery: Delivery | null = null;
+      let isOffline = false;
+
+      try {
+        // First mark items as ready for delivery (skip if no items)
+        if (itemIds.length > 0) {
+          await itemsApi.markClean(itemIds);
+        }
+
+        // Then create a delivery with the specified package count
+        const delivery = await deliveriesApi.create({
+          tenantId: hotelId,
+          itemIds,
+          packageCount: labelCount,
+          notes: labelExtraData ? JSON.stringify(labelExtraData) : undefined,
+        });
+
+        // Get full delivery details for label generation
+        fullDelivery = await deliveriesApi.getById(delivery.id);
+      } catch (apiError) {
+        // Offline - create a local delivery object for label printing
+        console.warn('[Print] API unavailable, printing offline label:', apiError);
+        isOffline = true;
+        const hotel = tenantsArray.find((t: Tenant) => t.id === hotelId);
+        fullDelivery = {
+          id: `offline-${Date.now()}`,
+          tenantId: hotelId,
+          driverId: null,
+          packagerId: null,
+          barcode: String(Date.now()).slice(-8),
+          packageCount: labelCount,
+          status: 'label_printed' as any,
+          labelPrintedAt: null,
+          packagedAt: null,
+          pickedUpAt: null,
+          deliveredAt: null,
+          deliveryLatitude: null,
+          deliveryLongitude: null,
+          deliveryAddress: null,
+          notes: labelExtraData ? JSON.stringify(labelExtraData) : null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          tenant: hotel,
+        } as Delivery;
       }
 
-      // Then create a delivery with the specified package count
-      const delivery = await deliveriesApi.create({
-        tenantId: hotelId,
-        itemIds,
-        packageCount: labelCount,
-        notes: labelExtraData ? JSON.stringify(labelExtraData) : undefined,
-      });
-
-      // Get full delivery details for label generation
-      const fullDelivery = await deliveriesApi.getById(delivery.id);
-
       // Generate and print labels with extra data
-      generateDeliveryLabel(fullDelivery, labelExtraData);
+      generateDeliveryLabel(fullDelivery!, labelExtraData);
 
-      // Update status to label_printed
-      try {
-        await deliveriesApi.printLabel(delivery.id);
-      } catch (printError) {
-        // Continue anyway - label was generated
+      // Update status to label_printed (skip if offline)
+      if (!isOffline && fullDelivery) {
+        try {
+          await deliveriesApi.printLabel(fullDelivery.id);
+        } catch (printError) {
+          // Continue anyway - label was generated
+        }
       }
 
       // Calculate total product count from labelExtraData
       const totalProducts = (labelExtraData || []).reduce((sum, item) => sum + (item.count || 0), 0);
-      return { delivery: fullDelivery, labelCount, totalProducts };
+      return { delivery: fullDelivery!, labelCount, totalProducts, isOffline };
     },
-    onSuccess: (_, variables) => {
-      toast.success('Urunler temizlendi ve etiket basildi!');
+    onSuccess: (result, variables) => {
+      if (result.isOffline) {
+        toast.success('OFFLINE: Etiket basildi! Internet gelince senkronize edilecek.');
+      } else {
+        toast.success('Urunler temizlendi ve etiket basildi!');
+      }
       // Counter now increments when packager scans the label
       queryClient.invalidateQueries({ queryKey: ['dirty-items'] });
       queryClient.invalidateQueries({ queryKey: ['deliveries'] });
@@ -2069,10 +2124,25 @@ export function IronerInterfacePage() {
 
                       {/* Dropdown + Buttons */}
                       <div className="flex flex-col gap-2">
-                        {/* Dropdown */}
+                        {/* Dropdown - scroll wheel changes selection without opening */}
                         <select
                           value={addingTypeId[hotelId] || ''}
                           onChange={(e) => setAddingTypeId(prev => ({ ...prev, [hotelId]: e.target.value }))}
+                          onWheel={(e) => {
+                            e.preventDefault();
+                            const sortedTypes = (itemTypes || []).slice().sort((a: { id: string }, b: { id: string }) => {
+                              const lastType = lastPrintedType[hotelId];
+                              if (lastType === a.id) return -1;
+                              if (lastType === b.id) return 1;
+                              return 0;
+                            });
+                            if (sortedTypes.length === 0) return;
+                            const currentId = addingTypeId[hotelId] || '';
+                            const currentIdx = sortedTypes.findIndex((t: { id: string }) => t.id === currentId);
+                            const direction = e.deltaY > 0 ? 1 : -1;
+                            const nextIdx = Math.max(0, Math.min(sortedTypes.length - 1, currentIdx + direction));
+                            setAddingTypeId(prev => ({ ...prev, [hotelId]: sortedTypes[nextIdx].id }));
+                          }}
                           className="w-48 px-3 py-2 border-2 border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
                         >
                           <option value="">Tür seçin...</option>
@@ -2133,8 +2203,7 @@ export function IronerInterfacePage() {
                             setLastPrintedType(newLastPrintedType);
                             localStorage.setItem(LAST_PRINTED_TYPE_KEY, JSON.stringify(newLastPrintedType));
 
-                            // Reset form for next entry
-                            setAddingTypeId(prev => ({ ...prev, [hotelId]: '' }));
+                            // Reset form for next entry (keep selected type)
                             setAddingCount(prev => ({ ...prev, [hotelId]: 0 }));
                             setAddingDiscard(prev => ({ ...prev, [hotelId]: false }));
                             setAddingHasarli(prev => ({ ...prev, [hotelId]: false }));
@@ -2153,21 +2222,25 @@ export function IronerInterfacePage() {
                             // Start with manual items from print list
                             let itemsToPrint = [...(printList[hotelId] || [])];
 
-                            // Add RFID scanned valid items
+                            // Add RFID scanned valid items (apply form discord/lekeli selection)
+                            const rfidDiscard = (addingDiscard[hotelId] || false) ? 1 : 0;
+                            const rfidHasarli = (addingHasarli[hotelId] || false) ? 1 : 0;
                             validList.forEach(item => {
                               const existingIdx = itemsToPrint.findIndex(i => i.typeId === item.itemTypeId);
                               if (existingIdx >= 0) {
                                 itemsToPrint[existingIdx] = {
                                   ...itemsToPrint[existingIdx],
                                   count: itemsToPrint[existingIdx].count + item.count,
+                                  discardCount: Math.max(itemsToPrint[existingIdx].discardCount, rfidDiscard),
+                                  hasarliCount: Math.max(itemsToPrint[existingIdx].hasarliCount, rfidHasarli),
                                 };
                               } else {
                                 itemsToPrint.push({
                                   typeId: item.itemTypeId,
                                   typeName: item.itemType,
                                   count: item.count,
-                                  discardCount: 0,
-                                  hasarliCount: 0
+                                  discardCount: rfidDiscard,
+                                  hasarliCount: rfidHasarli
                                 });
                               }
                             });
@@ -2176,15 +2249,15 @@ export function IronerInterfacePage() {
                             const currentTypeId = addingTypeId[hotelId];
                             const currentCount = addingCount[hotelId] || 0;
 
-                            // Warning if type selected but no count
-                            if (currentTypeId && currentCount <= 0) {
-                              toast.warning('Tur secildi ama adet girilmedi!');
-                              return;
-                            }
-
                             // Warning if count entered but no type selected
                             if (!currentTypeId && currentCount > 0) {
                               toast.warning('Adet girildi ama tur secilmedi!');
+                              return;
+                            }
+
+                            // Adet 0 ise: printList/RFID'de ürün yoksa yazdırma
+                            if (currentCount <= 0 && itemsToPrint.length === 0) {
+                              toast.warning('Lutfen adet girin');
                               return;
                             }
 
@@ -2215,11 +2288,15 @@ export function IronerInterfacePage() {
                                 });
                               }
 
-                              // Clear form after auto-add
-                              setAddingTypeId(prev => ({ ...prev, [hotelId]: '' }));
+                              // Clear form after auto-add (keep selected type)
                               setAddingCount(prev => ({ ...prev, [hotelId]: 0 }));
                               setAddingDiscard(prev => ({ ...prev, [hotelId]: false }));
                               setAddingHasarli(prev => ({ ...prev, [hotelId]: false }));
+
+                              // Update last printed type
+                              const newLastPrintedType = { ...lastPrintedType, [hotelId]: currentTypeId };
+                              setLastPrintedType(newLastPrintedType);
+                              localStorage.setItem(LAST_PRINTED_TYPE_KEY, JSON.stringify(newLastPrintedType));
                             }
 
                             if (itemsToPrint.length === 0) {

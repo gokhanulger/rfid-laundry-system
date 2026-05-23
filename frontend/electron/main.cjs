@@ -16,6 +16,7 @@ try {
 // Database and Sync Service
 const db = require('./database.cjs');
 const syncService = require('./sync-service.cjs');
+const lanSync = require('./lan-sync.cjs');
 
 // Development or production mode
 const isDev = !app.isPackaged;
@@ -838,6 +839,42 @@ function createWindow() {
   });
 }
 
+// ==========================================
+// Persistent Settings (survives app restart)
+// ==========================================
+const settingsPath = path.join(app.getPath('userData'), 'app-settings.json');
+
+function loadSettings() {
+  try {
+    if (fs.existsSync(settingsPath)) {
+      return JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    }
+  } catch (e) {
+    console.log('[Settings] Failed to load:', e.message);
+  }
+  return {};
+}
+
+function saveSettings(settings) {
+  try {
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
+  } catch (e) {
+    console.log('[Settings] Failed to save:', e.message);
+  }
+}
+
+ipcMain.handle('settings-get', async (event, { key }) => {
+  const settings = loadSettings();
+  return settings[key] ?? null;
+});
+
+ipcMain.handle('settings-set', async (event, { key, value }) => {
+  const settings = loadSettings();
+  settings[key] = value;
+  saveSettings(settings);
+  return true;
+});
+
 // Handle printer list request
 ipcMain.handle('get-printers', async () => {
   if (mainWindow) {
@@ -1292,6 +1329,8 @@ ipcMain.handle('db-init', async (event, { token }) => {
     await db.initDatabase();
     if (token) {
       syncService.setAuthToken(token);
+      // Start auto-sync when initialized with token
+      syncService.startAutoSync(5 * 1000);
     }
     syncService.setMainWindow(mainWindow);
     const stats = db.getDatabaseStats();
@@ -1307,6 +1346,8 @@ ipcMain.handle('db-init', async (event, { token }) => {
 ipcMain.handle('db-set-token', async (event, { token }) => {
   console.log('[Main] Setting auth token:', token ? token.substring(0, 30) + '...' : 'NONE');
   syncService.setAuthToken(token);
+  // Start auto-sync when token is set (user logged in)
+  syncService.startAutoSync(5 * 1000);
   return { success: true };
 });
 
@@ -1482,6 +1523,15 @@ ipcMain.handle('db-sync-deliveries', async () => {
   }
 });
 
+// LAN Sync status
+ipcMain.handle('lan-sync-status', async () => {
+  try {
+    return { success: true, ...lanSync.getStatus() };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
 // ==========================================
 // End SQLite Database IPC Handlers
 // ==========================================
@@ -1500,31 +1550,30 @@ app.whenReady().then(async () => {
   // Set main window for sync service
   syncService.setMainWindow(mainWindow);
 
-  // Auto-sync when app comes back online
-  // Check every 30 seconds, and when online: process pending ops + sync deliveries
-  let wasOffline = false;
-  setInterval(async () => {
+  // Start LAN sync for offline computer-to-computer sync
+  lanSync.setMainWindow(mainWindow);
+  lanSync.start().then(() => {
+    console.log('[Main] LAN sync started');
+  }).catch(e => {
+    console.error('[Main] LAN sync failed to start:', e.message);
+  });
+
+  // Auto-sync is now handled by syncService.startAutoSync() inside initialize()
+  // This interval just notifies the renderer about online/offline status changes
+  let lastOnlineState = true;
+  setInterval(() => {
     const isOnline = syncService.isOnline();
-    if (isOnline && wasOffline) {
-      console.log('[Main] Back online! Processing pending operations and syncing...');
-      try {
-        const pendingResult = await syncService.processPendingOperations();
-        console.log('[Main] Pending operations result:', pendingResult);
-        const deliveryResult = await syncService.syncDeliveries();
-        console.log('[Main] Delivery sync result:', deliveryResult);
-        // Notify renderer that sync completed
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('sync-status', {
-            status: 'completed',
-            message: `Online - ${pendingResult.processed || 0} bekleyen islem gonderildi`
-          });
-        }
-      } catch (e) {
-        console.error('[Main] Auto-sync error:', e.message);
+    if (isOnline !== lastOnlineState) {
+      console.log(`[Main] Network status changed: ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('sync-status', {
+          status: isOnline ? 'online' : 'offline',
+          message: isOnline ? 'Internet baglantisi var' : 'Internet baglantisi yok - offline calisiliyor'
+        });
       }
     }
-    wasOffline = !isOnline;
-  }, 30000);
+    lastOnlineState = isOnline;
+  }, 10000);
 
   // Register global shortcut for DevTools (F12)
   globalShortcut.register('F12', () => {
@@ -1547,9 +1596,10 @@ app.on('window-all-closed', () => {
   // Unregister all shortcuts
   globalShortcut.unregisterAll();
 
-  // Close database on quit
+  // Close database and stop sync on quit
   db.closeDatabase();
   syncService.stopAutoSync();
+  lanSync.stop();
 
   if (process.platform !== 'darwin') {
     app.quit();

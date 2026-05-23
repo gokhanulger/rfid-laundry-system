@@ -4,6 +4,7 @@ import { Package, CheckCircle, RefreshCw, QrCode, Box, Trash2 } from 'lucide-rea
 import { deliveriesApi, getErrorMessage } from '../lib/api';
 import { useToast } from '../components/Toast';
 import { useNetworkStatus } from '../hooks/useNetworkStatus';
+import { useLanSync } from '../hooks/useLanSync';
 import type { Delivery } from '../types';
 
 type TabType = 'packaging' | 'history';
@@ -130,6 +131,7 @@ export function PackagingPage() {
   const toast = useToast();
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const { online } = useNetworkStatus();
+  useLanSync(); // Listen for LAN delivery updates from other computers
 
   // Global barcode scanner buffer (for scanners that send characters quickly)
   const scanBufferRef = useRef('');
@@ -263,33 +265,25 @@ export function PackagingPage() {
   const hasLocalDb = !!(window as any).electronAPI?.dbGetDeliveries;
 
   // Get deliveries that have labels printed (ready for packaging)
-  // Electron: SQLite first, then background API sync
-  // Web: API with polling (stop when offline)
+  // Electron: read from SQLite (auto-sync keeps it fresh via IPC events)
+  // Web: API with polling
   const { data: deliveries, isLoading, refetch } = useQuery({
     queryKey: ['deliveries', { status: 'label_printed' }],
     queryFn: async () => {
       if (hasLocalDb) {
         // Electron: read from SQLite (instant, works offline)
+        // Auto-sync in main process keeps SQLite fresh and sends 'deliveries-changed' event
         const localResult = await (window as any).electronAPI.dbGetDeliveries('label_printed');
         if (localResult.success) {
-          // Background: sync from API if online
-          if (online) {
-            (window as any).electronAPI.dbSyncDeliveries().then(() => {
-              // Re-read from SQLite after sync
-              (window as any).electronAPI.dbGetDeliveries('label_printed').then((r: any) => {
-                if (r.success) {
-                  queryClient.setQueryData(['deliveries', { status: 'label_printed' }], { data: r.deliveries, pagination: { total: r.deliveries.length } });
-                }
-              });
-            }).catch(() => { /* offline, ignore */ });
-          }
           return { data: localResult.deliveries, pagination: { total: localResult.deliveries.length } };
         }
       }
-      // Fallback: API
+      // Fallback: API (web mode)
       return deliveriesApi.getAll({ status: 'label_printed', limit: 10000 });
     },
-    refetchInterval: online ? 5000 : (hasLocalDb ? 2000 : false), // SQLite: poll locally even offline
+    // Electron: poll SQLite every 3s as safety net (auto-sync IPC events also trigger refresh)
+    // Web: poll API every 5s when online
+    refetchInterval: hasLocalDb ? 3000 : (online ? 5000 : false),
   });
 
   // Get recently packaged - also auto-refresh
@@ -304,20 +298,29 @@ export function PackagingPage() {
       }
       return deliveriesApi.getAll({ status: 'packaged', limit: 10000 });
     },
-    refetchInterval: online ? 5000 : (hasLocalDb ? 2000 : false),
+    refetchInterval: hasLocalDb ? 3000 : (online ? 5000 : false),
   });
 
   const scanMutation = useMutation({
     mutationFn: async (barcode: string) => {
-      // Electron: try local DB first (works offline)
-      if (hasLocalDb) {
-        const localResult = await (window as any).electronAPI.dbGetDeliveryByBarcode(barcode);
-        if (localResult.success && localResult.delivery) {
-          return localResult.delivery;
+      console.log('[Scan] Looking up barcode:', barcode);
+      // Always try API first for fresh data
+      try {
+        const result = await deliveriesApi.getByBarcode(barcode);
+        console.log('[Scan] API result:', result ? `found (status: ${result.status})` : 'not found');
+        return result;
+      } catch (apiErr) {
+        console.log('[Scan] API failed, trying local DB...', apiErr);
+        // Offline fallback: use local DB
+        if (hasLocalDb) {
+          const localResult = await (window as any).electronAPI.dbGetDeliveryByBarcode(barcode);
+          if (localResult.success && localResult.delivery) {
+            console.log('[Scan] Local DB result:', localResult.delivery.status);
+            return localResult.delivery;
+          }
         }
+        throw apiErr;
       }
-      // Fallback: API
-      return deliveriesApi.getByBarcode(barcode);
     },
     onSuccess: (delivery) => {
       if (delivery.status === 'label_printed') {
@@ -400,9 +403,44 @@ export function PackagingPage() {
     },
   });
 
+  // Track locally deleted delivery IDs - persists in localStorage so they never come back
+  const DELETED_IDS_KEY = 'laundry_deleted_delivery_ids';
+  const [deletedIds, setDeletedIds] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem(DELETED_IDS_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // Clean entries older than 24 hours
+        const now = Date.now();
+        const valid = Object.entries(parsed).filter(([, ts]) => now - (ts as number) < 24 * 60 * 60 * 1000);
+        const cleaned = Object.fromEntries(valid);
+        localStorage.setItem(DELETED_IDS_KEY, JSON.stringify(cleaned));
+        return new Set(valid.map(([id]) => id));
+      }
+    } catch {}
+    return new Set();
+  });
+
+  const addDeletedId = (id: string) => {
+    setDeletedIds(prev => {
+      const next = new Set(prev);
+      next.add(id);
+      // Save to localStorage with timestamp
+      try {
+        const saved = JSON.parse(localStorage.getItem(DELETED_IDS_KEY) || '{}');
+        saved[id] = Date.now();
+        localStorage.setItem(DELETED_IDS_KEY, JSON.stringify(saved));
+      } catch {}
+      return next;
+    });
+  };
+
   // Cancel/delete delivery mutation
   const cancelMutation = useMutation({
     mutationFn: async (deliveryId: string) => {
+      // Immediately hide from UI
+      addDeletedId(deliveryId);
+
       if (hasLocalDb) {
         const result = await (window as any).electronAPI.dbCancelDelivery(deliveryId);
         if (result.success) {
@@ -439,13 +477,18 @@ export function PackagingPage() {
   };
 
   // Sort by createdAt descending (newest first)
-  const pendingDeliveries = ((deliveries?.data || []) as Delivery[]).slice().sort((a: Delivery, b: Delivery) =>
-    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
+  // Filter out locally deleted deliveries that may reappear from sync/refetch
+  const pendingDeliveries = ((deliveries?.data || []) as Delivery[])
+    .filter((d: Delivery) => !deletedIds.has(d.id))
+    .sort((a: Delivery, b: Delivery) =>
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
   // Sort by packagedAt descending (newest first)
-  const recentPackaged = ((packagedDeliveries?.data || []) as Delivery[]).slice().sort((a: Delivery, b: Delivery) =>
-    new Date(b.packagedAt || 0).getTime() - new Date(a.packagedAt || 0).getTime()
-  );
+  const recentPackaged = ((packagedDeliveries?.data || []) as Delivery[])
+    .filter((d: Delivery) => !deletedIds.has(d.id))
+    .sort((a: Delivery, b: Delivery) =>
+      new Date(b.packagedAt || 0).getTime() - new Date(a.packagedAt || 0).getTime()
+    );
 
   return (
     <div className="p-8 space-y-6 animate-fade-in">

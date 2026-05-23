@@ -146,32 +146,53 @@ export async function getDefaultPrinter(): Promise<string | null> {
   return defaultPrinter?.name || null;
 }
 
-// Save preferred printer to localStorage (for labels)
-export function savePreferredPrinter(printerName: string): void {
-  localStorage.setItem('preferredPrinter', printerName);
+// Persistent setting helper - saves to both localStorage and Electron file storage
+function persistSetting(key: string, value: string): void {
+  localStorage.setItem(key, value);
+  if (isElectron() && (window as any).electronAPI?.settingsSet) {
+    (window as any).electronAPI.settingsSet(key, value);
+  }
 }
 
-// Get preferred printer from localStorage (for labels)
+// Restore persisted settings from Electron file storage into localStorage on startup
+export async function restorePersistedSettings(): Promise<void> {
+  if (!isElectron() || !(window as any).electronAPI?.settingsGet) return;
+  // 'laundry_irsaliye_session' = irsaliyecinin taranan paketleri (restart sonrasi korunur)
+  const keys = ['preferredPrinter', 'deliveryPrinter', 'bagPrinter', 'laundry_irsaliye_session'];
+  for (const key of keys) {
+    const value = await (window as any).electronAPI.settingsGet(key);
+    if (value) {
+      localStorage.setItem(key, value);
+    }
+  }
+}
+
+// Save preferred printer (for labels)
+export function savePreferredPrinter(printerName: string): void {
+  persistSetting('preferredPrinter', printerName);
+}
+
+// Get preferred printer (for labels)
 export function getPreferredPrinter(): string | null {
   return localStorage.getItem('preferredPrinter');
 }
 
-// Save preferred delivery/irsaliye printer to localStorage
+// Save preferred delivery/irsaliye printer
 export function saveDeliveryPrinter(printerName: string): void {
-  localStorage.setItem('deliveryPrinter', printerName);
+  persistSetting('deliveryPrinter', printerName);
 }
 
-// Get preferred delivery/irsaliye printer from localStorage
+// Get preferred delivery/irsaliye printer
 export function getDeliveryPrinter(): string | null {
   return localStorage.getItem('deliveryPrinter');
 }
 
-// Save preferred bag label printer to localStorage
+// Save preferred bag label printer
 export function saveBagPrinter(printerName: string): void {
-  localStorage.setItem('bagPrinter', printerName);
+  persistSetting('bagPrinter', printerName);
 }
 
-// Get preferred bag label printer from localStorage
+// Get preferred bag label printer
 export function getBagPrinter(): string | null {
   return localStorage.getItem('bagPrinter');
 }

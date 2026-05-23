@@ -526,6 +526,40 @@ function getDeliveryByBarcode(barcode) {
   return null;
 }
 
+function getDeliveryById(id) {
+  if (!db) return null;
+  const stmt = db.prepare('SELECT * FROM deliveries WHERE id = ?');
+  stmt.bind([id]);
+
+  if (stmt.step()) {
+    const row = stmt.getAsObject();
+    if (row.delivery_items_json) {
+      try { row.deliveryItems = JSON.parse(row.delivery_items_json); } catch (e) { row.deliveryItems = []; }
+    } else {
+      row.deliveryItems = [];
+    }
+    if (row.delivery_packages_json) {
+      try { row.deliveryPackages = JSON.parse(row.delivery_packages_json); } catch (e) { row.deliveryPackages = []; }
+    } else {
+      row.deliveryPackages = [];
+    }
+    row.tenantId = row.tenant_id;
+    row.tenantName = row.tenant_name;
+    row.itemCount = row.item_count;
+    row.packageCount = row.package_count;
+    row.packagedAt = row.packaged_at;
+    row.pickedUpAt = row.picked_up_at;
+    row.deliveredAt = row.delivered_at;
+    row.createdAt = row.created_at;
+    row.updatedAt = row.updated_at;
+    row.tenant = { id: row.tenant_id, name: row.tenant_name };
+    stmt.free();
+    return row;
+  }
+  stmt.free();
+  return null;
+}
+
 function updateDeliveryStatus(id, status, extraFields) {
   if (!db) return false;
   const now = new Date().toISOString();
@@ -541,6 +575,13 @@ function updateDeliveryStatus(id, status, extraFields) {
   sql += ' WHERE id = ?';
   params.push(id);
   db.run(sql, params);
+  markDirty();
+  return true;
+}
+
+function deleteDelivery(id) {
+  if (!db) return false;
+  db.run('DELETE FROM deliveries WHERE id = ?', [id]);
   markDirty();
   return true;
 }
@@ -767,8 +808,10 @@ module.exports = {
   // Deliveries
   upsertDeliveries,
   getDeliveriesByStatus,
+  getDeliveryById,
   getDeliveryByBarcode,
   updateDeliveryStatus,
+  deleteDelivery,
   getDeliveriesCount,
   // Pending Operations
   addPendingOperation,

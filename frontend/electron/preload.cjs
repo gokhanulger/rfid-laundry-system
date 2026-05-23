@@ -187,6 +187,37 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Quick delivery sync
   dbSyncDeliveries: () => ipcRenderer.invoke('db-sync-deliveries'),
 
+  // ==========================================
+  // LAN Sync API (Offline computer-to-computer sync)
+  // ==========================================
+
+  // Get LAN sync status (peers, running state)
+  lanSyncStatus: () => ipcRenderer.invoke('lan-sync-status'),
+
+  // Listen for LAN sync events
+  onLanSyncStatus: (callback) => {
+    ipcRenderer.on('lan-sync-status', (event, data) => callback(data));
+    return () => ipcRenderer.removeAllListeners('lan-sync-status');
+  },
+
+  // Listen for LAN delivery updates (triggers query refresh)
+  onLanDeliveryUpdated: (callback) => {
+    ipcRenderer.on('lan-delivery-updated', (event, data) => callback(data));
+    return () => ipcRenderer.removeAllListeners('lan-delivery-updated');
+  },
+
+  // Listen for any delivery data changes (from auto-sync, API sync, etc.)
+  onDeliveriesChanged: (callback) => {
+    ipcRenderer.on('deliveries-changed', (event, data) => callback(data));
+    return () => ipcRenderer.removeAllListeners('deliveries-changed');
+  },
+
+  // ==========================================
+  // Persistent Settings API
+  // ==========================================
+  settingsGet: (key) => ipcRenderer.invoke('settings-get', { key }),
+  settingsSet: (key, value) => ipcRenderer.invoke('settings-set', { key, value }),
+
   // Listen for sync status updates
   onSyncStatus: (callback) => {
     ipcRenderer.on('sync-status', (event, status) => callback(status));

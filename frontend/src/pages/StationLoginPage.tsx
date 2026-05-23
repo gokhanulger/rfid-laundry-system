@@ -78,31 +78,50 @@ export function StationLoginPage() {
         // Try to re-authenticate with backend for full access
         const creds = STATION_CREDENTIALS[savedAuth];
         if (creds) {
+          let token = '';
           try {
             const response = await api.post('/auth/login', {
               email: creds.email,
               password: creds.password,
             });
             if (response.data?.token) {
-              setStoredToken(response.data.token);
-              // Initialize SQLite and start sync in Electron
-              if (window.electronAPI?.dbInit) {
-                console.log('[StationLogin] Initializing SQLite database...');
-                const initResult = await window.electronAPI.dbInit(response.data.token);
-                console.log('[StationLogin] DB init result:', initResult);
-
-                // Start full sync if no items cached
-                if (initResult.success && (!initResult.stats?.itemsCount || initResult.stats.itemsCount === 0)) {
-                  console.log('[StationLogin] No cached items, starting full sync...');
-                  window.electronAPI.dbFullSync().then((syncResult: any) => {
-                    console.log('[StationLogin] Full sync result:', syncResult);
-                  });
-                }
-              }
+              token = response.data.token;
+              setStoredToken(token);
             }
           } catch (err: any) {
             console.error('Backend re-auth failed (continuing anyway):', err);
-            // Continue without token - public endpoints will still work
+            // Try to use previously stored token
+            token = localStorage.getItem('auth_token') || '';
+          }
+          // Always initialize SQLite (with or without token) - auto-sync needs DB ready
+          if (window.electronAPI?.dbInit) {
+            console.log('[StationLogin] Initializing SQLite database, token:', token ? 'YES' : 'NO');
+            const initResult = await window.electronAPI.dbInit(token);
+            console.log('[StationLogin] DB init result:', initResult);
+
+            // Start full sync if no items cached and we have a token
+            if (token && initResult.success && (!initResult.stats?.itemsCount || initResult.stats.itemsCount === 0)) {
+              console.log('[StationLogin] No cached items, starting full sync...');
+              window.electronAPI.dbFullSync().then((syncResult: any) => {
+                console.log('[StationLogin] Full sync result:', syncResult);
+              });
+            }
+          }
+          // If no token initially, retry auth in background every 30s
+          if (!token) {
+            const retryAuth = setInterval(async () => {
+              try {
+                const resp = await api.post('/auth/login', { email: creds.email, password: creds.password });
+                if (resp.data?.token) {
+                  setStoredToken(resp.data.token);
+                  if (window.electronAPI?.dbSetToken) {
+                    await window.electronAPI.dbSetToken(resp.data.token);
+                    console.log('[StationLogin] Token recovered, sync will start');
+                  }
+                  clearInterval(retryAuth);
+                }
+              } catch { /* retry next cycle */ }
+            }, 30000);
           }
         }
         // Always restore session if saved auth exists
@@ -124,32 +143,34 @@ export function StationLoginPage() {
         setTimeout(async () => {
           if (newPin === STATION_PINS[selectedStation]) {
             // Try to authenticate with backend for full access
-            try {
+            {
               const creds = STATION_CREDENTIALS[selectedStation];
-              const response = await api.post('/auth/login', {
-                email: creds.email,
-                password: creds.password,
-              });
-              if (response.data?.token) {
-                setStoredToken(response.data.token);
-                // Initialize SQLite and start sync in Electron
-                if (window.electronAPI?.dbInit) {
-                  console.log('[StationLogin] Initializing SQLite database...');
-                  const initResult = await window.electronAPI.dbInit(response.data.token);
-                  console.log('[StationLogin] DB init result:', initResult);
-
-                  // Start full sync if no items cached
-                  if (initResult.success && (!initResult.stats?.itemsCount || initResult.stats.itemsCount === 0)) {
-                    console.log('[StationLogin] No cached items, starting full sync...');
-                    window.electronAPI.dbFullSync().then((syncResult: any) => {
-                      console.log('[StationLogin] Full sync result:', syncResult);
-                    });
-                  }
+              let token = '';
+              try {
+                const response = await api.post('/auth/login', {
+                  email: creds.email,
+                  password: creds.password,
+                });
+                if (response.data?.token) {
+                  token = response.data.token;
+                  setStoredToken(token);
+                }
+              } catch (err: any) {
+                console.error('Backend auth failed (continuing anyway):', err);
+                token = localStorage.getItem('auth_token') || '';
+              }
+              // Always initialize SQLite
+              if (window.electronAPI?.dbInit) {
+                console.log('[StationLogin] Initializing SQLite, token:', token ? 'YES' : 'NO');
+                const initResult = await window.electronAPI.dbInit(token);
+                console.log('[StationLogin] DB init result:', initResult);
+                if (token && initResult.success && (!initResult.stats?.itemsCount || initResult.stats.itemsCount === 0)) {
+                  console.log('[StationLogin] No cached items, starting full sync...');
+                  window.electronAPI.dbFullSync().then((syncResult: any) => {
+                    console.log('[StationLogin] Full sync result:', syncResult);
+                  });
                 }
               }
-            } catch (err: any) {
-              console.error('Backend auth failed (continuing anyway):', err);
-              // Continue without token - public endpoints will still work
             }
             // Always allow access if PIN is correct
             localStorage.setItem(STATION_AUTH_KEY, selectedStation);
