@@ -3011,6 +3011,23 @@ export function IrsaliyePage() {
                                     <span>Paket: {waybill.packageCount || 0}</span>
                                     <span>Toplam: {waybill.totalItems || 0}</span>
                                   </div>
+                                  {(() => {
+                                    const barcodes = (waybill.waybillDeliveries || [])
+                                      .map(wd => wd.delivery?.barcode)
+                                      .filter((b): b is string => !!b);
+                                    return barcodes.length > 0 ? (
+                                      <div className="mt-2 pt-2 border-t border-gray-100">
+                                        <p className="text-xs text-gray-400 mb-1">Paketler ({barcodes.length}):</p>
+                                        <div className="flex flex-wrap gap-1">
+                                          {barcodes.map((b, i) => (
+                                            <span key={i} className="text-xs font-mono bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
+                                              {b}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    ) : null;
+                                  })()}
                                 </div>
                               );
                             })}
