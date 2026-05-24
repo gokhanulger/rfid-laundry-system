@@ -1621,8 +1621,22 @@ export function IrsaliyePage() {
   const formatTime = (dateStr?: string | null) =>
     dateStr ? new Date(dateStr).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : '';
 
-  // Bir paketin (delivery) icindeki urunleri tip bazinda say: [{ name, count }]
+  // Bir paketin (delivery) icindeki urunleri tip bazinda dondur: [{ name, count }].
+  // ASIL kaynak delivery.notes (JSON: [{typeName, count, ...}]) - urun dokumu burada tutuluyor.
+  // delivery_items tablosu cogu pakette bos/eksik oldugu icin ona GUVENME; sadece fallback.
   const getPackageItems = (delivery: any): { name: string; count: number }[] => {
+    if (delivery?.notes) {
+      try {
+        const parsed = JSON.parse(delivery.notes);
+        if (Array.isArray(parsed)) {
+          return parsed
+            .map((x: any) => ({ name: x.typeName || x.name || 'Bilinmeyen', count: Number(x.count) || 0 }))
+            .filter(x => x.count > 0)
+            .sort((a, b) => b.count - a.count);
+        }
+      } catch { /* notes JSON degil -> deliveryItems'a dus */ }
+    }
+    // Fallback: deliveryItems aggregation
     const counts: Record<string, number> = {};
     for (const di of (delivery?.deliveryItems || [])) {
       const name = di?.item?.itemType?.name || 'Bilinmeyen';
@@ -3169,7 +3183,7 @@ export function IrsaliyePage() {
                     ) : (
                       <p className="text-xs text-gray-400">İçerik bilgisi yok</p>
                     )}
-                    <p className="text-[11px] text-gray-400 mt-1.5">Toplam {(d.deliveryItems || []).length} ürün</p>
+                    <p className="text-[11px] text-gray-400 mt-1.5">Toplam {items.reduce((s, it) => s + it.count, 0)} ürün</p>
                   </div>
                 );
               })}
