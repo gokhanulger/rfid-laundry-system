@@ -266,6 +266,8 @@ export function IrsaliyePage() {
   const [selectedHotelFilter, setSelectedHotelFilter] = useState<string>('');
   const [expandedDeliveryId, setExpandedDeliveryId] = useState<string | null>(null);
   const [selectedWaybillIds, setSelectedWaybillIds] = useState<Set<string>>(new Set());
+  // İrşaliye detay modali (paket bazinda barkod + saat + icindeki urunler)
+  const [detailWaybill, setDetailWaybill] = useState<any | null>(null);
 
   // Printer settings
   const [printers, setPrinters] = useState<PrinterType[]>([]);
@@ -1614,6 +1616,21 @@ export function IrsaliyePage() {
       hour: '2-digit',
       minute: '2-digit'
     });
+  };
+
+  const formatTime = (dateStr?: string | null) =>
+    dateStr ? new Date(dateStr).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : '';
+
+  // Bir paketin (delivery) icindeki urunleri tip bazinda say: [{ name, count }]
+  const getPackageItems = (delivery: any): { name: string; count: number }[] => {
+    const counts: Record<string, number> = {};
+    for (const di of (delivery?.deliveryItems || [])) {
+      const name = di?.item?.itemType?.name || 'Bilinmeyen';
+      counts[name] = (counts[name] || 0) + 1;
+    }
+    return Object.entries(counts)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
   };
 
   const getStatusBadge = (status: string) => {
@@ -3017,22 +3034,35 @@ export function IrsaliyePage() {
                                     <span>Toplam: {waybill.totalItems || 0}</span>
                                   </div>
                                   {(() => {
-                                    const pkgs = (waybill.waybillDeliveries || [])
-                                      .map(wd => ({
-                                        barcode: wd.delivery?.barcode,
-                                        time: wd.delivery?.packagedAt || wd.delivery?.createdAt || null,
-                                      }))
-                                      .filter((p): p is { barcode: string; time: string | null } => !!p.barcode);
-                                    return pkgs.length > 0 ? (
+                                    const dels = (waybill.waybillDeliveries || [])
+                                      .map(wd => wd.delivery)
+                                      .filter(Boolean);
+                                    return dels.length > 0 ? (
                                       <div className="mt-2 pt-2 border-t border-gray-100">
-                                        <p className="text-xs text-gray-400 mb-1">Paketler ({pkgs.length}):</p>
+                                        <div className="flex items-center justify-between mb-1">
+                                          <p className="text-xs text-gray-400">Paketler ({dels.length}):</p>
+                                          <button
+                                            onClick={(e) => { e.stopPropagation(); setDetailWaybill(waybill); }}
+                                            className="text-xs px-2 py-0.5 rounded bg-teal-50 text-teal-700 hover:bg-teal-100 font-medium"
+                                          >
+                                            Detay
+                                          </button>
+                                        </div>
                                         <div className="flex flex-wrap gap-1">
-                                          {pkgs.map((p, i) => (
-                                            <span key={i} className="text-xs font-mono bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
-                                              {p.barcode}
-                                              {p.time ? ` · ${new Date(p.time).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}` : ''}
-                                            </span>
-                                          ))}
+                                          {dels.map((d: any, i: number) => {
+                                            const items = getPackageItems(d);
+                                            const title = `${d.barcode}${d.packagedAt || d.createdAt ? ' · ' + formatTime(d.packagedAt || d.createdAt) : ''}\n` +
+                                              (items.length > 0 ? items.map(it => `${it.name}: ${it.count}`).join('\n') : 'Ürün yok');
+                                            return (
+                                              <span
+                                                key={i}
+                                                title={title}
+                                                className="text-xs font-mono bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded cursor-help hover:bg-gray-200"
+                                              >
+                                                {d.barcode}
+                                              </span>
+                                            );
+                                          })}
                                         </div>
                                       </div>
                                     ) : null;
@@ -3087,6 +3117,62 @@ export function IrsaliyePage() {
                 <Trash2 className="w-4 h-4" />
                 {cancelMutation.isPending ? 'Siliniyor...' : 'Evet, Sil'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* İrşaliye paket detay modali: her paketin barkodu + saati + icindeki urunler */}
+      {detailWaybill && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+          onClick={() => setDetailWaybill(null)}
+        >
+          <div
+            className="bg-white rounded-xl max-w-2xl w-full max-h-[85vh] overflow-hidden shadow-xl flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between p-5 border-b">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 font-mono">{detailWaybill.waybillNumber}</h3>
+                <p className="text-sm text-gray-500 flex items-center gap-2 mt-0.5">
+                  <Building2 className="w-4 h-4" /> {detailWaybill.tenant?.name}
+                  <span className="text-xs bg-gray-100 px-2 py-0.5 rounded">{(detailWaybill.waybillDeliveries || []).length} paket</span>
+                </p>
+                <p className="text-xs text-gray-400 mt-0.5">{formatDate(detailWaybill.printedAt || detailWaybill.createdAt)}</p>
+              </div>
+              <button onClick={() => setDetailWaybill(null)} className="p-1 rounded hover:bg-gray-100">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="overflow-y-auto p-4 space-y-3">
+              {(detailWaybill.waybillDeliveries || []).map((wd: any, idx: number) => {
+                const d = wd.delivery;
+                if (!d) return null;
+                const items = getPackageItems(d);
+                return (
+                  <div key={wd.id || idx} className="border rounded-lg p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-mono font-bold text-gray-800">{d.barcode}</span>
+                      <span className="text-xs text-gray-500 flex items-center gap-1">
+                        <Clock className="w-3 h-3" /> {formatTime(d.packagedAt || d.createdAt) || '-'}
+                      </span>
+                    </div>
+                    {items.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {items.map((it, j) => (
+                          <span key={j} className="text-xs bg-teal-50 text-teal-700 px-2 py-1 rounded-md">
+                            {it.name}: <span className="font-semibold">{it.count}</span>
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-400">İçerik bilgisi yok</p>
+                    )}
+                    <p className="text-[11px] text-gray-400 mt-1.5">Toplam {(d.deliveryItems || []).length} ürün</p>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
