@@ -3012,16 +3012,20 @@ export function IrsaliyePage() {
                                     <span>Toplam: {waybill.totalItems || 0}</span>
                                   </div>
                                   {(() => {
-                                    const barcodes = (waybill.waybillDeliveries || [])
-                                      .map(wd => wd.delivery?.barcode)
-                                      .filter((b): b is string => !!b);
-                                    return barcodes.length > 0 ? (
+                                    const pkgs = (waybill.waybillDeliveries || [])
+                                      .map(wd => ({
+                                        barcode: wd.delivery?.barcode,
+                                        time: wd.delivery?.packagedAt || wd.delivery?.createdAt || null,
+                                      }))
+                                      .filter((p): p is { barcode: string; time: string | null } => !!p.barcode);
+                                    return pkgs.length > 0 ? (
                                       <div className="mt-2 pt-2 border-t border-gray-100">
-                                        <p className="text-xs text-gray-400 mb-1">Paketler ({barcodes.length}):</p>
+                                        <p className="text-xs text-gray-400 mb-1">Paketler ({pkgs.length}):</p>
                                         <div className="flex flex-wrap gap-1">
-                                          {barcodes.map((b, i) => (
+                                          {pkgs.map((p, i) => (
                                             <span key={i} className="text-xs font-mono bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
-                                              {b}
+                                              {p.barcode}
+                                              {p.time ? ` · ${new Date(p.time).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}` : ''}
                                             </span>
                                           ))}
                                         </div>
