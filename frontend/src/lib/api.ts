@@ -223,6 +223,24 @@ export const itemsApi = {
     return data;
   },
 
+  // Iskartaya ayir (DISCORD): itemIds veya rfidTags ile
+  discard: async (params: { itemIds?: string[]; rfidTags?: string[]; reason?: string }): Promise<{ items: Item[]; count: number }> => {
+    const { data } = await api.post<{ items: Item[]; count: number }>('/items/discard', params);
+    return data;
+  },
+
+  getDiscarded: async (tenantId?: string): Promise<Item[]> => {
+    const { data } = await api.get<Item[]>('/items/discarded', {
+      params: { tenantId },
+    });
+    return data;
+  },
+
+  undiscard: async (id: string): Promise<Item> => {
+    const { data } = await api.post<Item>(`/items/${id}/undiscard`, {});
+    return data;
+  },
+
   delete: async (id: string): Promise<void> => {
     await api.delete(`/items/${id}`);
   },

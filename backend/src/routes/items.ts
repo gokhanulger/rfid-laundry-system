@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { db } from '../db';
 import { items, itemTypes, tenants, pickupItems, deliveryItems, alerts, scanEvents } from '../db/schema';
-import { eq, and, inArray, desc, sql, like, gt, gte } from 'drizzle-orm';
+import { eq, and, inArray, desc, sql, like, gt, gte, ne } from 'drizzle-orm';
 import { requireAuth, AuthRequest, requireRole } from '../middleware/auth';
 import { z } from 'zod';
 
@@ -11,7 +11,7 @@ itemsRouter.use(requireAuth);
 // Validation schemas
 const itemStatusEnum = z.enum([
   'at_hotel', 'at_laundry', 'processing', 'ready_for_delivery',
-  'label_printed', 'packaged', 'in_transit', 'delivered'
+  'label_printed', 'packaged', 'in_transit', 'delivered', 'discarded'
 ]);
 
 const createItemSchema = z.object({
@@ -35,6 +35,16 @@ const updateItemSchema = z.object({
 const markCleanSchema = z.object({
   itemIds: z.array(z.string().uuid()).min(1, 'At least one item ID is required'),
 });
+
+// Iskarta: urun(ler)i iskartaya ayir. itemIds veya rfidTags ile calisir.
+const discardSchema = z.object({
+  itemIds: z.array(z.string().uuid()).optional(),
+  rfidTags: z.array(z.string()).optional(),
+  reason: z.string().optional(),
+}).refine(
+  (d) => (d.itemIds && d.itemIds.length > 0) || (d.rfidTags && d.rfidTags.length > 0),
+  { message: 'En az bir itemId veya rfidTag gerekli' }
+);
 
 const scanSchema = z.object({
   rfidTags: z.array(z.string()).min(1, 'At least one RFID tag is required'),
@@ -236,6 +246,37 @@ itemsRouter.get('/status/ready', async (req: AuthRequest, res) => {
   }
 });
 
+// Get discarded (iskarta) items - MUST be before /:id route
+itemsRouter.get('/discarded', async (req: AuthRequest, res) => {
+  try {
+    const user = req.user!;
+    const tenantId = req.query.tenantId as string | undefined;
+
+    const conditions: any[] = [eq(items.status, 'discarded')];
+
+    // Hotel-bound users only see their own; admins/laundry can filter by tenantId
+    if (user.role !== 'system_admin' && user.tenantId) {
+      conditions.push(eq(items.tenantId, user.tenantId));
+    } else if (tenantId) {
+      conditions.push(eq(items.tenantId, tenantId));
+    }
+
+    const discardedItems = await db.query.items.findMany({
+      where: and(...conditions),
+      orderBy: [desc(items.discardedAt)],
+      with: {
+        itemType: true,
+        tenant: true,
+      },
+    });
+
+    res.json(discardedItems);
+  } catch (error) {
+    console.error('Get discarded items error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Get item by ID - MUST be after /status/* routes
 itemsRouter.get('/:id', async (req: AuthRequest, res) => {
   try {
@@ -340,13 +381,14 @@ itemsRouter.post('/mark-clean', requireRole('operator', 'laundry_manager', 'syst
 
     const { itemIds } = validation.data;
 
-    // Update items to ready_for_delivery status
+    // Update items to ready_for_delivery status.
+    // Iskartaya ayrilmis (discarded) urunler tekrar aktiflestirilmez.
     await db.update(items)
       .set({
         status: 'ready_for_delivery',
         updatedAt: new Date(),
       })
-      .where(inArray(items.id, itemIds));
+      .where(and(inArray(items.id, itemIds), ne(items.status, 'discarded')));
 
     // Get updated items
     const updatedItems = await db.query.items.findMany({
@@ -360,6 +402,115 @@ itemsRouter.post('/mark-clean', requireRole('operator', 'laundry_manager', 'syst
     res.json({ message: 'Items marked as clean', items: updatedItems, count: updatedItems.length });
   } catch (error) {
     console.error('Mark items clean error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Iskartaya ayir (DISCORD): urun(ler)i status='discarded' yapar.
+// Aktif stoktan duser, doluma/teslimata kapanir; etiket sistemde kalir (uyari icin).
+itemsRouter.post('/discard', requireRole('operator', 'laundry_manager', 'system_admin', 'ironer'), async (req: AuthRequest, res) => {
+  try {
+    const validation = discardSchema.safeParse(req.body);
+    if (!validation.success) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: validation.error.errors
+      });
+    }
+
+    const { itemIds, rfidTags, reason } = validation.data;
+    const user = req.user!;
+
+    // Hedef item ID'lerini topla
+    const targetIds = new Set<string>(itemIds || []);
+
+    // rfidTags verildiyse, taranan etiketleri DB urunlerine esle (taranan etiket DB rfidTag'ini icerir)
+    if (rfidTags && rfidTags.length > 0) {
+      const scopeConditions: any[] = [];
+      if (user.role !== 'system_admin' && user.tenantId) {
+        scopeConditions.push(eq(items.tenantId, user.tenantId));
+      }
+      const candidates = await db.query.items.findMany({
+        where: scopeConditions.length > 0 ? and(...scopeConditions) : undefined,
+        columns: { id: true, rfidTag: true },
+      });
+      for (const scannedTag of rfidTags) {
+        const matches = candidates.filter(it => scannedTag.includes(it.rfidTag));
+        if (matches.length > 0) {
+          const best = matches.sort((a, b) => b.rfidTag.length - a.rfidTag.length)[0];
+          targetIds.add(best.id);
+        }
+      }
+    }
+
+    if (targetIds.size === 0) {
+      return res.status(404).json({ error: 'Eslesen urun bulunamadi' });
+    }
+
+    const updateConditions: any[] = [inArray(items.id, [...targetIds])];
+    if (user.role !== 'system_admin' && user.tenantId) {
+      updateConditions.push(eq(items.tenantId, user.tenantId));
+    }
+
+    await db.update(items)
+      .set({
+        status: 'discarded',
+        discardedAt: new Date(),
+        discardedReason: reason || null,
+        updatedAt: new Date(),
+      })
+      .where(and(...updateConditions));
+
+    const updatedItems = await db.query.items.findMany({
+      where: inArray(items.id, [...targetIds]),
+      with: {
+        itemType: true,
+        tenant: true,
+      },
+    });
+
+    res.json({ message: 'Urunler iskartaya ayrildi', items: updatedItems, count: updatedItems.length });
+  } catch (error) {
+    console.error('Discard items error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Iskartadan geri al (admin/laundry): urunu tekrar at_laundry yapar.
+itemsRouter.post('/:id/undiscard', requireRole('laundry_manager', 'system_admin'), async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+
+    const existingItem = await db.query.items.findFirst({
+      where: eq(items.id, id),
+    });
+    if (!existingItem) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+    if (existingItem.status !== 'discarded') {
+      return res.status(400).json({ error: 'Urun iskartada degil' });
+    }
+
+    await db.update(items)
+      .set({
+        status: 'at_laundry',
+        discardedAt: null,
+        discardedReason: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(items.id, id));
+
+    const updatedItem = await db.query.items.findFirst({
+      where: eq(items.id, id),
+      with: {
+        itemType: true,
+        tenant: true,
+      },
+    });
+
+    res.json(updatedItem);
+  } catch (error) {
+    console.error('Undiscard item error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -21,7 +21,8 @@ export const itemStatusEnum = pgEnum('item_status', [
   'label_printed',
   'packaged',
   'in_transit',
-  'delivered'
+  'delivered',
+  'discarded' // Iskarta - utucu tarafindan ayrilan, doluma/teslimata kapali urun
 ]);
 
 export const pickupStatusEnum = pgEnum('pickup_status', [
@@ -137,6 +138,8 @@ export const items = pgTable('items', {
   isStained: boolean('is_stained').default(false).notNull(),
   notes: text('notes'),
   lastWashDate: timestamp('last_wash_date'),
+  discardedAt: timestamp('discarded_at'), // Iskartaya ayrilma zamani (status='discarded' ise dolu)
+  discardedReason: text('discarded_reason'), // Iskarta nedeni (opsiyonel)
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

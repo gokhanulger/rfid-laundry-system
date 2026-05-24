@@ -101,6 +101,7 @@ dashboardRouter.get('/stats', async (req: AuthRequest, res) => {
       packaged: itemsByStatus['packaged'] || 0,
       inTransit: itemsByStatus['in_transit'] || 0,
       delivered: itemsByStatus['delivered'] || 0,
+      discarded: itemsByStatus['discarded'] || 0, // Iskarta (aktif akista degil)
     };
 
     // Get today's activity
@@ -271,24 +272,32 @@ dashboardRouter.get('/hotel-stats', async (req: AuthRequest, res) => {
       return acc;
     }, {} as Record<string, number>);
 
-    // Items by type with counts
+    // Items by type with counts.
+    // Iskarta (discarded) urunler aktif stoga dahil edilmez; ayri sayilir.
     const itemsByType = hotelItems.reduce((acc, item) => {
       const typeName = item.itemType?.name || 'Unknown';
       if (!acc[typeName]) {
-        acc[typeName] = { total: 0, atHotel: 0, atLaundry: 0, inTransit: 0 };
+        acc[typeName] = { total: 0, atHotel: 0, atLaundry: 0, inTransit: 0, discarded: 0 };
+      }
+      if (item.status === 'discarded') {
+        acc[typeName].discarded++;
+        return acc; // aktif stok disinda
       }
       acc[typeName].total++;
       if (item.status === 'at_hotel') acc[typeName].atHotel++;
       if (['at_laundry', 'processing', 'ready_for_delivery'].includes(item.status)) acc[typeName].atLaundry++;
       if (['in_transit', 'label_printed', 'packaged'].includes(item.status)) acc[typeName].inTransit++;
       return acc;
-    }, {} as Record<string, { total: number; atHotel: number; atLaundry: number; inTransit: number }>);
+    }, {} as Record<string, { total: number; atHotel: number; atLaundry: number; inTransit: number; discarded: number }>);
+
+    const discardedItemsCount = hotelItems.filter(i => i.status === 'discarded').length;
 
     // Discrepancies / Issues
     const discrepancies = {
       damaged: hotelItems.filter(i => i.isDamaged).length,
       stained: hotelItems.filter(i => i.isStained).length,
       highWashCount: hotelItems.filter(i => i.washCount > 50).length,
+      discarded: discardedItemsCount,
       missing: itemsByStatus['at_laundry'] || 0 + itemsByStatus['processing'] || 0,  // Items currently away
     };
 
@@ -336,6 +345,8 @@ dashboardRouter.get('/hotel-stats', async (req: AuthRequest, res) => {
 
     res.json({
       totalItems: hotelItems.length,
+      activeItems: hotelItems.length - discardedItemsCount, // iskarta haric aktif stok
+      discardedItems: discardedItemsCount,
       itemsByStatus,
       itemsByType,
       ageDistribution,

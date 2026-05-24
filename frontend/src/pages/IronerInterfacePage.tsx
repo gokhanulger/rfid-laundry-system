@@ -17,7 +17,7 @@ const PRODUCT_COUNTER_KEY = 'laundry_product_counter';
 type ShiftType = 'day' | 'night';
 
 // Scanned tag status
-type TagStatus = 'valid' | 'wrong_hotel' | 'unregistered' | 'checking';
+type TagStatus = 'valid' | 'wrong_hotel' | 'unregistered' | 'checking' | 'discarded';
 
 // Scanned tag with validation info
 interface ScannedTagInfo {
@@ -544,9 +544,12 @@ export function IronerInterfacePage() {
             ? item.tenant_id === currentActiveHotelId
             : currentSelectedHotelIds.includes(item.tenant_id);
 
+          // Iskartaya ayrilmis urun: tekrar okutuldugunda KIRMIZI uyari (oncelik en yuksek)
+          const isDiscarded = String(item.status || '').toLowerCase() === 'discarded';
+
           return {
             epc,
-            status: isValidHotel ? 'valid' : 'wrong_hotel',
+            status: isDiscarded ? 'discarded' : (isValidHotel ? 'valid' : 'wrong_hotel'),
             hotelId: item.tenant_id,
             hotelName: hotel?.name || item.tenant_name || 'Bilinmeyen Otel',
             itemType: itemTypeInfo?.name || item.item_type_name || 'Bilinmeyen Tür',
@@ -673,8 +676,8 @@ export function IronerInterfacePage() {
           return newMap;
         });
 
-        // Add to confirmed items if valid
-        if ((validated.status === 'valid' || validated.status === 'wrong_hotel') && validated.itemTypeId && validated.hotelId) {
+        // Add to confirmed items if valid, wrong hotel, or discarded (iskarta uyarisi icin)
+        if ((validated.status === 'valid' || validated.status === 'wrong_hotel' || validated.status === 'discarded') && validated.itemTypeId && validated.hotelId) {
           setConfirmedScannedItems(prev => {
             if (prev.has(tag.epc)) return prev;
             const newMap = new Map(prev);
@@ -706,7 +709,7 @@ export function IronerInterfacePage() {
 
   // Calculate tag counts by status
   const tagCounts = useMemo(() => {
-    const counts = { valid: 0, wrong_hotel: 0, unregistered: 0, checking: 0, total: 0 };
+    const counts = { valid: 0, wrong_hotel: 0, unregistered: 0, checking: 0, discarded: 0, total: 0 };
     scannedTags.forEach(tag => {
       if (tag.status in counts) {
         counts[tag.status as keyof typeof counts]++;
@@ -867,6 +870,77 @@ export function IronerInterfacePage() {
       }
     },
     onError: (err) => toast.error('Failed to process items', getErrorMessage(err)),
+  });
+
+  // Iskartaya ayir + DISCART uyari etiketi bas (teslimat OLUSTURMAZ, stoktan duser)
+  const discardAndPrintMutation = useMutation({
+    mutationFn: async ({ hotelId, itemIds, labelExtraData }: { hotelId: string; itemIds: string[]; labelExtraData?: LabelExtraItem[] }) => {
+      // Urunleri iskartaya ayir (offline ise hata yutulur, etiket yine basilir)
+      if (itemIds.length > 0) {
+        try {
+          await itemsApi.discard({ itemIds, reason: 'Utucu - DISCORD' });
+        } catch (apiError) {
+          console.warn('[Discard] API kullanilamiyor, etiket offline basiliyor:', apiError);
+        }
+      }
+
+      // DISCART uyari etiketi icin sentetik delivery olustur (gercek teslimat OLUSTURULMAZ)
+      const hotel = tenantsArray.find((t: Tenant) => t.id === hotelId);
+      const syntheticDelivery = {
+        id: `discard-${Date.now()}`,
+        tenantId: hotelId,
+        driverId: null,
+        packagerId: null,
+        barcode: String(Date.now()).slice(-8),
+        packageCount: 1,
+        status: 'label_printed' as any,
+        labelPrintedAt: null,
+        packagedAt: null,
+        pickedUpAt: null,
+        deliveredAt: null,
+        deliveryLatitude: null,
+        deliveryLongitude: null,
+        deliveryAddress: null,
+        notes: labelExtraData ? JSON.stringify(labelExtraData) : null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        tenant: hotel,
+      } as Delivery;
+
+      generateDeliveryLabel(syntheticDelivery, labelExtraData);
+      return { count: itemIds.length };
+    },
+    onSuccess: () => {
+      toast.success('Urun(ler) iskartaya ayrildi ve uyari etiketi basildi!');
+      queryClient.invalidateQueries({ queryKey: ['dirty-items'] });
+      queryClient.invalidateQueries({ queryKey: ['items'] });
+      refetchDirty();
+
+      // Taranan urunleri temizle
+      setConfirmedScannedItems(new Map());
+      setScannedTags(new Map());
+      seenEpcsRef.current.clear();
+
+      // Okumayi gecici durdur (ekran bosalsin)
+      setIsReadingPaused(true);
+      isReadingPausedRef.current = true;
+      const delayMs = printDisplayDelay * 1000;
+      if (delayMs > 0) {
+        setTimeout(() => {
+          setIsReadingPaused(false);
+          isReadingPausedRef.current = false;
+        }, delayMs);
+      } else {
+        setIsReadingPaused(false);
+        isReadingPausedRef.current = false;
+      }
+
+      // Yerel DB'yi guncelle (status='discarded' yerele gelsin -> tekrar okutulunca uyari)
+      if (window.electronAPI?.dbDeltaSync) {
+        window.electronAPI.dbDeltaSync();
+      }
+    },
+    onError: (err) => toast.error('Iskartaya ayirma basarisiz', getErrorMessage(err)),
   });
 
   // Group dirty items by hotel (filter by selected hotels if any are selected)
@@ -1543,11 +1617,12 @@ export function IronerInterfacePage() {
                       <span className="text-green-400 break-all">{epc}</span>
                       <span className={`ml-2 px-1 rounded ${
                         info.status === 'valid' ? 'bg-green-600 text-white' :
+                        info.status === 'discarded' ? 'bg-red-700 text-white' :
                         info.status === 'wrong_hotel' ? 'bg-yellow-600 text-white' :
                         info.status === 'unregistered' ? 'bg-red-600 text-white' :
                         'bg-blue-600 text-white'
                       }`}>
-                        {info.status}
+                        {info.status === 'discarded' ? '⚠️ iskarta' : info.status}
                       </span>
                     </div>
                   ))}
@@ -1956,7 +2031,24 @@ export function IronerInterfacePage() {
         }, {} as Record<string, { hotelId: string; hotelName: string; itemType: string; itemTypeId: string; count: number }>);
         const wrongHotelList = Object.values(wrongHotelGrouped);
 
-        const hasAnyScannedItems = validList.length > 0 || wrongHotelList.length > 0;
+        // Iskartaya ayrilmis (daha once DISCORD'a dusurulmus) urunler - KIRMIZI uyari
+        const discardedItemsScanned = scannedItemsArray.filter(item => item.status === 'discarded');
+        const discardedGrouped = discardedItemsScanned.reduce((acc, item) => {
+          const key = item.itemTypeId || item.epc;
+          if (!acc[key]) {
+            acc[key] = {
+              itemType: item.itemType || 'Bilinmeyen',
+              itemTypeId: item.itemTypeId || '',
+              hotelName: item.hotelName || '',
+              count: 0
+            };
+          }
+          acc[key].count++;
+          return acc;
+        }, {} as Record<string, { itemType: string; itemTypeId: string; hotelName: string; count: number }>);
+        const discardedList = Object.values(discardedGrouped);
+
+        const hasAnyScannedItems = validList.length > 0 || wrongHotelList.length > 0 || discardedList.length > 0;
         const hasAnyItems = currentPrintList.length > 0 || hasAnyScannedItems;
 
         return (
@@ -1982,6 +2074,20 @@ export function IronerInterfacePage() {
                     </button>
                   </div>
                   <div className="p-3 space-y-2 max-h-96 overflow-y-auto">
+                    {/* Iskarta urunler - bu etiket daha once ayrildi, KIRMIZI unlem */}
+                    {discardedList.map((item, idx) => (
+                      <div key={`discarded-${idx}`} className="flex items-center justify-between bg-red-100 rounded-lg p-3 border-2 border-red-500">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
+                          <div>
+                            <p className="font-bold text-red-800">⚠️ ISKARTA: {item.itemType}</p>
+                            <p className="text-sm text-red-600">{item.count} adet</p>
+                            <p className="text-xs text-red-500 font-medium">Bu urun daha once iskartaya ayrildi, kullanmayin!</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
                     {/* Wrong hotel items - shown with warning */}
                     {wrongHotelList.map((item, idx) => (
                       <div key={`wrong-${idx}`} className="flex items-center justify-between bg-red-50 rounded-lg p-3 border-2 border-red-300">
@@ -2305,8 +2411,40 @@ export function IronerInterfacePage() {
                             }
 
                             // Create the print action function
+                            const labelExtraData = itemsToPrint.map(item => ({
+                              typeId: item.typeId,
+                              typeName: item.typeName,
+                              count: item.count,
+                              discardCount: item.discardCount,
+                              hasarliCount: item.hasarliCount
+                            }));
+
+                            // DISCORD modu: taranan urunleri iskartaya ayir, teslimat OLUSTURMA
+                            const isDiscardMode = addingDiscard[hotelId] || false;
+
                             const executePrint = () => {
-                              // Collect all item IDs from dirty items
+                              if (isDiscardMode) {
+                                // Iskartaya ayrilacak GERCEK urun ID'leri: oncelik taranan RFID etiketleri
+                                const scannedValidIds = Array.from(confirmedScannedItems.values())
+                                  .filter(i => i.status === 'valid' && i.itemId)
+                                  .map(i => i.itemId as string);
+                                let discardIds = scannedValidIds;
+                                if (discardIds.length === 0) {
+                                  // Manuel giris (RFID yok): tipe gore mevcut kirli urunlerden sec
+                                  const fallback: string[] = [];
+                                  itemsToPrint.forEach(item => {
+                                    const availableItems = itemsByType[item.typeId] || [];
+                                    fallback.push(...availableItems.slice(0, item.count).map(i => i.id));
+                                  });
+                                  discardIds = fallback;
+                                }
+
+                                discardAndPrintMutation.mutate({ hotelId, itemIds: discardIds, labelExtraData });
+                                clearPrintList(hotelId);
+                                return;
+                              }
+
+                              // Normal akis: temizle + teslimat olustur + etiket bas
                               const allItemIds: string[] = [];
                               itemsToPrint.forEach(item => {
                                 const availableItems = itemsByType[item.typeId] || [];
@@ -2317,13 +2455,7 @@ export function IronerInterfacePage() {
                                 hotelId,
                                 itemIds: allItemIds,
                                 labelCount: 1,
-                                labelExtraData: itemsToPrint.map(item => ({
-                                  typeId: item.typeId,
-                                  typeName: item.typeName,
-                                  count: item.count,
-                                  discardCount: item.discardCount,
-                                  hasarliCount: item.hasarliCount
-                                }))
+                                labelExtraData
                               });
 
                               // Clear print list after printing
@@ -2350,7 +2482,7 @@ export function IronerInterfacePage() {
                               executePrint();
                             }
                           }}
-                          disabled={processAndPrintMutation.isPending || hasWrongHotelTags}
+                          disabled={processAndPrintMutation.isPending || discardAndPrintMutation.isPending || hasWrongHotelTags}
                           className={`h-14 px-6 flex items-center justify-center gap-2 rounded-xl font-bold text-lg transition-all shadow-lg ${
                             hasWrongHotelTags
                               ? 'bg-gradient-to-b from-gray-400 to-gray-500 text-white cursor-not-allowed'
@@ -2362,7 +2494,7 @@ export function IronerInterfacePage() {
                           {hasWrongHotelTags && <XCircle className="w-5 h-5" />}
                           {!hasWrongHotelTags && hasProblematicTags && <AlertTriangle className="w-5 h-5" />}
                           <Printer className="w-5 h-5" />
-                          {processAndPrintMutation.isPending ? 'Yazdiriliyor...' : hasWrongHotelTags ? 'YANLIŞ OTEL VAR!' : 'YAZDIR'}
+                          {(processAndPrintMutation.isPending || discardAndPrintMutation.isPending) ? 'Yazdiriliyor...' : hasWrongHotelTags ? 'YANLIŞ OTEL VAR!' : (addingDiscard[hotelId] ? 'ISKARTAYA AYIR' : 'YAZDIR')}
                         </button>
                       </div>
 

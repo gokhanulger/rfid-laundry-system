@@ -37,7 +37,8 @@ export type ItemStatus =
   | 'label_printed'
   | 'packaged'
   | 'in_transit'
-  | 'delivered';
+  | 'delivered'
+  | 'discarded'; // Iskarta (DISCORD) - aktif stok disi
 
 export interface ItemType {
   id: string;
@@ -59,6 +60,8 @@ export interface Item {
   isStained: boolean;
   notes: string | null;
   lastWashDate: string | null;
+  discardedAt?: string | null;
+  discardedReason?: string | null;
   createdAt: string;
   updatedAt: string;
   itemType?: ItemType;

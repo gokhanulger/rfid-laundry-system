@@ -16,6 +16,7 @@ const statusLabels: Record<ItemStatus, string> = {
   packaged: 'Paketlendi',
   in_transit: 'Yolda',
   delivered: 'Teslim Edildi',
+  discarded: 'Iskarta',
 };
 
 const statusColors: Record<ItemStatus, string> = {
@@ -27,6 +28,7 @@ const statusColors: Record<ItemStatus, string> = {
   packaged: 'bg-indigo-500',
   in_transit: 'bg-cyan-500',
   delivered: 'bg-emerald-500',
+  discarded: 'bg-red-600',
 };
 
 export function DashboardPage() {
