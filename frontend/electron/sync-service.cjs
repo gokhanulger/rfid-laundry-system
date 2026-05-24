@@ -146,6 +146,29 @@ function isOnline() {
 // Full Sync - Download all data
 // ==========================================
 
+// Backend'de artik aktif (label_printed/packaged) olmayan yerel teslimatlari temizler.
+// Boylece teslim edilmis / iptal edilmis / baska cihazda paketlenmis eski kayitlar
+// paket ekraninda birikmez. SADECE iki durum da backend'den BASARIYLA cekildiyse cagrilmali.
+// backendActiveIds: backend'in dondurdugu tum aktif teslimat ID'leri (protected filtresinden once)
+// protectedIds: bekleyen/yeni yerel islemi olan ve dokunulmamasi gereken ID'ler
+function reconcileLocalDeliveries(backendActiveIds, protectedIds) {
+  let removed = 0;
+  const localActive = [
+    ...db.getDeliveriesByStatus('label_printed'),
+    ...db.getDeliveriesByStatus('packaged'),
+  ];
+  for (const d of localActive) {
+    if (!backendActiveIds.has(d.id) && !(protectedIds && protectedIds.has(d.id))) {
+      db.deleteDelivery(d.id);
+      removed++;
+    }
+  }
+  if (removed > 0) {
+    console.log(`[Sync] Reconcile: ${removed} bayat yerel teslimat silindi (backend'de aktif degil)`);
+  }
+  return removed;
+}
+
 async function fullSync() {
   if (syncInProgress) {
     console.log('[Sync] Sync already in progress, skipping');
@@ -239,10 +262,15 @@ async function fullSync() {
       fullSyncProtectedIds.add(id);
     }
 
+    const fullSyncBackendActiveIds = new Set();
+    let fullSyncFetchOk = true;
     for (const deliveryStatus of ['label_printed', 'packaged']) {
       try {
         const response = await apiRequest(`/deliveries?status=${deliveryStatus}&limit=10000`);
-        let deliveries = response.data || [];
+        const all = response.data || [];
+        // Gercek backend aktif seti (protected filtresinden ONCE) - reconcile icin
+        all.forEach(d => fullSyncBackendActiveIds.add(d.id));
+        let deliveries = all;
         if (fullSyncProtectedIds.size > 0) {
           deliveries = deliveries.filter(d => !fullSyncProtectedIds.has(d.id));
         }
@@ -252,8 +280,13 @@ async function fullSync() {
           console.log(`[Sync] Synced ${count} deliveries with status ${deliveryStatus}`);
         }
       } catch (e) {
+        fullSyncFetchOk = false; // bu durum cekilemedi -> reconcile guvenli degil
         console.log(`[Sync] Warning: Could not sync ${deliveryStatus} deliveries:`, e.message);
       }
+    }
+    // Iki durum da basariyla cekildiyse bayat yerel kayitlari temizle
+    if (fullSyncFetchOk) {
+      reconcileLocalDeliveries(fullSyncBackendActiveIds, fullSyncProtectedIds);
     }
 
     // Update last sync time
@@ -575,10 +608,13 @@ async function syncDeliveries(source = 'manual') {
       console.log(`[Sync] Protecting ${protectedIds.size} deliveries from sync overwrite`);
     }
 
+    const backendActiveIds = new Set();
     for (const status of ['label_printed', 'packaged']) {
       const response = await apiRequest(`/deliveries?status=${status}&limit=10000`);
       let deliveries = response.data || [];
       console.log(`[Sync] API returned ${deliveries.length} deliveries with status ${status}`);
+      // Gercek backend aktif seti (protected filtresinden ONCE) - reconcile icin
+      deliveries.forEach(d => backendActiveIds.add(d.id));
       // Skip deliveries that have pending local operations (cancel/package)
       // to avoid overwriting local state before server processes the operation
       if (protectedIds.size > 0) {
@@ -592,6 +628,11 @@ async function syncDeliveries(source = 'manual') {
         totalDeliveries += db.upsertDeliveries(deliveries);
       }
     }
+
+    // Reconcile: backend'de artik label_printed/packaged olmayan (teslim edilmis / iptal /
+    // baska cihazda paketlenmis) bayat yerel kayitlari sil. Iki durum da basariyla cekildi
+    // (apiRequest hata firlatsaydi catch'e duserdik), bu yuzden guvenli.
+    reconcileLocalDeliveries(backendActiveIds, protectedIds);
 
     // Snapshot local state AFTER sync
     const afterLabelPrinted = new Set(db.getDeliveriesByStatus('label_printed').map(d => d.id));
