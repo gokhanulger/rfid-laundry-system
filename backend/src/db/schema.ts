@@ -333,6 +333,17 @@ export const offlineSyncQueue = pgTable('offline_sync_queue', {
   processedAt: timestamp('processed_at'),
 });
 
+// Idempotency keys: dedup mutating ops by clientOpId so offline-queue replays /
+// duplicate sends execute at most once (SYNC_V2 Asama 2). Additive, backward compatible.
+export const idempotencyKeys = pgTable('idempotency_keys', {
+  clientOpId: text('client_op_id').primaryKey(),
+  method: text('method').notNull(),
+  path: text('path'),
+  statusCode: integer('status_code'),
+  responseBody: text('response_body'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 // Track conflicts when same tag scanned by multiple devices
 export const scanConflicts = pgTable('scan_conflicts', {
   id: uuid('id').defaultRandom().primaryKey(),

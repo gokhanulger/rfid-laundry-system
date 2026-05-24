@@ -29,6 +29,13 @@ function addRecentLocalOp(deliveryId) {
   recentLocalOps.set(deliveryId, Date.now());
 }
 
+// Her mutasyon icin kaynakta uretilen tekil islem kimligi (SYNC_V2 - Asama 2).
+// Hem aninda gonderimde hem de offline kuyruk replay'inde AYNI id kullanilir ->
+// backend bunu dedup eder, islem en fazla bir kez calisir (storm/duplicate biter).
+function newOpId() {
+  return require('crypto').randomUUID();
+}
+
 function cleanRecentLocalOps() {
   const now = Date.now();
   for (const [id, ts] of recentLocalOps) {
@@ -497,7 +504,7 @@ function queueOperation(operationType, endpoint, method, payload) {
 // ==========================================
 
 async function markItemsClean(itemIds) {
-  const payload = { itemIds };
+  const payload = { itemIds, clientOpId: newOpId() };
 
   if (onlineStatus) {
     try {
@@ -553,16 +560,17 @@ async function packageDelivery(deliveryId) {
     console.log('[Sync] LAN broadcast error (non-critical):', e.message);
   }
 
+  const opPayload = { clientOpId: newOpId() };
   if (onlineStatus) {
     try {
-      const result = await apiRequest(`/deliveries/${deliveryId}/package`, 'POST');
+      const result = await apiRequest(`/deliveries/${deliveryId}/package`, 'POST', opPayload);
       return { success: true, online: true, result };
     } catch (error) {
-      queueOperation('package_delivery', `/deliveries/${deliveryId}/package`, 'POST', {});
+      queueOperation('package_delivery', `/deliveries/${deliveryId}/package`, 'POST', opPayload);
       return { success: true, online: false, queued: true };
     }
   } else {
-    queueOperation('package_delivery', `/deliveries/${deliveryId}/package`, 'POST', {});
+    queueOperation('package_delivery', `/deliveries/${deliveryId}/package`, 'POST', opPayload);
     return { success: true, online: false, queued: true };
   }
 }
@@ -583,22 +591,23 @@ async function cancelDelivery(deliveryId) {
     lanSync.broadcastDeliveryUpdate({ id: deliveryId, status: 'cancelled', updated_at: now });
   } catch (e) { /* non-critical */ }
 
+  const opPayload = { clientOpId: newOpId() };
   if (onlineStatus) {
     try {
-      const result = await apiRequest(`/deliveries/${deliveryId}/cancel`, 'POST');
+      const result = await apiRequest(`/deliveries/${deliveryId}/cancel`, 'POST', opPayload);
       return { success: true, online: true, result };
     } catch (error) {
-      queueOperation('cancel_delivery', `/deliveries/${deliveryId}/cancel`, 'POST', {});
+      queueOperation('cancel_delivery', `/deliveries/${deliveryId}/cancel`, 'POST', opPayload);
       return { success: true, online: false, queued: true };
     }
   } else {
-    queueOperation('cancel_delivery', `/deliveries/${deliveryId}/cancel`, 'POST', {});
+    queueOperation('cancel_delivery', `/deliveries/${deliveryId}/cancel`, 'POST', opPayload);
     return { success: true, online: false, queued: true };
   }
 }
 
 async function createWaybill(deliveryIds, bagCount, notes) {
-  const payload = { deliveryIds, bagCount, notes };
+  const payload = { deliveryIds, bagCount, notes, clientOpId: newOpId() };
 
   // Yerel durumu hemen guncelle (online da olsa offline da olsa) ki teslimatlar
   // 'packaged' listesinden cikip ekrandan gitsin. Online basarisiz olursa kuyruga alinir.

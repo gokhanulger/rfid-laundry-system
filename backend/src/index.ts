@@ -24,6 +24,7 @@ import { waybillsRouter } from './routes/waybills';
 import { portalRouter } from './routes/portal';
 import { notificationsRouter } from './routes/notifications';
 import { tenantPricingRouter } from './routes/tenantPricing';
+import { idempotency, startIdempotencyCleanup } from './middleware/idempotency';
 
 dotenv.config();
 
@@ -219,6 +220,10 @@ app.use('/api/users/:id/reset-password', rateLimit(3, 60000, 'password-reset'));
 // Auth/login/register keep their stricter limits above (applied before this).
 app.use('/api', rateLimit(1000, 60000, 'api')); // 1000 requests per minute
 
+// Idempotency: dedup mutating ops that carry a clientOpId (offline-queue replays,
+// double-fire). No-op for requests without a clientOpId -> backward compatible.
+app.use('/api', idempotency());
+
 // Routes
 app.use('/api/auth', authRouter);
 app.use('/api/items', itemsRouter);
@@ -277,4 +282,6 @@ server.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
   console.log(`WebSocket server initialized`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  // Prune old idempotency keys hourly so the table doesn't grow unbounded.
+  startIdempotencyCleanup();
 });
