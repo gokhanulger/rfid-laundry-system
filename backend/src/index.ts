@@ -212,8 +212,12 @@ app.use('/api/auth/register', rateLimit(5, 60000, 'register')); // 5 registratio
 // Password reset endpoints need extra protection
 app.use('/api/users/:id/reset-password', rateLimit(3, 60000, 'password-reset')); // 3 resets per minute
 
-// Apply general rate limiting to all API endpoints
-app.use('/api', rateLimit(200, 60000, 'api')); // 200 requests per minute
+// Apply general rate limiting to all API endpoints.
+// Raised 200->1000/min: the offline-queue retry storm (stale package/cancel ops
+// replaying) was exhausting the 200/min budget per machine, which 429'd legitimate
+// reads/writes (GET /deliveries, package, waybill) and broke station-to-station sync.
+// Auth/login/register keep their stricter limits above (applied before this).
+app.use('/api', rateLimit(1000, 60000, 'api')); // 1000 requests per minute
 
 // Routes
 app.use('/api/auth', authRouter);
