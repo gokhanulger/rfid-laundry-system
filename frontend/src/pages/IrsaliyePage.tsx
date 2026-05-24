@@ -2938,6 +2938,16 @@ export function IrsaliyePage() {
                                     <span>{waybill.tenant?.name}</span>
                                     <span className="text-xs bg-gray-100 px-2 py-0.5 rounded">{waybill.packageCount} paket</span>
                                   </div>
+                                  {(() => {
+                                    const barcodes = (waybill.waybillDeliveries || [])
+                                      .map(wd => wd.delivery?.barcode)
+                                      .filter((b): b is string => !!b);
+                                    return barcodes.length > 0 ? (
+                                      <p className="text-xs text-gray-400 font-mono mt-0.5">
+                                        Paket no: {barcodes.join(', ')}
+                                      </p>
+                                    ) : null;
+                                  })()}
                                 </div>
                               </div>
                               <div className="text-right">
@@ -2985,7 +2995,7 @@ export function IrsaliyePage() {
                                       <p className="font-mono text-sm text-gray-500">{waybill.waybillNumber}</p>
                                     </div>
                                     <div className="text-right text-sm">
-                                      <p className="text-gray-500">{new Date(waybill.printedAt || waybill.createdAt).toLocaleDateString('tr-TR')}</p>
+                                      <p className="text-gray-500">{formatDate(waybill.printedAt || waybill.createdAt)}</p>
                                       <div className="mt-1">{getStatusBadge(waybill.status)}</div>
                                     </div>
                                   </div>
