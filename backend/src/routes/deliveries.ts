@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db, withTransaction } from '../db';
-import { deliveries, deliveryItems, deliveryPackages, items, tenants, users } from '../db/schema';
+import { deliveries, deliveryItems, deliveryPackages, items, tenants, users, waybills, waybillDeliveries } from '../db/schema';
 import { eq, and, inArray, desc } from 'drizzle-orm';
 import { requireAuth, AuthRequest, requireRole } from '../middleware/auth';
 import { z } from 'zod';
@@ -663,6 +663,76 @@ deliveriesRouter.post('/:id/deliver', requireRole('driver', 'laundry_manager', '
       return { updatedDelivery: updated, deliveryItemsList: itemsList };
     });
 
+    // Bu teslimat bir irsaliyeye (waybill) ait mi? Ait ise irsaliye artik TAMAMEN teslim
+    // edildi mi? Ait ise paket-basina email YERINE, irsaliye tamamlaninca TEK konsolide
+    // email gonderilir (tek irsaliye = tek mail). Standalone teslimat -> eski paket emaili.
+    let waybillForNotify: any = null;
+    let isInWaybill = false;
+    try {
+      const wd = await db.query.waybillDeliveries.findFirst({ where: eq(waybillDeliveries.deliveryId, id) });
+      if (wd?.waybillId) {
+        isInWaybill = true;
+        const siblings = await db.query.waybillDeliveries.findMany({
+          where: eq(waybillDeliveries.waybillId, wd.waybillId),
+          with: { delivery: true },
+        });
+        // Iptal edilmis / silinmis paketler tamamlanmayi bloklamasin
+        const allDone = siblings.every((s: any) =>
+          !s.delivery || s.delivery.status === 'delivered' || s.delivery.status === 'cancelled');
+        if (allDone) {
+          waybillForNotify = await db.query.waybills.findFirst({ where: eq(waybills.id, wd.waybillId) });
+        }
+      }
+    } catch (e) {
+      console.error('Waybill completion check failed (will fall back to per-package):', e);
+    }
+
+    if (isInWaybill && !waybillForNotify) {
+      // Irsaliyenin tum paketleri henuz teslim edilmedi -> email son pakette atilacak, simdi atla
+      console.log(`📧 Delivery ${id} irsaliyenin parcasi ama irsaliye tamamlanmadi - email ertelendi`);
+    } else if (waybillForNotify) {
+      // Irsaliye tamamlandi -> TEK konsolide email (irsaliye no + tum paketlerin toplam ozeti)
+      try {
+        const wbEmail = await resolveHotelEmail(waybillForNotify.tenantId, existingDelivery.tenant?.email);
+        const wbPhone = (existingDelivery.tenant?.notificationPhone || existingDelivery.tenant?.phone)?.trim();
+        let wbSummary: Array<{ typeName: string; count: number }> = [];
+        try { wbSummary = JSON.parse(waybillForNotify.itemSummary || '[]'); } catch {}
+        const wbDate = new Date(waybillForNotify.printedAt || waybillForNotify.createdAt).toLocaleDateString('tr-TR');
+        console.log(`📧 Irsaliye ${waybillForNotify.waybillNumber} tamamlandi - konsolide email: "${wbEmail || ''}"`);
+        if (wbEmail) {
+          const pdfBuffer = await generateWaybillPdf({
+            waybillNumber: waybillForNotify.waybillNumber,
+            hotelName: existingDelivery.tenant?.name || '',
+            hotelAddress: existingDelivery.tenant?.address || undefined,
+            date: wbDate,
+            itemSummary: wbSummary,
+            bagCount: waybillForNotify.bagCount || 0,
+            packageCount: waybillForNotify.packageCount || 0,
+            totalItems: waybillForNotify.totalItems || 0,
+          });
+          await sendWaybillDeliveryEmail(
+            wbEmail,
+            existingDelivery.tenant?.name || '',
+            waybillForNotify.waybillNumber,
+            waybillForNotify.totalItems || 0,
+            pdfBuffer
+          );
+          console.log(`📧 Konsolide irsaliye emaili gonderildi: ${waybillForNotify.waybillNumber} -> ${wbEmail}`);
+        }
+        if (wbPhone) {
+          await sendDeliveryWhatsApp({
+            toPhone: wbPhone,
+            hotelName: existingDelivery.tenant!.name,
+            waybillNumber: waybillForNotify.waybillNumber,
+            totalItems: waybillForNotify.totalItems || 0,
+            date: wbDate,
+          });
+        }
+      } catch (e) {
+        console.error('Konsolide irsaliye bildirimi basarisiz:', e);
+      }
+    } else {
+    // Standalone teslimat (irsaliyeye ait degil) -> mevcut paket-basina bildirim
     // Notify hotel: email PDF irsaliye + WhatsApp message (hotel receives clean laundry)
     const tenantEmail = await resolveHotelEmail(existingDelivery.tenantId, existingDelivery.tenant?.email);
     const tenantPhone = (existingDelivery.tenant?.notificationPhone || existingDelivery.tenant?.phone)?.trim();
@@ -755,6 +825,7 @@ deliveriesRouter.post('/:id/deliver', requireRole('driver', 'laundry_manager', '
       console.error('Failed to send delivery notifications:', notifyError);
       // Don't fail the request if notifications fail
     }
+    } // end else (standalone teslimat - irsaliyeye ait degil)
 
     // Return updated delivery with relations
     const deliveryWithRelations = await db.query.deliveries.findFirst({
