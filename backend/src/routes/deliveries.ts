@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { db, withTransaction } from '../db';
 import { deliveries, deliveryItems, deliveryPackages, items, tenants, users, waybills, waybillDeliveries } from '../db/schema';
-import { eq, and, inArray, desc } from 'drizzle-orm';
+import { eq, and, inArray, desc, lt } from 'drizzle-orm';
 import { requireAuth, AuthRequest, requireRole } from '../middleware/auth';
 import { z } from 'zod';
 import { sendWaybillDeliveryEmail } from '../services/email';
@@ -35,6 +35,11 @@ const createDeliverySchema = z.object({
   itemIds: z.array(z.string().uuid()), // Allow empty array for manual deliveries
   packageCount: z.number().int().min(1, 'Package count must be at least 1').default(1),
   notes: z.string().optional(),
+  // Offline-first: client offline'da olusturdugunda kendi id+barcode'unu gonderir (etiket
+  // basilir, internet gelince AYNI kimlikle backend'e gider). clientOpId dedup icin (idempotency).
+  id: z.string().uuid().optional(),
+  barcode: z.string().optional(),
+  clientOpId: z.string().optional(),
 });
 
 // Create delivery
@@ -48,7 +53,23 @@ deliveriesRouter.post('/', requireRole('operator', 'laundry_manager', 'system_ad
       });
     }
 
-    const { tenantId, itemIds, packageCount, notes } = validation.data;
+    const { tenantId, itemIds, packageCount, notes, id: clientId, barcode: clientBarcode } = validation.data;
+
+    // Offline-first idempotency: client kendi id'sini gonderdiyse ve o teslimat zaten
+    // olusturulmussa (bu cihazdan replay / baska cihazdan LAN) onu dondur -> MUKERRER create yok.
+    if (clientId) {
+      const existing = await db.query.deliveries.findFirst({
+        where: eq(deliveries.id, clientId),
+        with: {
+          tenant: true,
+          deliveryItems: { with: { item: { with: { itemType: true } } } },
+          deliveryPackages: true,
+        },
+      });
+      if (existing) {
+        return res.status(200).json(existing);
+      }
+    }
 
     // Verify tenant exists
     const tenant = await db.query.tenants.findFirst({
@@ -79,23 +100,31 @@ deliveriesRouter.post('/', requireRole('operator', 'laundry_manager', 'system_ad
 
     // Use transaction for atomic delivery creation
     const newDeliveryId = await withTransaction(async (tx) => {
-      // Generate unique barcode - 9 digit sequential number starting from 1
-      const lastDelivery = await tx.query.deliveries.findFirst({
-        orderBy: desc(deliveries.createdAt),
-        columns: { barcode: true }
-      });
-
-      let nextNumber = 1;
-      if (lastDelivery?.barcode) {
-        const num = parseInt(lastDelivery.barcode, 10);
-        if (!isNaN(num)) {
-          nextNumber = num + 1;
+      let barcode: string;
+      if (clientBarcode) {
+        // Offline'da client uretti (9-prefix, sirali barkodla CAKISMAZ) -> oldugu gibi kullan
+        barcode = clientBarcode;
+      } else {
+        // Online: 9 haneli SIRALI barkod. Offline (>= '900000000') barkodlari HARIC tutarak
+        // en buyuk sirali barkodu bul -> offline barkod sirayi bozmasin.
+        const lastSeq = await tx.query.deliveries.findFirst({
+          where: lt(deliveries.barcode, '900000000'),
+          orderBy: desc(deliveries.barcode),
+          columns: { barcode: true }
+        });
+        let nextNumber = 1;
+        if (lastSeq?.barcode) {
+          const num = parseInt(lastSeq.barcode, 10);
+          if (!isNaN(num)) {
+            nextNumber = num + 1;
+          }
         }
+        barcode = nextNumber.toString().padStart(9, '0');
       }
-      const barcode = nextNumber.toString().padStart(9, '0');
 
-      // Create delivery
+      // Create delivery (client id varsa onu kullan -> offline/backend AYNI kimlik, mukerrer yok)
       const [newDelivery] = await tx.insert(deliveries).values({
+        ...(clientId ? { id: clientId } : {}),
         tenantId,
         barcode,
         packageCount,
