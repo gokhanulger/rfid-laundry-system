@@ -126,6 +126,7 @@ export function ReconciliationPage() {
       case 'label_printed': return 'bg-green-100 text-green-800';
       case 'packaged': return 'bg-green-100 text-green-800';
       case 'in_transit': return 'bg-purple-100 text-purple-800';
+      case 'discarded': return 'bg-red-100 text-red-800';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
@@ -138,6 +139,7 @@ export function ReconciliationPage() {
       case 'label_printed': return 'Etiket Basildi';
       case 'packaged': return 'Paketlendi';
       case 'in_transit': return 'Yolda';
+      case 'discarded': return 'Iskarta';
       default: return status;
     }
   };

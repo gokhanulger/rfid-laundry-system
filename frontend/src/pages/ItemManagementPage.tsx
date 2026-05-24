@@ -27,6 +27,7 @@ const statusOptions = [
   { value: 'packaged', label: 'Paketlendi', color: 'bg-indigo-100 text-indigo-800' },
   { value: 'in_transit', label: 'Yolda', color: 'bg-cyan-100 text-cyan-800' },
   { value: 'delivered', label: 'Teslim Edildi', color: 'bg-gray-100 text-gray-800' },
+  { value: 'discarded', label: 'Iskarta', color: 'bg-red-100 text-red-800' },
 ];
 
 export function ItemManagementPage() {

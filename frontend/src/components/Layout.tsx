@@ -25,6 +25,7 @@ import {
   Grid3X3,
   Database,
   DollarSign,
+  Ban,
 } from 'lucide-react';
 
 // Storage key for sidebar state
@@ -84,6 +85,7 @@ export function Layout() {
     { name: 'Urun Gecmisi', href: '/hotel-item-history', icon: RotateCcw },
     { name: 'Mutabakat', href: '/reconciliation', icon: FileText },
     { name: 'Discard Urunler', href: '/alerts', icon: Bell },
+    { name: 'Iskarta', href: '/portal/iskarta', icon: Ban },
   ];
 
   // Navigation for admin/laundry manager (full access)
@@ -96,6 +98,7 @@ export function Layout() {
     { name: 'Irsaliye', href: '/irsaliye', icon: FileText },
     { name: 'Teslimat Yonetimi', href: '/delivery-management', icon: Truck },
     { name: 'Discard ve Lekeli Takip', href: '/alerts', icon: Bell },
+    { name: 'Iskarta', href: '/iskarta', icon: Ban },
     { name: 'Raporlar', href: '/reports', icon: BarChart3 },
     { name: 'Mutabakat', href: '/reconciliation', icon: FileText },
   ];
