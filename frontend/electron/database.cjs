@@ -658,6 +658,22 @@ function getPendingOperationsCount() {
   return result.length > 0 && result[0].values.length > 0 ? result[0].values[0][0] : 0;
 }
 
+// Cevrimdisi makul suresinden cok daha eski bekleyen op'lari temizle.
+// Aylardir sikismis bayat op'lar (retry firtinasi) baslangicta otomatik dusurulur.
+// Mesru bir offline islem asla 12 saat bekleyemez (camasirhane o kadar cevrimdisi kalmaz).
+function purgeStalePendingOperations(maxAgeHours = 12) {
+  if (!db) return 0;
+  const before = getPendingOperationsCount();
+  const cutoff = new Date(Date.now() - maxAgeHours * 3600 * 1000).toISOString();
+  db.run('DELETE FROM pending_operations WHERE created_at < ?', [cutoff]);
+  markDirty();
+  const removed = before - getPendingOperationsCount();
+  if (removed > 0) {
+    console.log(`[DB] Purged ${removed} stale pending operations (>${maxAgeHours}h eski)`);
+  }
+  return removed;
+}
+
 // ==========================================
 // Sync Metadata
 // ==========================================
@@ -819,6 +835,7 @@ module.exports = {
   removePendingOperation,
   updatePendingOperationError,
   getPendingOperationsCount,
+  purgeStalePendingOperations,
   // Sync
   getLastSyncTime,
   setLastSyncTime,

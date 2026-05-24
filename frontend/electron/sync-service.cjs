@@ -104,7 +104,9 @@ function apiRequest(endpoint, method = 'GET', body = null) {
             resolve(JSON.parse(data));
           } else {
             console.error('[Sync] API Error:', res.statusCode, data.substring(0, 200));
-            reject(new Error(`HTTP ${res.statusCode}: ${data.substring(0, 100)}`));
+            const err = new Error(`HTTP ${res.statusCode}: ${data.substring(0, 100)}`);
+            err.statusCode = res.statusCode; // kuyruk: kalici 4xx'te op'u dusurmek icin
+            reject(err);
           }
         } catch (e) {
           reject(e);
@@ -397,6 +399,11 @@ async function deltaSync() {
 // Process Pending Operations (Offline Queue)
 // ==========================================
 
+// Bu kadar denemeden sonra op kalici olarak dusurulur (sonsuz retry firtinasini onler)
+const MAX_OP_RETRIES = 8;
+// Tekrar denense de asla basarmayacak client hatalari -> op'u hemen dusur
+const PERMANENT_4XX = new Set([400, 403, 404, 409, 410, 422]);
+
 async function processPendingOperations() {
   const pending = db.getPendingOperations();
 
@@ -407,19 +414,54 @@ async function processPendingOperations() {
   console.log(`[Sync] Processing ${pending.length} pending operations`);
   let processed = 0;
   let failed = 0;
+  let dropped = 0;
 
   for (const op of pending) {
+    // Bozuk eski op'lari (eksik /deliveries/ onekli paket/iptal endpoint'leri) gonderme, dusur.
+    // Bunlar backend'de 400 doner ve sonsuza dek tekrar denenirdi (retry firtinasinin bir kaynagi).
+    if ((op.operation_type === 'package_delivery' || op.operation_type === 'cancel_delivery')
+        && typeof op.endpoint === 'string' && !op.endpoint.startsWith('/deliveries/')) {
+      db.removePendingOperation(op.id);
+      dropped++;
+      console.warn(`[Sync] Dropped malformed pending op ${op.id} (${op.operation_type}): ${op.endpoint}`);
+      continue;
+    }
+
     try {
       await apiRequest(op.endpoint, op.method, op.payload);
       db.removePendingOperation(op.id);
       processed++;
       console.log(`[Sync] Processed pending operation ${op.id}: ${op.operation_type}`);
     } catch (error) {
-      console.error(`[Sync] Failed to process operation ${op.id}:`, error.message);
+      const status = error.statusCode;
+
+      // 429 = rate limit (gecici). Dovmeyi birak: bu cycle'i durdur, op kalsin, sonra denenir.
+      if (status === 429) {
+        console.log('[Sync] Rate limited (429) - backing off, stopping queue this cycle');
+        break;
+      }
+
+      // Kalici client hatasi (400/403/404...) -> tekrar denese de asla basarmaz, dusur.
+      if (status && PERMANENT_4XX.has(status)) {
+        db.removePendingOperation(op.id);
+        dropped++;
+        console.warn(`[Sync] Dropped pending op ${op.id} (${op.operation_type}) - kalici HTTP ${status}: ${error.message}`);
+        continue;
+      }
+
+      // Diger hatalar (ag / 5xx / 401): retry sayacini artir, esigi gecince dusur.
       db.updatePendingOperationError(op.id, error.message);
       failed++;
+      const retries = (op.retry_count || 0) + 1;
+      if (retries >= MAX_OP_RETRIES) {
+        db.removePendingOperation(op.id);
+        dropped++;
+        console.warn(`[Sync] Dropped pending op ${op.id} (${op.operation_type}) - ${retries} deneme sonrasi: ${error.message}`);
+        continue;
+      }
+      console.error(`[Sync] Failed to process operation ${op.id} (retry ${retries}/${MAX_OP_RETRIES}):`, error.message);
 
-      // Stop processing if we're offline
+      // Cevrimdisiysak isleme devam etme
       if (!onlineStatus) {
         console.log('[Sync] Offline, stopping pending operations processing');
         break;
@@ -427,7 +469,11 @@ async function processPendingOperations() {
     }
   }
 
-  return { processed, failed, remaining: pending.length - processed };
+  if (dropped > 0) {
+    console.log(`[Sync] Pending ops: ${processed} islendi, ${dropped} dusuruldu (kalici/bozuk/eski), ${failed} retry`);
+  }
+
+  return { processed, failed, dropped, remaining: db.getPendingOperationsCount() };
 }
 
 // ==========================================
@@ -556,8 +602,11 @@ async function createWaybill(deliveryIds, bagCount, notes) {
 
   // Yerel durumu hemen guncelle (online da olsa offline da olsa) ki teslimatlar
   // 'packaged' listesinden cikip ekrandan gitsin. Online basarisiz olursa kuyruga alinir.
+  // recentLocalOps'a ekle: backend waybill'i isleyene kadar bir sync bunlari
+  // tekrar 'packaged' olarak EKLEMESIN (irsaliyesi kesilmis paketler geri gelmesin).
   for (const id of deliveryIds) {
     db.updateDeliveryStatus(id, 'waybill_created');
+    addRecentLocalOp(id);
   }
 
   if (onlineStatus) {
@@ -759,6 +808,15 @@ async function initialize(token) {
 
   // Initialize database
   await db.initDatabase();
+
+  // Baslangicta bayat (12h+) bekleyen op'lari temizle - aylardir sikismis retry
+  // firtinasi op'lari boylece otomatik dusurulur (backend'i 429/400 ile dovmeyi keser).
+  try {
+    const purged = db.purgeStalePendingOperations(12);
+    if (purged > 0) console.log(`[Sync] Startup: purged ${purged} stale pending ops`);
+  } catch (e) {
+    console.log('[Sync] Startup purge error (non-critical):', e.message);
+  }
 
   const stats = db.getDatabaseStats();
   console.log('[Sync] Database stats:', stats);
