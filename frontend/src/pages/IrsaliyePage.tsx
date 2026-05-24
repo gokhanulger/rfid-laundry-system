@@ -851,7 +851,7 @@ export function IrsaliyePage() {
     const hotel = tenants?.find(t => t.id === selectedHotelId);
     const totals = calculateAllTotals();
     const documentNo = waybill.waybillNumber;
-    const today = new Date().toLocaleDateString('tr-TR');
+    const today = new Date().toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
     const totalPackageCount = allPackages.length;
 
     // Ürün bilgisi yoksa uyarı ver
@@ -1203,7 +1203,7 @@ export function IrsaliyePage() {
     const hotelName = waybill.tenant?.name || 'Bilinmeyen Otel';
     const hotelAddress = waybill.tenant?.address || '';
     const documentNo = waybill.waybillNumber || '';
-    const printDate = new Date(waybill.printedAt || waybill.createdAt).toLocaleDateString('tr-TR');
+    const printDate = new Date(waybill.printedAt || waybill.createdAt).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
     const totalPackageCount = waybill.packageCount || 0;
     const s = irsaliyeSettings;
 
