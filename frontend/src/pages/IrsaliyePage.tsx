@@ -2939,12 +2939,17 @@ export function IrsaliyePage() {
                                     <span className="text-xs bg-gray-100 px-2 py-0.5 rounded">{waybill.packageCount} paket</span>
                                   </div>
                                   {(() => {
-                                    const barcodes = (waybill.waybillDeliveries || [])
-                                      .map(wd => wd.delivery?.barcode)
-                                      .filter((b): b is string => !!b);
-                                    return barcodes.length > 0 ? (
+                                    const pkgs = (waybill.waybillDeliveries || [])
+                                      .map(wd => ({
+                                        barcode: wd.delivery?.barcode,
+                                        time: wd.delivery?.packagedAt || wd.delivery?.createdAt || null,
+                                      }))
+                                      .filter((p): p is { barcode: string; time: string | null } => !!p.barcode);
+                                    return pkgs.length > 0 ? (
                                       <p className="text-xs text-gray-400 font-mono mt-0.5">
-                                        Paket no: {barcodes.join(', ')}
+                                        Paket no: {pkgs.map(p => p.time
+                                          ? `${p.barcode} · ${new Date(p.time).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}`
+                                          : p.barcode).join(', ')}
                                       </p>
                                     ) : null;
                                   })()}
