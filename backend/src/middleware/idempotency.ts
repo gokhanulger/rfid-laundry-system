@@ -103,8 +103,11 @@ export function idempotency() {
     (res as any).json = (body: any) => {
       captured = true;
       const code = res.statusCode;
-      if (code >= 500) {
-        // Transient server error -> release the claim so a retry can run.
+      // Don't cache transient/auth failures: 401/403 (expired token / role) and 5xx
+      // (server error) are retryable. Caching them would permanently replay the failure
+      // for the same clientOpId even after the token is refreshed -> release the claim.
+      // Cache only genuine outcomes: 2xx success + permanent business 4xx (400/404/409/422).
+      if (code === 401 || code === 403 || code >= 500) {
         db.execute(sql`DELETE FROM idempotency_keys WHERE client_op_id = ${clientOpId}`).catch(() => {});
       } else {
         let stored: string | null = null;
