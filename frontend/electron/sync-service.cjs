@@ -859,5 +859,8 @@ module.exports = {
   createWaybill,
   startAutoSync,
   stopAutoSync,
-  checkOnlineStatus
+  checkOnlineStatus,
+  // LAN-sync peer broadcast'i (cancelled/discarded) yereli temizleyince
+  // bir sonraki backend sync'i bayat satiri geri yuklemesin diye korumaya alir.
+  addRecentLocalOp
 };

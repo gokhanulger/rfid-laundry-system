@@ -265,6 +265,32 @@ function handlePeerDeliveryUpdate(update) {
 
   console.log(`[LAN-Sync] Received delivery update: ${update.id} -> ${update.status}`);
 
+  // TOMBSTONE statuleri (peer'da iptal/iskarta edilmis) - yereli HARD-DELETE et VE
+  // bir sonraki backend sync'inin (henuz islenmemis label_printed/packaged) geri
+  // upsert etmesini engellemek icin recentLocalOps korumasina al. Aksi halde
+  // peer A iptal eder -> B sadece status='cancelled' olur, 3-5sn sonra B'nin
+  // backend sync'i fetch eder, backend cancel'i henuz islememisse (veya kuyrukta
+  // takiliysa) satir label_printed/packaged'a GERI DONER -> paket ekranda hayalet.
+  if (update.status === 'cancelled' || update.status === 'discarded') {
+    try { db.deleteDelivery(update.id); } catch (_) {}
+    try {
+      const sync = require('./sync-service.cjs');
+      if (sync && typeof sync.addRecentLocalOp === 'function') {
+        sync.addRecentLocalOp(update.id);
+      }
+    } catch (e) {
+      console.log('[LAN-Sync] addRecentLocalOp unavailable:', e.message);
+    }
+    console.log(`[LAN-Sync] Tombstone ${update.status} -> hard-deleted ${update.id} + protected from re-sync`);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('lan-delivery-updated', {
+        deliveryId: update.id,
+        status: update.status
+      });
+    }
+    return;
+  }
+
   // Check if we already have this delivery
   const existing = db.getDeliveryByBarcode(update.barcode);
 
