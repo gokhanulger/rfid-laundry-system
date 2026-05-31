@@ -58,11 +58,47 @@ async function initDatabase() {
     }, 5000);
 
     console.log('[SQLite] Database initialized successfully');
+    // Acilista bir defalik dedup: ayni barkodlu eski cift satirlari temizle.
+    try {
+      const removed = dedupeDeliveriesByBarcode();
+      if (removed > 0) {
+        console.log(`[SQLite] Startup dedup: removed ${removed} duplicate barcode rows`);
+      }
+    } catch (e) {
+      console.error('[SQLite] Startup dedup failed:', e.message);
+    }
     return db;
   } catch (error) {
     console.error('[SQLite] Failed to initialize database:', error);
     throw error;
   }
+}
+
+// Ayni barkodlu farkli ID'li satirlardan en yeni updated_at'i tut, digerlerini sil.
+// upsertDeliveries'in PRIMARY KEY=id dedup'u zayifligindan dolayi olusan
+// "paketci ekraninda ayni paket 2 kez" semptomunu giderir.
+function dedupeDeliveriesByBarcode() {
+  if (!db) return 0;
+  let removed = 0;
+  const dupRes = db.exec(
+    "SELECT barcode FROM deliveries WHERE barcode IS NOT NULL AND barcode != '' GROUP BY barcode HAVING COUNT(*) > 1"
+  );
+  if (!dupRes || dupRes.length === 0 || !dupRes[0].values) return 0;
+  for (const [barcode] of dupRes[0].values) {
+    const rowsRes = db.exec(
+      `SELECT id FROM deliveries WHERE barcode = '${String(barcode).replace(/'/g, "''")}' ORDER BY updated_at DESC, created_at DESC`
+    );
+    if (!rowsRes || !rowsRes[0] || !rowsRes[0].values) continue;
+    const rows = rowsRes[0].values;
+    if (rows.length <= 1) continue;
+    const keepId = rows[0][0];
+    const delStmt = db.prepare('DELETE FROM deliveries WHERE barcode = ? AND id != ?');
+    delStmt.run([barcode, keepId]);
+    delStmt.free();
+    removed += rows.length - 1;
+  }
+  if (removed > 0) markDirty();
+  return removed;
 }
 
 // Save database to disk
@@ -414,6 +450,11 @@ function upsertDeliveries(deliveries) {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
+    // BARKOD DEDUP: ayni barkodlu ama FARKLI id'li eski satirlari sil.
+    // upsertDeliveries PRIMARY KEY=id ile dedup ediyordu; ayni barkodun iki ayri ID
+    // ile DB'ye girmesi durumunda paketci ekranda 2 kart cikiyordu. Onceden silerek
+    // her barkod icin tek satir kalmasini garantile.
+    const dedupStmt = db.prepare('DELETE FROM deliveries WHERE barcode = ? AND id != ?');
     for (const d of deliveries) {
       const tenantId = d.tenantId || d.tenant_id;
       const tenantName = d.tenant?.name || d.tenant_name || '';
@@ -430,6 +471,11 @@ function upsertDeliveries(deliveries) {
       const deliveryItemsJson = d.deliveryItems ? JSON.stringify(d.deliveryItems) : (d.delivery_items_json || null);
       const deliveryPackagesJson = d.deliveryPackages ? JSON.stringify(d.deliveryPackages) : (d.delivery_packages_json || null);
 
+      // Once: ayni barkodun farkli ID'li bayatlarini sil
+      if (barcode && d.id) {
+        dedupStmt.run([barcode, d.id]);
+      }
+
       stmt.run([
         d.id, barcode, tenantId, tenantName, d.status, d.notes || null,
         itemCount, packageCount, packagedAt, pickedUpAt, deliveredAt,
@@ -437,6 +483,7 @@ function upsertDeliveries(deliveries) {
       ]);
       count++;
     }
+    dedupStmt.free();
 
     stmt.free();
     db.run('COMMIT');
@@ -829,6 +876,7 @@ module.exports = {
   updateDeliveryStatus,
   deleteDelivery,
   getDeliveriesCount,
+  dedupeDeliveriesByBarcode,
   // Pending Operations
   addPendingOperation,
   getPendingOperations,
