@@ -3,13 +3,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import { Link } from 'react-router-dom';
-import { Shirt, Loader2, ChevronLeft, Plus, Trash2, Send, CheckCircle2, Clock, X, Download } from 'lucide-react';
+import { Shirt, Loader2, ChevronLeft, Send, CheckCircle2, Clock, X, Download, Search } from 'lucide-react';
 import { portalApi, settingsApi, getErrorMessage, DirtyDeclaration } from '../../lib/api';
 import { useToast } from '../../components/Toast';
 import { useAuth } from '../../contexts/AuthContext';
 import type { ItemType } from '../../types';
-
-interface DraftLine { itemTypeId: string; count: string }
 
 // Kirli beyana okunabilir bir irsaliye numarasi uret (gercek waybill numarasi yok)
 function dirtyWaybillNo(d: DirtyDeclaration): string {
@@ -21,8 +19,10 @@ export function PortalDirtyDelivery() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
 
-  const [lines, setLines] = useState<DraftLine[]>([{ itemTypeId: '', count: '' }]);
+  // itemTypeId -> girilen adet (string). Sadece adet girilenler gonderilir.
+  const [counts, setCounts] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState('');
+  const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<DirtyDeclaration | null>(null);
 
   const { data: itemTypes } = useQuery({
@@ -36,32 +36,38 @@ export function PortalDirtyDelivery() {
     queryFn: () => portalApi.getDirtyDeclarations({ limit: 50 }),
   });
 
+  // Fis duzeni: tum urun tipleri sortOrder ile (API zaten sirali doner)
   const typesList: ItemType[] = useMemo(() => itemTypes || [], [itemTypes]);
+  const filteredTypes = useMemo(() => {
+    const term = search.trim().toLocaleLowerCase('tr');
+    if (!term) return typesList;
+    return typesList.filter((t) => t.name.toLocaleLowerCase('tr').includes(term));
+  }, [typesList, search]);
+
+  const buildItems = () =>
+    Object.entries(counts)
+      .filter(([, c]) => parseInt(c) > 0)
+      .map(([itemTypeId, c]) => ({ itemTypeId, count: parseInt(c) }));
 
   const createMutation = useMutation({
-    mutationFn: () => {
-      const items = lines
-        .filter((l) => l.itemTypeId && parseInt(l.count) > 0)
-        .map((l) => ({ itemTypeId: l.itemTypeId, count: parseInt(l.count) }));
-      return portalApi.createDirtyDeclaration({ items, notes: notes.trim() || undefined });
-    },
+    mutationFn: () => portalApi.createDirtyDeclaration({ items: buildItems(), notes: notes.trim() || undefined }),
     onSuccess: () => {
       toast.success('Kirli teslim bildirildi', 'Camasirhane ekranina dustu.');
-      setLines([{ itemTypeId: '', count: '' }]);
+      setCounts({});
       setNotes('');
+      setSearch('');
       queryClient.invalidateQueries({ queryKey: ['portal', 'dirty-declarations'] });
     },
     onError: (err) => toast.error('Bildirim basarisiz', getErrorMessage(err)),
   });
 
-  const validLines = lines.filter((l) => l.itemTypeId && parseInt(l.count) > 0);
-  const totalCount = validLines.reduce((sum, l) => sum + parseInt(l.count || '0'), 0);
+  const validEntries = Object.entries(counts).filter(([, c]) => parseInt(c) > 0);
+  const totalCount = validEntries.reduce((sum, [, c]) => sum + parseInt(c || '0'), 0);
 
-  const updateLine = (idx: number, patch: Partial<DraftLine>) => {
-    setLines((prev) => prev.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
+  const setCount = (id: string, val: string) => {
+    const clean = val.replace(/[^0-9]/g, '');
+    setCounts((prev) => ({ ...prev, [id]: clean }));
   };
-  const addLine = () => setLines((prev) => [...prev, { itemTypeId: '', count: '' }]);
-  const removeLine = (idx: number) => setLines((prev) => prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev);
 
   return (
     <div className="p-4 md:p-6 bg-gray-50 min-h-screen">
@@ -79,52 +85,70 @@ export function PortalDirtyDelivery() {
         </p>
       </div>
 
-      {/* Yeni beyan formu */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 md:p-6 mb-8">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Yeni Kirli Bildirimi</h2>
-
-        <div className="space-y-3">
-          {lines.map((line, idx) => (
-            <div key={idx} className="flex items-center gap-2">
-              <select
-                value={line.itemTypeId}
-                onChange={(e) => updateLine(idx, { itemTypeId: e.target.value })}
-                className="flex-1 px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 bg-white"
-              >
-                <option value="">Urun tipi secin...</option>
-                {typesList.map((t) => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
-                ))}
-              </select>
-              <input
-                type="number"
-                min={1}
-                inputMode="numeric"
-                placeholder="Adet"
-                value={line.count}
-                onChange={(e) => updateLine(idx, { count: e.target.value.replace(/[^0-9]/g, '') })}
-                className="w-24 px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-center"
-              />
-              <button
-                onClick={() => removeLine(idx)}
-                disabled={lines.length === 1}
-                className="p-2 text-gray-400 hover:text-red-600 disabled:opacity-30 disabled:hover:text-gray-400"
-                title="Satiri sil"
-              >
-                <Trash2 className="w-5 h-5" />
-              </button>
-            </div>
-          ))}
+      {/* Yeni beyan - TESLIM FISI (KIRLI) duzeni */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-8">
+        {/* Fis basligi */}
+        <div className="bg-orange-600 text-white px-4 py-3 flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-bold">TESLIM FISI (KIRLI)</h2>
+            <p className="text-xs text-orange-100">{user?.tenantName || 'Otel'}</p>
+          </div>
+          <p className="text-sm">{format(new Date(), 'dd.MM.yyyy', { locale: tr })}</p>
         </div>
 
-        <button
-          onClick={addLine}
-          className="mt-3 flex items-center gap-1 text-sm text-orange-600 hover:text-orange-800 font-medium"
-        >
-          <Plus className="w-4 h-4" /> Urun ekle
-        </button>
+        {/* Arama (101 urun arasinda hizli bulma) */}
+        <div className="p-3 border-b border-gray-100">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Urun ara (orn. carsaf, havlu...)"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+            />
+          </div>
+        </div>
 
-        <div className="mt-4">
+        {/* Sutun basliklari */}
+        <div className="grid grid-cols-[1fr_96px] bg-gray-100 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase">
+          <div className="px-4 py-2">Malin Cinsi</div>
+          <div className="px-2 py-2 text-center border-l border-gray-200">Adet</div>
+        </div>
+
+        {/* Urun listesi - her satira adet girilir */}
+        <div className="max-h-[55vh] overflow-y-auto divide-y divide-gray-100">
+          {filteredTypes.map((t) => {
+            const val = counts[t.id] || '';
+            const has = parseInt(val) > 0;
+            return (
+              <div
+                key={t.id}
+                className={`grid grid-cols-[1fr_96px] items-center ${has ? 'bg-orange-50' : ''}`}
+              >
+                <label htmlFor={`cnt-${t.id}`} className="px-4 py-2 text-sm font-medium text-gray-800 cursor-text truncate">
+                  {t.name}
+                </label>
+                <div className="px-2 py-1.5 border-l border-gray-100">
+                  <input
+                    id={`cnt-${t.id}`}
+                    type="text"
+                    inputMode="numeric"
+                    value={val}
+                    onChange={(e) => setCount(t.id, e.target.value)}
+                    className={`w-full px-2 py-1.5 border rounded-md text-center text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500 ${has ? 'border-orange-400 font-bold text-orange-700' : 'border-gray-200'}`}
+                  />
+                </div>
+              </div>
+            );
+          })}
+          {filteredTypes.length === 0 && (
+            <div className="px-4 py-6 text-center text-sm text-gray-400">Urun bulunamadi</div>
+          )}
+        </div>
+
+        {/* Not + gonder */}
+        <div className="p-4 border-t border-gray-200 bg-gray-50">
           <label className="block text-sm font-medium text-gray-700 mb-1">Not (istege bagli)</label>
           <textarea
             value={notes}
@@ -133,20 +157,19 @@ export function PortalDirtyDelivery() {
             placeholder="Ornek: aceleli, lekeli urunler ayri torbada..."
             className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 resize-none"
           />
-        </div>
-
-        <div className="mt-5 flex items-center justify-between">
-          <span className="text-sm text-gray-500">
-            {validLines.length > 0 ? `${validLines.length} tip / toplam ${totalCount} adet` : 'En az bir urun ekleyin'}
-          </span>
-          <button
-            onClick={() => createMutation.mutate()}
-            disabled={validLines.length === 0 || createMutation.isPending}
-            className="flex items-center gap-2 px-5 py-2.5 bg-orange-600 text-white rounded-lg font-medium hover:bg-orange-700 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {createMutation.isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-            Teslim Et
-          </button>
+          <div className="mt-4 flex items-center justify-between gap-3 flex-wrap">
+            <span className="text-sm text-gray-600">
+              {validEntries.length > 0 ? `${validEntries.length} cins / toplam ${totalCount} adet` : 'Adet girdiginiz urunler gonderilir'}
+            </span>
+            <button
+              onClick={() => createMutation.mutate()}
+              disabled={validEntries.length === 0 || createMutation.isPending}
+              className="flex items-center gap-2 px-5 py-2.5 bg-orange-600 text-white rounded-lg font-medium hover:bg-orange-700 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {createMutation.isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+              Teslim Et
+            </button>
+          </div>
         </div>
       </div>
 
