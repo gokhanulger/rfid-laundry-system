@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Printer, Sparkles, Building2, X, Plus, Search, Delete, Trash2, Sun, Moon, Settings, Wifi, WifiOff, Radio, AlertTriangle, CheckCircle, HelpCircle, XCircle, RefreshCw, Loader2 } from 'lucide-react';
-import { itemsApi, deliveriesApi, settingsApi, getErrorMessage, getStoredToken } from '../lib/api';
+import { itemsApi, deliveriesApi, settingsApi, dirtyDeclarationsApi, getErrorMessage, getStoredToken, type DirtyDeclaration } from '../lib/api';
 import { useToast } from '../components/Toast';
 import { generateDeliveryLabel } from '../lib/pdfGenerator';
 import { isElectron, getPrinters, savePreferredPrinter, getPreferredPrinter, type Printer as PrinterType } from '../lib/printer';
@@ -352,6 +352,25 @@ export function IronerInterfacePage() {
     },
     staleTime: 5 * 60 * 1000,
   });
+
+  // Otellerin portaldan bildirdigi bekleyen kirli beyanlari (utucu karsilastirma icin gorur)
+  const { data: dirtyDeclarations } = useQuery({
+    queryKey: ['dirty-declarations-pending'],
+    queryFn: () => dirtyDeclarationsApi.list({ status: 'pending', limit: 200 }),
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+    retry: 1,
+  });
+  const dirtyDeclByHotel = useMemo(() => {
+    const map = new Map<string, DirtyDeclaration[]>();
+    for (const d of (dirtyDeclarations?.data || [])) {
+      if (!d.tenantId) continue;
+      const arr = map.get(d.tenantId) || [];
+      arr.push(d);
+      map.set(d.tenantId, arr);
+    }
+    return map;
+  }, [dirtyDeclarations]);
 
   // Keep refs in sync with latest data (avoids recreating RFID callbacks)
   tenantsRef.current = tenantsArray;
@@ -840,6 +859,13 @@ export function IronerInterfacePage() {
       // Clear print list for the hotel
       if (variables.hotelId) {
         clearPrintList(variables.hotelId);
+      }
+
+      // Otel bu otel icin kirli beyani girdiyse, etiket basildiginda beyani 'islendi' yap (Beklemede -> Islendi)
+      if (variables.hotelId && dirtyDeclByHotel.has(variables.hotelId)) {
+        dirtyDeclarationsApi.processByTenant(variables.hotelId)
+          .then(() => queryClient.invalidateQueries({ queryKey: ['dirty-declarations-pending'] }))
+          .catch((e) => console.warn('[DirtyDecl] Beyan islendi isaretlenemedi (online olunca tekrar denenebilir):', e));
       }
 
       // Clear scanned items IMMEDIATELY after print
@@ -2179,6 +2205,37 @@ export function IronerInterfacePage() {
                   </h3>
                   <p className="text-orange-200 text-sm mt-1">{hotelItems.length} kirli urun</p>
                 </div>
+
+                {/* Otelin bildirdigi kirli beyani (portaldan) - karsilastirma icin */}
+                {(() => {
+                  const decls = dirtyDeclByHotel.get(hotelId) || [];
+                  if (decls.length === 0) return null;
+                  const totals = new Map<string, number>();
+                  const noteList: string[] = [];
+                  for (const d of decls) {
+                    for (const it of d.items) {
+                      totals.set(it.itemTypeName, (totals.get(it.itemTypeName) || 0) + it.count);
+                    }
+                    if (d.notes) noteList.push(d.notes);
+                  }
+                  return (
+                    <div className="bg-amber-50 border-b-2 border-amber-200 px-6 py-3">
+                      <p className="text-xs font-bold text-amber-800 uppercase tracking-wide mb-2 flex items-center gap-1">
+                        <Building2 className="w-4 h-4" /> Otelin Bildirdigi Kirli
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {Array.from(totals.entries()).map(([name, count]) => (
+                          <span key={name} className="text-sm bg-white border border-amber-300 text-amber-900 px-2.5 py-1 rounded-lg">
+                            {name}: <span className="font-bold">{count}</span>
+                          </span>
+                        ))}
+                      </div>
+                      {noteList.length > 0 && (
+                        <p className="mt-2 text-sm text-amber-800 italic">Not: {noteList.join(' | ')}</p>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* Form Content */}
                 <div className="p-6">

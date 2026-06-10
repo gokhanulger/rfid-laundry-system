@@ -24,6 +24,7 @@ import { waybillsRouter } from './routes/waybills';
 import { portalRouter } from './routes/portal';
 import { notificationsRouter } from './routes/notifications';
 import { tenantPricingRouter } from './routes/tenantPricing';
+import { dirtyDeclarationsRouter } from './routes/dirtyDeclarations';
 import { idempotency, startIdempotencyCleanup } from './middleware/idempotency';
 
 dotenv.config();
@@ -244,6 +245,7 @@ app.use('/api/waybills', waybillsRouter);
 app.use('/api/portal', portalRouter);
 app.use('/api/notifications', notificationsRouter);
 app.use('/api/tenant-pricing', tenantPricingRouter);
+app.use('/api/dirty-declarations', dirtyDeclarationsRouter);
 
 // Health check
 app.get('/api/health', (req, res) => {

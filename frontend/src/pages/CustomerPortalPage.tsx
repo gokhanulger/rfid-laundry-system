@@ -25,6 +25,7 @@ import {
   CreditCard,
   LogOut,
   Copy,
+  Shirt,
 } from 'lucide-react';
 import { portalApi } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -599,6 +600,19 @@ export function CustomerPortalPage() {
           </div>
         </div>
       )}
+
+      {/* Kirli Teslim - one cikan birincil aksiyon */}
+      <Link
+        to="/portal/kirli-teslim"
+        className="mt-6 flex items-center gap-4 p-5 bg-orange-600 text-white rounded-xl shadow-sm hover:bg-orange-700 transition-colors"
+      >
+        <Shirt className="w-8 h-8" />
+        <div>
+          <p className="font-semibold text-lg">Kirli Teslim Bildir</p>
+          <p className="text-sm text-orange-100">Camasirhaneye gonderdiginiz kirli urunlerin adetlerini girin</p>
+        </div>
+        <ChevronRight className="w-6 h-6 ml-auto" />
+      </Link>
 
       {/* Quick Links */}
       <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db } from '../db';
-import { items, pickups, deliveries, waybills, waybillDeliveries, deliveryItems, pickupItems, tenants } from '../db/schema';
+import { items, pickups, deliveries, waybills, waybillDeliveries, deliveryItems, pickupItems, tenants, dirtyDeclarations, itemTypes } from '../db/schema';
 import { eq, and, desc, sql, count, gte, lte, inArray } from 'drizzle-orm';
 import { requireAuth, AuthRequest, requireRole } from '../middleware/auth';
 import { z } from 'zod';
@@ -48,6 +48,18 @@ function getLaundryPaymentInfo(): { accounts: PaymentAccount[]; note: string | n
 
   const note = process.env.LAUNDRY_PAYMENT_NOTE?.trim() || null;
   return { accounts, note };
+}
+
+// Kirli beyan items JSON'unu guvenli ayristir
+interface DirtyDeclLine { itemTypeId: string; itemTypeName: string; count: number; }
+function safeParseItems(json: string | null): DirtyDeclLine[] {
+  if (!json) return [];
+  try {
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 // All portal routes require hotel_owner role
@@ -99,6 +111,131 @@ portalRouter.patch('/profile', async (req: AuthRequest, res) => {
     });
   } catch (error) {
     console.error('Update portal profile error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---- Kirli Teslim Beyani (Dirty Declarations) ----
+// Otel sahibi kirli urunlerinin tip+adetlerini bildirir.
+const createDirtyDeclarationSchema = z.object({
+  items: z.array(z.object({
+    itemTypeId: z.string().uuid('Geçersiz ürün tipi'),
+    count: z.number().int().positive('Adet 0\'dan büyük olmalı'),
+  })).min(1, 'En az bir ürün ekleyin'),
+  notes: z.string().max(1000).optional().or(z.literal('')),
+});
+
+// Otelin kendi kirli beyanini olusturmasi
+portalRouter.post('/dirty-declarations', async (req: AuthRequest, res) => {
+  try {
+    const user = req.user!;
+    const tenantId = user.tenantId;
+
+    if (!tenantId) {
+      return res.status(403).json({ error: 'Hesabınıza bir otel atanmamış' });
+    }
+
+    const validation = createDirtyDeclarationSchema.safeParse(req.body);
+    if (!validation.success) {
+      return res.status(400).json({
+        error: 'Doğrulama hatası',
+        details: validation.error.errors,
+      });
+    }
+
+    const { items: declItems, notes } = validation.data;
+
+    // Urun tipi adlarini cozumle (utucu/admin ekraninda gosterilecek)
+    const typeIds = [...new Set(declItems.map(i => i.itemTypeId))];
+    const types = await db.select({ id: itemTypes.id, name: itemTypes.name })
+      .from(itemTypes)
+      .where(inArray(itemTypes.id, typeIds));
+    const typeNameById = new Map(types.map(t => [t.id, t.name]));
+
+    // Bilinmeyen tip gonderildiyse reddet
+    const unknown = typeIds.filter(id => !typeNameById.has(id));
+    if (unknown.length > 0) {
+      return res.status(400).json({ error: 'Geçersiz ürün tipi seçildi' });
+    }
+
+    // Ayni tip birden cok satirda gelirse birlestir
+    const merged = new Map<string, number>();
+    for (const it of declItems) {
+      merged.set(it.itemTypeId, (merged.get(it.itemTypeId) || 0) + it.count);
+    }
+    const itemsJson = [...merged.entries()].map(([itemTypeId, c]) => ({
+      itemTypeId,
+      itemTypeName: typeNameById.get(itemTypeId)!,
+      count: c,
+    }));
+
+    const [created] = await db.insert(dirtyDeclarations).values({
+      tenantId,
+      status: 'pending',
+      items: JSON.stringify(itemsJson),
+      notes: notes || null,
+      createdBy: user.id,
+    }).returning();
+
+    res.status(201).json({
+      id: created.id,
+      status: created.status,
+      items: itemsJson,
+      notes: created.notes,
+      createdAt: created.createdAt,
+    });
+  } catch (error) {
+    console.error('Create dirty declaration error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Otelin kendi kirli beyan gecmisi
+portalRouter.get('/dirty-declarations', async (req: AuthRequest, res) => {
+  try {
+    const user = req.user!;
+    const tenantId = user.tenantId;
+
+    if (!tenantId) {
+      return res.status(403).json({ error: 'Hesabınıza bir otel atanmamış' });
+    }
+
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
+    const offset = (page - 1) * limit;
+    const status = req.query.status as string;
+
+    const conditions = [eq(dirtyDeclarations.tenantId, tenantId)];
+    if (status) {
+      conditions.push(eq(dirtyDeclarations.status, status as any));
+    }
+    const whereCondition = and(...conditions);
+
+    const totalResult = await db.select({ count: count() }).from(dirtyDeclarations).where(whereCondition);
+    const total = totalResult[0]?.count || 0;
+
+    const rows = await db.select()
+      .from(dirtyDeclarations)
+      .where(whereCondition)
+      .orderBy(desc(dirtyDeclarations.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    const data = rows.map(r => ({
+      id: r.id,
+      status: r.status,
+      items: safeParseItems(r.items),
+      notes: r.notes,
+      createdAt: r.createdAt,
+      processedAt: r.processedAt,
+    }));
+
+    res.json({
+      data,
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    });
+  } catch (error) {
+    console.error('Get portal dirty declarations error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

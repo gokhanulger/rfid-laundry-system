@@ -722,6 +722,24 @@ export interface PortalActivity {
   driver: string | null;
 }
 
+// Kirli Teslim Beyani (Dirty Declaration)
+export interface DirtyDeclarationLine {
+  itemTypeId: string;
+  itemTypeName: string;
+  count: number;
+}
+
+export interface DirtyDeclaration {
+  id: string;
+  tenantId?: string;
+  tenantName?: string | null;
+  status: 'pending' | 'processed';
+  items: DirtyDeclarationLine[];
+  notes: string | null;
+  createdAt: string;
+  processedAt: string | null;
+}
+
 // Portal API (for hotel owners)
 export const portalApi = {
   getSummary: async (): Promise<PortalSummary> => {
@@ -785,6 +803,47 @@ export const portalApi = {
     phone: string | null;
   }> => {
     const { data } = await api.patch('/portal/profile', payload);
+    return data;
+  },
+
+  // Kirli teslim beyani olustur (otel kendi kirli urunlerini bildirir)
+  createDirtyDeclaration: async (payload: {
+    items: Array<{ itemTypeId: string; count: number }>;
+    notes?: string;
+  }): Promise<DirtyDeclaration> => {
+    const { data } = await api.post<DirtyDeclaration>('/portal/dirty-declarations', payload);
+    return data;
+  },
+
+  getDirtyDeclarations: async (params?: {
+    page?: number;
+    limit?: number;
+    status?: string;
+  }): Promise<PaginatedResponse<DirtyDeclaration>> => {
+    const { data } = await api.get<PaginatedResponse<DirtyDeclaration>>('/portal/dirty-declarations', { params });
+    return data;
+  },
+};
+
+// Kirli Teslim Beyanlari API (camasirhane/utucu/admin tarafi)
+export const dirtyDeclarationsApi = {
+  list: async (params?: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    tenantId?: string;
+  }): Promise<PaginatedResponse<DirtyDeclaration>> => {
+    const { data } = await api.get<PaginatedResponse<DirtyDeclaration>>('/dirty-declarations', { params });
+    return data;
+  },
+
+  process: async (id: string): Promise<{ id: string; status: string; processedAt: string | null }> => {
+    const { data } = await api.post(`/dirty-declarations/${id}/process`, {});
+    return data;
+  },
+
+  processByTenant: async (tenantId: string): Promise<{ processedCount: number; ids: string[] }> => {
+    const { data } = await api.post(`/dirty-declarations/process-by-tenant/${tenantId}`, {});
     return data;
   },
 };

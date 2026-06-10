@@ -26,6 +26,7 @@ import {
   Database,
   DollarSign,
   Ban,
+  Shirt,
 } from 'lucide-react';
 
 // Storage key for sidebar state
@@ -92,6 +93,7 @@ export function Layout() {
   const adminFullNavigation = [
     { name: 'Kontrol Paneli', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Otel Durum Panosu', href: '/hotel-status-board', icon: Grid3X3 },
+    { name: 'Gelen Kirli Beyanlar', href: '/kirli-beyanlar', icon: Shirt },
     { name: 'Camasir Isleme', href: '/laundry-processing', icon: Sparkles },
     { name: 'Utu Etiketi', href: '/ironer-interface', icon: Printer },
     { name: 'Paketleme', href: '/packaging', icon: Box },

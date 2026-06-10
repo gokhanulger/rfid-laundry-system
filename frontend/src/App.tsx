@@ -43,6 +43,7 @@ import { EtaIntegrationPage } from './pages/EtaIntegrationPage';
 import NotificationSettingsPage from './pages/NotificationSettingsPage';
 import { TenantPricingPage } from './pages/TenantPricingPage';
 import { IskartaPage } from './pages/IskartaPage';
+import { DirtyDeclarationsPage } from './pages/DirtyDeclarationsPage';
 
 // Customer Portal Pages
 import { CustomerPortalPage } from './pages/CustomerPortalPage';
@@ -50,6 +51,7 @@ import { PortalDeliveryHistory } from './pages/portal/PortalDeliveryHistory';
 import { PortalPickupHistory } from './pages/portal/PortalPickupHistory';
 import { PortalWaybills } from './pages/portal/PortalWaybills';
 import { PortalIskarta } from './pages/portal/PortalIskarta';
+import { PortalDirtyDelivery } from './pages/portal/PortalDirtyDelivery';
 
 // Driver Pages
 import { DirtyPickupPage } from './pages/driver/DirtyPickupPage';
@@ -167,9 +169,11 @@ function App() {
                 <Route path="notifications" element={<NotificationSettingsPage />} />
                 <Route path="tenant-pricing" element={<TenantPricingPage />} />
                 <Route path="iskarta" element={<IskartaPage />} />
+                <Route path="kirli-beyanlar" element={<DirtyDeclarationsPage />} />
 
                 {/* Customer Portal Pages */}
                 <Route path="portal" element={<CustomerPortalPage />} />
+                <Route path="portal/kirli-teslim" element={<PortalDirtyDelivery />} />
                 <Route path="portal/deliveries" element={<PortalDeliveryHistory />} />
                 <Route path="portal/pickups" element={<PortalPickupHistory />} />
                 <Route path="portal/waybills" element={<PortalWaybills />} />

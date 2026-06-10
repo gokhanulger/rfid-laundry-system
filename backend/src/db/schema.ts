@@ -83,6 +83,12 @@ export const waybillStatusEnum = pgEnum('waybill_status', [
   'delivered'
 ]);
 
+// Kirli Teslim Beyani - otelin bildirdigi kirli urunlerin durumu
+export const dirtyDeclarationStatusEnum = pgEnum('dirty_declaration_status', [
+  'pending',   // Otel bildirdi, camasirhane henuz islemedi
+  'processed'  // Utucu/yonetici isledi (etiket basildi / teslim alindi)
+]);
+
 // Users table
 export const users = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -165,6 +171,22 @@ export const pickupItems = pgTable('pickup_items', {
   pickupId: uuid('pickup_id').notNull().references(() => pickups.id),
   itemId: uuid('item_id').notNull().references(() => items.id),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// Dirty Declarations (Kirli Teslim Beyani)
+// Otel sahibi portaldan kirli urunlerinin tip+adetlerini bildirir. Camasirhane (admin liste + utucu)
+// bu beyani gorur; utucu o oteli isleyip etiketi basinca beyan 'processed' olur.
+export const dirtyDeclarations = pgTable('dirty_declarations', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  status: dirtyDeclarationStatusEnum('status').default('pending').notNull(),
+  items: text('items').notNull(), // JSON: [{itemTypeId, itemTypeName, count}]
+  notes: text('notes'),
+  createdBy: uuid('created_by').references(() => users.id), // beyani giren otel kullanicisi
+  processedBy: uuid('processed_by').references(() => users.id), // isleyen utucu/yonetici
+  processedAt: timestamp('processed_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
 // Deliveries (Clean items to be delivered to hotels)
