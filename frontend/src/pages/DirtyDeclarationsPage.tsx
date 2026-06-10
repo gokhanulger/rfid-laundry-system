@@ -104,8 +104,8 @@ export function DirtyDeclarationsPage() {
                 </div>
 
                 <div className="flex flex-wrap gap-2 mb-3">
-                  {d.items.map((it) => (
-                    <span key={it.itemTypeId} className="text-sm bg-gray-100 text-gray-700 px-2.5 py-1 rounded-lg">
+                  {d.items.map((it, idx) => (
+                    <span key={idx} className="text-sm bg-gray-100 text-gray-700 px-2.5 py-1 rounded-lg">
                       {it.itemTypeName}: <span className="font-semibold">{it.count}</span>
                     </span>
                   ))}

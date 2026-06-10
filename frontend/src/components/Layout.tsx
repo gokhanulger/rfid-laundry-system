@@ -79,6 +79,7 @@ export function Layout() {
   // Navigation for hotel owners
   const hotelNavigation = [
     { name: 'Portal', href: '/portal', icon: LayoutDashboard },
+    { name: 'Kirli Teslim Fisi Olustur', href: '/portal/kirli-teslim', icon: Shirt },
     { name: 'Teslimat Gecmisi', href: '/portal/deliveries', icon: Truck },
     { name: 'Toplama Gecmisi', href: '/portal/pickups', icon: ArrowUp },
     { name: 'Irsaliyeler', href: '/portal/waybills', icon: FileText },
@@ -94,6 +95,7 @@ export function Layout() {
     { name: 'Kontrol Paneli', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Otel Durum Panosu', href: '/hotel-status-board', icon: Grid3X3 },
     { name: 'Gelen Kirli Beyanlar', href: '/kirli-beyanlar', icon: Shirt },
+    { name: 'Kirli Irsaliye Urunleri', href: '/kirli-urun-listesi', icon: Shirt },
     { name: 'Camasir Isleme', href: '/laundry-processing', icon: Sparkles },
     { name: 'Utu Etiketi', href: '/ironer-interface', icon: Printer },
     { name: 'Paketleme', href: '/packaging', icon: Box },

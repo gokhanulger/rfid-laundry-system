@@ -25,6 +25,7 @@ import { portalRouter } from './routes/portal';
 import { notificationsRouter } from './routes/notifications';
 import { tenantPricingRouter } from './routes/tenantPricing';
 import { dirtyDeclarationsRouter } from './routes/dirtyDeclarations';
+import { dirtyDeclarationProductsRouter } from './routes/dirtyDeclarationProducts';
 import { idempotency, startIdempotencyCleanup } from './middleware/idempotency';
 
 dotenv.config();
@@ -246,6 +247,7 @@ app.use('/api/portal', portalRouter);
 app.use('/api/notifications', notificationsRouter);
 app.use('/api/tenant-pricing', tenantPricingRouter);
 app.use('/api/dirty-declarations', dirtyDeclarationsRouter);
+app.use('/api/dirty-declaration-products', dirtyDeclarationProductsRouter);
 
 // Health check
 app.get('/api/health', (req, res) => {

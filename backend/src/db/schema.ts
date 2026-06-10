@@ -173,6 +173,18 @@ export const pickupItems = pgTable('pickup_items', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+// Dirty Declaration Products (Kirli Irsaliye urun listesi)
+// Admin, kirli teslim fisinde otelin gorecegi urunleri buradan yonetir.
+// Otel formu bu listeyi gosterir; otel ayrica manuel urun de ekleyebilir.
+export const dirtyDeclarationProducts = pgTable('dirty_declaration_products', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  name: text('name').notNull(),
+  sortOrder: integer('sort_order').default(0).notNull(),
+  isActive: boolean('is_active').default(true).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 // Dirty Declarations (Kirli Teslim Beyani)
 // Otel sahibi portaldan kirli urunlerinin tip+adetlerini bildirir. Camasirhane (admin liste + utucu)
 // bu beyani gorur; utucu o oteli isleyip etiketi basinca beyan 'processed' olur.

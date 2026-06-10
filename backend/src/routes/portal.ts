@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db } from '../db';
-import { items, pickups, deliveries, waybills, waybillDeliveries, deliveryItems, pickupItems, tenants, dirtyDeclarations, itemTypes } from '../db/schema';
+import { items, pickups, deliveries, waybills, waybillDeliveries, deliveryItems, pickupItems, tenants, dirtyDeclarations } from '../db/schema';
 import { eq, and, desc, sql, count, gte, lte, inArray } from 'drizzle-orm';
 import { requireAuth, AuthRequest, requireRole } from '../middleware/auth';
 import { z } from 'zod';
@@ -116,10 +116,11 @@ portalRouter.patch('/profile', async (req: AuthRequest, res) => {
 });
 
 // ---- Kirli Teslim Beyani (Dirty Declarations) ----
-// Otel sahibi kirli urunlerinin tip+adetlerini bildirir.
+// Otel sahibi kirli urunlerinin ad+adetlerini bildirir (TESLIM FISI duzeni).
+// Urunler isimle gonderilir; otel sabit fis listesi disinda manuel urun de ekleyebilir.
 const createDirtyDeclarationSchema = z.object({
   items: z.array(z.object({
-    itemTypeId: z.string().uuid('Geçersiz ürün tipi'),
+    name: z.string().trim().min(1, 'Ürün adı gerekli').max(100, 'Ürün adı çok uzun'),
     count: z.number().int().positive('Adet 0\'dan büyük olmalı'),
   })).min(1, 'En az bir ürün ekleyin'),
   notes: z.string().max(1000).optional().or(z.literal('')),
@@ -145,28 +146,10 @@ portalRouter.post('/dirty-declarations', async (req: AuthRequest, res) => {
 
     const { items: declItems, notes } = validation.data;
 
-    // Urun tipi adlarini cozumle (utucu/admin ekraninda gosterilecek)
-    const typeIds = [...new Set(declItems.map(i => i.itemTypeId))];
-    const types = await db.select({ id: itemTypes.id, name: itemTypes.name })
-      .from(itemTypes)
-      .where(inArray(itemTypes.id, typeIds));
-    const typeNameById = new Map(types.map(t => [t.id, t.name]));
-
-    // Bilinmeyen tip gonderildiyse reddet
-    const unknown = typeIds.filter(id => !typeNameById.has(id));
-    if (unknown.length > 0) {
-      return res.status(400).json({ error: 'Geçersiz ürün tipi seçildi' });
-    }
-
-    // Ayni tip birden cok satirda gelirse birlestir
-    const merged = new Map<string, number>();
-    for (const it of declItems) {
-      merged.set(it.itemTypeId, (merged.get(it.itemTypeId) || 0) + it.count);
-    }
-    const itemsJson = [...merged.entries()].map(([itemTypeId, c]) => ({
-      itemTypeId,
-      itemTypeName: typeNameById.get(itemTypeId)!,
-      count: c,
+    // Isim+adet olarak sakla (utucu/admin ekraninda gosterilir). Sira korunur.
+    const itemsJson = declItems.map(it => ({
+      itemTypeName: it.name.trim(),
+      count: it.count,
     }));
 
     const [created] = await db.insert(dirtyDeclarations).values({

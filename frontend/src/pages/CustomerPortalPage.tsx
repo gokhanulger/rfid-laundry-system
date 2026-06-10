@@ -608,7 +608,7 @@ export function CustomerPortalPage() {
       >
         <Shirt className="w-8 h-8" />
         <div>
-          <p className="font-semibold text-lg">Kirli Teslim Bildir</p>
+          <p className="font-semibold text-lg">Kirli Teslim Fisi Olustur</p>
           <p className="text-sm text-orange-100">Camasirhaneye gonderdiginiz kirli urunlerin adetlerini girin</p>
         </div>
         <ChevronRight className="w-6 h-6 ml-auto" />

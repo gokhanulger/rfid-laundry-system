@@ -724,7 +724,7 @@ export interface PortalActivity {
 
 // Kirli Teslim Beyani (Dirty Declaration)
 export interface DirtyDeclarationLine {
-  itemTypeId: string;
+  itemTypeId?: string; // eski kayitlarda olabilir; yeni beyanlar isim-tabanli
   itemTypeName: string;
   count: number;
 }
@@ -806,9 +806,9 @@ export const portalApi = {
     return data;
   },
 
-  // Kirli teslim beyani olustur (otel kendi kirli urunlerini bildirir)
+  // Kirli teslim beyani olustur (otel kendi kirli urunlerini isim+adet ile bildirir)
   createDirtyDeclaration: async (payload: {
-    items: Array<{ itemTypeId: string; count: number }>;
+    items: Array<{ name: string; count: number }>;
     notes?: string;
   }): Promise<DirtyDeclaration> => {
     const { data } = await api.post<DirtyDeclaration>('/portal/dirty-declarations', payload);
@@ -821,6 +821,33 @@ export const portalApi = {
     status?: string;
   }): Promise<PaginatedResponse<DirtyDeclaration>> => {
     const { data } = await api.get<PaginatedResponse<DirtyDeclaration>>('/portal/dirty-declarations', { params });
+    return data;
+  },
+};
+
+// Kirli Irsaliye urun listesi (admin yonetir, otel formunda gorunur)
+export interface DirtyFormProduct {
+  id: string;
+  name: string;
+  sortOrder: number;
+  isActive: boolean;
+}
+
+export const dirtyFormProductsApi = {
+  list: async (all = false): Promise<DirtyFormProduct[]> => {
+    const { data } = await api.get<DirtyFormProduct[]>('/dirty-declaration-products', { params: all ? { all: 1 } : undefined });
+    return data;
+  },
+  create: async (payload: { name: string; sortOrder?: number }): Promise<DirtyFormProduct> => {
+    const { data } = await api.post<DirtyFormProduct>('/dirty-declaration-products', payload);
+    return data;
+  },
+  update: async (id: string, payload: { name?: string; sortOrder?: number; isActive?: boolean }): Promise<DirtyFormProduct> => {
+    const { data } = await api.patch<DirtyFormProduct>(`/dirty-declaration-products/${id}`, payload);
+    return data;
+  },
+  remove: async (id: string): Promise<{ id: string }> => {
+    const { data } = await api.delete(`/dirty-declaration-products/${id}`);
     return data;
   },
 };

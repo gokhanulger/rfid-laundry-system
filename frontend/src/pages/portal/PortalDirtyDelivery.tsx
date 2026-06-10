@@ -3,31 +3,36 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import { Link } from 'react-router-dom';
-import { Shirt, Loader2, ChevronLeft, Send, CheckCircle2, Clock, X, Download, Search } from 'lucide-react';
-import { portalApi, settingsApi, getErrorMessage, DirtyDeclaration } from '../../lib/api';
+import { Shirt, Loader2, ChevronLeft, Send, CheckCircle2, Clock, X, Download, Plus, Trash2 } from 'lucide-react';
+import { portalApi, dirtyFormProductsApi, getErrorMessage, DirtyDeclaration } from '../../lib/api';
 import { useToast } from '../../components/Toast';
 import { useAuth } from '../../contexts/AuthContext';
-import type { ItemType } from '../../types';
 
 // Kirli beyana okunabilir bir irsaliye numarasi uret (gercek waybill numarasi yok)
 function dirtyWaybillNo(d: DirtyDeclaration): string {
   return `K-${d.id.slice(0, 8).toUpperCase()}`;
 }
 
+interface ManualRow { key: string; name: string }
+
 export function PortalDirtyDelivery() {
   const toast = useToast();
   const queryClient = useQueryClient();
   const { user } = useAuth();
 
-  // itemTypeId -> girilen adet (string). Sadece adet girilenler gonderilir.
+  // rowKey -> girilen adet (string). Sadece adet girilenler gonderilir.
   const [counts, setCounts] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState('');
-  const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<DirtyDeclaration | null>(null);
+  // Otelin manuel ekledigi urunler (sabit listede olmayan)
+  const [manualRows, setManualRows] = useState<ManualRow[]>([]);
+  const [manualName, setManualName] = useState('');
+  const [manualSeq, setManualSeq] = useState(0);
 
-  const { data: itemTypes } = useQuery({
-    queryKey: ['item-types'],
-    queryFn: () => settingsApi.getItemTypes(),
+  // Admin'in belirledigi kirli irsaliye urun listesi
+  const { data: products, isLoading: productsLoading } = useQuery({
+    queryKey: ['dirty-form-products'],
+    queryFn: () => dirtyFormProductsApi.list(),
     staleTime: 5 * 60 * 1000,
   });
 
@@ -36,18 +41,20 @@ export function PortalDirtyDelivery() {
     queryFn: () => portalApi.getDirtyDeclarations({ limit: 50 }),
   });
 
-  // Fis duzeni: tum urun tipleri sortOrder ile (API zaten sirali doner)
-  const typesList: ItemType[] = useMemo(() => itemTypes || [], [itemTypes]);
-  const filteredTypes = useMemo(() => {
-    const term = search.trim().toLocaleLowerCase('tr');
-    if (!term) return typesList;
-    return typesList.filter((t) => t.name.toLocaleLowerCase('tr').includes(term));
-  }, [typesList, search]);
+  const productList = useMemo(() => products || [], [products]);
+
+  // rowKey -> gonderilecek urun adi (sabit liste + manuel)
+  const nameByKey = useMemo(() => {
+    const m = new Map<string, string>();
+    productList.forEach((p) => m.set(`p-${p.id}`, p.name));
+    manualRows.forEach((r) => m.set(r.key, r.name));
+    return m;
+  }, [productList, manualRows]);
 
   const buildItems = () =>
     Object.entries(counts)
-      .filter(([, c]) => parseInt(c) > 0)
-      .map(([itemTypeId, c]) => ({ itemTypeId, count: parseInt(c) }));
+      .filter(([key, c]) => parseInt(c) > 0 && nameByKey.has(key))
+      .map(([key, c]) => ({ name: nameByKey.get(key)!, count: parseInt(c) }));
 
   const createMutation = useMutation({
     mutationFn: () => portalApi.createDirtyDeclaration({ items: buildItems(), notes: notes.trim() || undefined }),
@@ -55,18 +62,33 @@ export function PortalDirtyDelivery() {
       toast.success('Kirli teslim bildirildi', 'Camasirhane ekranina dustu.');
       setCounts({});
       setNotes('');
-      setSearch('');
+      setManualRows([]);
+      setManualName('');
       queryClient.invalidateQueries({ queryKey: ['portal', 'dirty-declarations'] });
     },
     onError: (err) => toast.error('Bildirim basarisiz', getErrorMessage(err)),
   });
 
-  const validEntries = Object.entries(counts).filter(([, c]) => parseInt(c) > 0);
+  const validEntries = Object.entries(counts).filter(([key, c]) => parseInt(c) > 0 && nameByKey.has(key));
   const totalCount = validEntries.reduce((sum, [, c]) => sum + parseInt(c || '0'), 0);
 
-  const setCount = (id: string, val: string) => {
+  const setCount = (key: string, val: string) => {
     const clean = val.replace(/[^0-9]/g, '');
-    setCounts((prev) => ({ ...prev, [id]: clean }));
+    setCounts((prev) => ({ ...prev, [key]: clean }));
+  };
+
+  const addManualRow = () => {
+    const name = manualName.trim();
+    if (!name) return;
+    const key = `m-${manualSeq}`;
+    setManualRows((prev) => [...prev, { key, name }]);
+    setManualSeq((n) => n + 1);
+    setManualName('');
+  };
+
+  const removeManualRow = (key: string) => {
+    setManualRows((prev) => prev.filter((r) => r.key !== key));
+    setCounts((prev) => { const n = { ...prev }; delete n[key]; return n; });
   };
 
   return (
@@ -78,7 +100,7 @@ export function PortalDirtyDelivery() {
         </Link>
         <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
           <Shirt className="w-7 h-7 text-orange-600" />
-          Kirli Teslim
+          Kirli Teslim Fisi Olustur
         </h1>
         <p className="text-sm text-gray-500 mt-1">
           Camasirhaneye gonderdiginiz kirli urunlerin tip ve adetlerini bildirin. Camasirhane bu beyani gorur.
@@ -96,55 +118,90 @@ export function PortalDirtyDelivery() {
           <p className="text-sm">{format(new Date(), 'dd.MM.yyyy', { locale: tr })}</p>
         </div>
 
-        {/* Arama (101 urun arasinda hizli bulma) */}
-        <div className="p-3 border-b border-gray-100">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Urun ara (orn. carsaf, havlu...)"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-            />
-          </div>
-        </div>
-
         {/* Sutun basliklari */}
         <div className="grid grid-cols-[1fr_96px] bg-gray-100 border-b border-gray-200 text-xs font-semibold text-gray-600 uppercase">
           <div className="px-4 py-2">Malin Cinsi</div>
           <div className="px-2 py-2 text-center border-l border-gray-200">Adet</div>
         </div>
 
-        {/* Urun listesi - her satira adet girilir */}
+        {/* Urun listesi - admin'in belirledigi liste, her satira adet girilir */}
         <div className="max-h-[55vh] overflow-y-auto divide-y divide-gray-100">
-          {filteredTypes.map((t) => {
-            const val = counts[t.id] || '';
-            const has = parseInt(val) > 0;
-            return (
-              <div
-                key={t.id}
-                className={`grid grid-cols-[1fr_96px] items-center ${has ? 'bg-orange-50' : ''}`}
-              >
-                <label htmlFor={`cnt-${t.id}`} className="px-4 py-2 text-sm font-medium text-gray-800 cursor-text truncate">
-                  {t.name}
-                </label>
-                <div className="px-2 py-1.5 border-l border-gray-100">
-                  <input
-                    id={`cnt-${t.id}`}
-                    type="text"
-                    inputMode="numeric"
-                    value={val}
-                    onChange={(e) => setCount(t.id, e.target.value)}
-                    className={`w-full px-2 py-1.5 border rounded-md text-center text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500 ${has ? 'border-orange-400 font-bold text-orange-700' : 'border-gray-200'}`}
-                  />
-                </div>
-              </div>
-            );
-          })}
-          {filteredTypes.length === 0 && (
-            <div className="px-4 py-6 text-center text-sm text-gray-400">Urun bulunamadi</div>
+          {productsLoading ? (
+            <div className="px-4 py-6 text-center"><Loader2 className="w-6 h-6 animate-spin text-orange-600 mx-auto" /></div>
+          ) : (
+            <>
+              {productList.map((p) => {
+                const key = `p-${p.id}`;
+                const val = counts[key] || '';
+                const has = parseInt(val) > 0;
+                return (
+                  <div key={key} className={`grid grid-cols-[1fr_96px] items-center ${has ? 'bg-orange-50' : ''}`}>
+                    <label htmlFor={`cnt-${key}`} className="px-4 py-2 text-sm font-medium text-gray-800 cursor-text truncate">
+                      {p.name}
+                    </label>
+                    <div className="px-2 py-1.5 border-l border-gray-100">
+                      <input
+                        id={`cnt-${key}`}
+                        type="text"
+                        inputMode="numeric"
+                        value={val}
+                        onChange={(e) => setCount(key, e.target.value)}
+                        className={`w-full px-2 py-1.5 border rounded-md text-center text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500 ${has ? 'border-orange-400 font-bold text-orange-700' : 'border-gray-200'}`}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+              {productList.length === 0 && (
+                <div className="px-4 py-6 text-center text-sm text-gray-400">Liste bos - camasirhane henuz urun tanimlamadi</div>
+              )}
+
+              {/* Otelin manuel ekledigi urunler */}
+              {manualRows.map((r) => {
+                const val = counts[r.key] || '';
+                const has = parseInt(val) > 0;
+                return (
+                  <div key={r.key} className={`grid grid-cols-[1fr_96px] items-center ${has ? 'bg-orange-50' : 'bg-blue-50/40'}`}>
+                    <div className="px-4 py-2 flex items-center gap-2 min-w-0">
+                      <button onClick={() => removeManualRow(r.key)} className="text-gray-400 hover:text-red-600 shrink-0" title="Kaldir">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                      <span className="text-sm font-medium text-gray-800 truncate">{r.name}</span>
+                      <span className="text-[10px] text-blue-500 uppercase shrink-0">manuel</span>
+                    </div>
+                    <div className="px-2 py-1.5 border-l border-gray-100">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={val}
+                        onChange={(e) => setCount(r.key, e.target.value)}
+                        className={`w-full px-2 py-1.5 border rounded-md text-center text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500 ${has ? 'border-orange-400 font-bold text-orange-700' : 'border-gray-200'}`}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </>
           )}
+        </div>
+
+        {/* Manuel urun ekleme */}
+        <div className="p-3 border-t border-gray-200 bg-gray-50 flex items-center gap-2">
+          <input
+            type="text"
+            placeholder="Listede yoksa urun adi yazip ekleyin..."
+            value={manualName}
+            onChange={(e) => setManualName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addManualRow(); } }}
+            className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+          />
+          <button
+            onClick={addManualRow}
+            disabled={!manualName.trim()}
+            className="flex items-center gap-1 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40"
+          >
+            <Plus className="w-4 h-4" /> Ekle
+          </button>
         </div>
 
         {/* Not + gonder */}
@@ -206,8 +263,8 @@ export function PortalDirtyDelivery() {
                   )}
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {d.items.map((it) => (
-                    <span key={it.itemTypeId} className="text-sm bg-gray-100 text-gray-700 px-2.5 py-1 rounded-lg">
+                  {d.items.map((it, idx) => (
+                    <span key={idx} className="text-sm bg-gray-100 text-gray-700 px-2.5 py-1 rounded-lg">
                       {it.itemTypeName}: <span className="font-semibold">{it.count}</span>
                     </span>
                   ))}
@@ -300,8 +357,8 @@ export function PortalDirtyDelivery() {
                         </tr>
                       </thead>
                       <tbody>
-                        {selected.items.map((item) => (
-                          <tr key={item.itemTypeId} className="border-b border-gray-100">
+                        {selected.items.map((item, idx) => (
+                          <tr key={idx} className="border-b border-gray-100">
                             <td className="px-3 py-2">{item.itemTypeName || '-'}</td>
                             <td className="px-3 py-2 text-right font-semibold">{item.count || 0}</td>
                           </tr>

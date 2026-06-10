@@ -44,6 +44,7 @@ import NotificationSettingsPage from './pages/NotificationSettingsPage';
 import { TenantPricingPage } from './pages/TenantPricingPage';
 import { IskartaPage } from './pages/IskartaPage';
 import { DirtyDeclarationsPage } from './pages/DirtyDeclarationsPage';
+import { DirtyProductsAdminPage } from './pages/DirtyProductsAdminPage';
 
 // Customer Portal Pages
 import { CustomerPortalPage } from './pages/CustomerPortalPage';
@@ -170,6 +171,7 @@ function App() {
                 <Route path="tenant-pricing" element={<TenantPricingPage />} />
                 <Route path="iskarta" element={<IskartaPage />} />
                 <Route path="kirli-beyanlar" element={<DirtyDeclarationsPage />} />
+                <Route path="kirli-urun-listesi" element={<DirtyProductsAdminPage />} />
 
                 {/* Customer Portal Pages */}
                 <Route path="portal" element={<CustomerPortalPage />} />
