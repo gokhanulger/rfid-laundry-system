@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Printer, Sparkles, Building2, X, Plus, Search, Delete, Trash2, Sun, Moon, Settings, Wifi, WifiOff, Radio, AlertTriangle, CheckCircle, HelpCircle, XCircle, RefreshCw, Loader2 } from 'lucide-react';
 import { itemsApi, deliveriesApi, settingsApi, dirtyDeclarationsApi, getErrorMessage, getStoredToken, type DirtyDeclaration } from '../lib/api';
 import { useToast } from '../components/Toast';
+import { Barcode, dirtyBarcodeValue } from '../components/Barcode';
 import { generateDeliveryLabel } from '../lib/pdfGenerator';
 import { isElectron, getPrinters, savePreferredPrinter, getPreferredPrinter, type Printer as PrinterType } from '../lib/printer';
 import type { Item, Tenant, Delivery } from '../types';
@@ -353,24 +354,54 @@ export function IronerInterfacePage() {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Otellerin portaldan bildirdigi bekleyen kirli beyanlari (utucu karsilastirma icin gorur)
+  // Otellerin portaldan bildirdigi bekleyen kirli irsaliyeler (utucu ekraninda ayri gorunur)
   const { data: dirtyDeclarations } = useQuery({
     queryKey: ['dirty-declarations-pending'],
-    queryFn: () => dirtyDeclarationsApi.list({ status: 'pending', limit: 200 }),
-    staleTime: 60 * 1000,
+    queryFn: () => dirtyDeclarationsApi.list({ status: 'pending', limit: 200, days: 60 }),
+    staleTime: 30 * 1000,
     refetchInterval: 60 * 1000,
     retry: 1,
   });
+  // Otel basina, en yeni 3 irsaliye (tarih azalan)
   const dirtyDeclByHotel = useMemo(() => {
     const map = new Map<string, DirtyDeclaration[]>();
     for (const d of (dirtyDeclarations?.data || [])) {
-      if (!d.tenantId) continue;
+      if (!d.tenantId || d.mergedIntoId) continue;
       const arr = map.get(d.tenantId) || [];
       arr.push(d);
       map.set(d.tenantId, arr);
     }
+    for (const [k, arr] of map) {
+      arr.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      map.set(k, arr.slice(0, 3)); // utucu ekraninda en fazla son 3 irsaliye
+    }
     return map;
   }, [dirtyDeclarations]);
+
+  // Utucu irsaliye secimi (birlestirme icin) ve aksiyonlar
+  const [selectedDeclIds, setSelectedDeclIds] = useState<string[]>([]);
+  const toggleDeclSelect = (id: string) =>
+    setSelectedDeclIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+
+  const washDeclMutation = useMutation({
+    mutationFn: (id: string) => dirtyDeclarationsApi.process(id),
+    onSuccess: () => {
+      toast.success('Irsaliye yikandi olarak isaretlendi');
+      setSelectedDeclIds([]);
+      queryClient.invalidateQueries({ queryKey: ['dirty-declarations-pending'] });
+    },
+    onError: (err) => toast.error('Isaretlenemedi', getErrorMessage(err)),
+  });
+
+  const mergeDeclMutation = useMutation({
+    mutationFn: (ids: string[]) => dirtyDeclarationsApi.merge(ids),
+    onSuccess: (r) => {
+      toast.success(`${r.mergedCount + 1} irsaliye birlestirildi`);
+      setSelectedDeclIds([]);
+      queryClient.invalidateQueries({ queryKey: ['dirty-declarations-pending'] });
+    },
+    onError: (err) => toast.error('Birlestirilemedi', getErrorMessage(err)),
+  });
 
   // Keep refs in sync with latest data (avoids recreating RFID callbacks)
   tenantsRef.current = tenantsArray;
@@ -861,12 +892,8 @@ export function IronerInterfacePage() {
         clearPrintList(variables.hotelId);
       }
 
-      // Otel bu otel icin kirli beyani girdiyse, etiket basildiginda beyani 'islendi' yap (Beklemede -> Islendi)
-      if (variables.hotelId && dirtyDeclByHotel.has(variables.hotelId)) {
-        dirtyDeclarationsApi.processByTenant(variables.hotelId)
-          .then(() => queryClient.invalidateQueries({ queryKey: ['dirty-declarations-pending'] }))
-          .catch((e) => console.warn('[DirtyDecl] Beyan islendi isaretlenemedi (online olunca tekrar denenebilir):', e));
-      }
+      // NOT: Kirli irsaliye 'yikandi' isaretlemesi artik utucu panelinden MANUEL yapilir
+      // (her irsaliye ayri; secip "Yikandi" denir). Etiket baskisi otomatik kapatmaz.
 
       // Clear scanned items IMMEDIATELY after print
       setConfirmedScannedItems(new Map());
@@ -2206,33 +2233,68 @@ export function IronerInterfacePage() {
                   <p className="text-orange-200 text-sm mt-1">{hotelItems.length} kirli urun</p>
                 </div>
 
-                {/* Otelin bildirdigi kirli beyani (portaldan) - karsilastirma icin */}
+                {/* Otelin bildirdigi kirli IRSALIYELER - her biri ayri (son 3), secilip yikandi/birlestir */}
                 {(() => {
                   const decls = dirtyDeclByHotel.get(hotelId) || [];
                   if (decls.length === 0) return null;
-                  const totals = new Map<string, number>();
-                  const noteList: string[] = [];
-                  for (const d of decls) {
-                    for (const it of d.items) {
-                      totals.set(it.itemTypeName, (totals.get(it.itemTypeName) || 0) + it.count);
-                    }
-                    if (d.notes) noteList.push(d.notes);
-                  }
+                  const selectedHere = decls.filter((d) => selectedDeclIds.includes(d.id));
                   return (
-                    <div className="bg-amber-50 border-b-2 border-amber-200 px-6 py-3">
-                      <p className="text-xs font-bold text-amber-800 uppercase tracking-wide mb-2 flex items-center gap-1">
-                        <Building2 className="w-4 h-4" /> Otelin Bildirdigi Kirli
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {Array.from(totals.entries()).map(([name, count]) => (
-                          <span key={name} className="text-sm bg-white border border-amber-300 text-amber-900 px-2.5 py-1 rounded-lg">
-                            {name}: <span className="font-bold">{count}</span>
-                          </span>
-                        ))}
+                    <div className="bg-amber-50 border-b-2 border-amber-200 px-4 py-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs font-bold text-amber-800 uppercase tracking-wide flex items-center gap-1">
+                          <Building2 className="w-4 h-4" /> Otelin Kirli Irsaliyeleri (son {decls.length})
+                        </p>
+                        {selectedHere.length >= 2 && (
+                          <button
+                            onClick={() => mergeDeclMutation.mutate(selectedHere.map((d) => d.id))}
+                            disabled={mergeDeclMutation.isPending}
+                            className="text-xs font-semibold px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40"
+                          >
+                            {selectedHere.length} irsaliyeyi BIRLESTIR
+                          </button>
+                        )}
                       </div>
-                      {noteList.length > 0 && (
-                        <p className="mt-2 text-sm text-amber-800 italic">Not: {noteList.join(' | ')}</p>
-                      )}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                        {decls.map((d) => {
+                          const isSel = selectedDeclIds.includes(d.id);
+                          const total = d.items.reduce((s, it) => s + it.count, 0);
+                          return (
+                            <div
+                              key={d.id}
+                              className={`rounded-lg border-2 p-2 bg-white ${isSel ? 'border-blue-500 ring-2 ring-blue-200' : 'border-amber-200'}`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <label className="flex items-center gap-1.5 cursor-pointer min-w-0">
+                                  <input type="checkbox" checked={isSel} onChange={() => toggleDeclSelect(d.id)} className="rounded text-blue-600" />
+                                  <span className="font-bold text-orange-600 text-sm">No: {d.declarationNo ?? '-'}</span>
+                                </label>
+                                <span className="text-[11px] text-gray-500 shrink-0">
+                                  {new Date(d.createdAt).toLocaleDateString('tr-TR')}
+                                </span>
+                              </div>
+                              <div className="my-1 flex justify-center"><Barcode value={dirtyBarcodeValue(d.declarationNo)} height={26} width={1.1} fontSize={9} /></div>
+                              <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto">
+                                {d.items.map((it, i) => (
+                                  <span key={i} className="text-[11px] bg-amber-50 border border-amber-200 text-amber-900 px-1.5 py-0.5 rounded">
+                                    {it.itemTypeName}:<b>{it.count}</b>
+                                  </span>
+                                ))}
+                              </div>
+                              {d.notes && <p className="mt-1 text-[11px] text-gray-500 italic truncate">{d.notes}</p>}
+                              <div className="mt-1.5 flex items-center justify-between">
+                                <span className="text-[11px] text-gray-400">Toplam {total}</span>
+                                <button
+                                  onClick={() => washDeclMutation.mutate(d.id)}
+                                  disabled={washDeclMutation.isPending}
+                                  className="text-[11px] font-semibold px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-40"
+                                >
+                                  YIKANDI
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   );
                 })()}

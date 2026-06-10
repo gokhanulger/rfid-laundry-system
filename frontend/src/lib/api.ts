@@ -731,11 +731,13 @@ export interface DirtyDeclarationLine {
 
 export interface DirtyDeclaration {
   id: string;
+  declarationNo?: number | null; // Sirali kirli irsaliye no (1,2,3...)
   tenantId?: string;
   tenantName?: string | null;
   status: 'pending' | 'processed';
   items: DirtyDeclarationLine[];
   notes: string | null;
+  mergedIntoId?: string | null;
   createdAt: string;
   processedAt: string | null;
 }
@@ -859,6 +861,8 @@ export const dirtyDeclarationsApi = {
     limit?: number;
     status?: string;
     tenantId?: string;
+    days?: number;
+    includeMerged?: 0 | 1;
   }): Promise<PaginatedResponse<DirtyDeclaration>> => {
     const { data } = await api.get<PaginatedResponse<DirtyDeclaration>>('/dirty-declarations', { params });
     return data;
@@ -871,6 +875,12 @@ export const dirtyDeclarationsApi = {
 
   processByTenant: async (tenantId: string): Promise<{ processedCount: number; ids: string[] }> => {
     const { data } = await api.post(`/dirty-declarations/process-by-tenant/${tenantId}`, {});
+    return data;
+  },
+
+  // Birden cok irsaliyeyi tek irsaliyede birlestir
+  merge: async (ids: string[]): Promise<{ targetId: string; mergedCount: number }> => {
+    const { data } = await api.post('/dirty-declarations/merge', { ids });
     return data;
   },
 };

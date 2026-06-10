@@ -190,12 +190,14 @@ export const dirtyDeclarationProducts = pgTable('dirty_declaration_products', {
 // bu beyani gorur; utucu o oteli isleyip etiketi basinca beyan 'processed' olur.
 export const dirtyDeclarations = pgTable('dirty_declarations', {
   id: uuid('id').defaultRandom().primaryKey(),
+  declarationNo: integer('declaration_no'), // Sirali kirli irsaliye no (1,2,3...) - DB sequence ile
   tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
   status: dirtyDeclarationStatusEnum('status').default('pending').notNull(),
-  items: text('items').notNull(), // JSON: [{itemTypeId, itemTypeName, count}]
+  items: text('items').notNull(), // JSON: [{itemTypeName, count}]
   notes: text('notes'),
+  mergedIntoId: uuid('merged_into_id'), // Bu beyan baska bir beyana birlestirildiyse hedef beyan id'si
   createdBy: uuid('created_by').references(() => users.id), // beyani giren otel kullanicisi
-  processedBy: uuid('processed_by').references(() => users.id), // isleyen utucu/yonetici
+  processedBy: uuid('processed_by').references(() => users.id), // isleyen utucu/yonetici (yikandi isaretleyen)
   processedAt: timestamp('processed_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

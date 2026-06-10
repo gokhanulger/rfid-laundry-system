@@ -134,6 +134,13 @@
       "when": 1775500000000,
       "tag": "0020_dirty_declaration_products",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1776000000000,
+      "tag": "0021_dirty_declaration_no_merge",
+      "breakpoints": true
     }
   ]
 }

@@ -2,20 +2,23 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { tr } from 'date-fns/locale';
-import { Shirt, Loader2, CheckCircle2, Clock, Building2, RefreshCw } from 'lucide-react';
+import { Shirt, Loader2, CheckCircle2, Clock, Building2, RefreshCw, FileText } from 'lucide-react';
 import { dirtyDeclarationsApi, getErrorMessage, DirtyDeclaration } from '../lib/api';
 import { useToast } from '../components/Toast';
+import { DirtyWaybillModal } from '../components/DirtyWaybillModal';
 
 export function DirtyDeclarationsPage() {
   const toast = useToast();
   const queryClient = useQueryClient();
   const [showProcessed, setShowProcessed] = useState(false);
+  const [selected, setSelected] = useState<DirtyDeclaration | null>(null);
 
   const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: ['dirty-declarations', showProcessed ? 'all' : 'pending'],
     queryFn: () => dirtyDeclarationsApi.list({
       status: showProcessed ? undefined : 'pending',
-      limit: 100,
+      limit: 200,
+      days: 60, // 60 gun geriye donuk takip
     }),
     refetchInterval: 30 * 1000, // canli liste: 30 sn'de bir yenile
   });
@@ -91,10 +94,11 @@ export function DirtyDeclarationsPage() {
                   <div className="flex items-center gap-2 font-semibold text-gray-900">
                     <Building2 className="w-5 h-5 text-gray-400" />
                     {d.tenantName || 'Bilinmeyen Otel'}
+                    <span className="text-sm font-bold text-orange-600">No: {d.declarationNo ?? '-'}</span>
                   </div>
                   {d.status === 'processed' ? (
                     <span className="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 px-2 py-1 rounded-full">
-                      <CheckCircle2 className="w-3.5 h-3.5" /> Islendi
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Yikandi
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-50 px-2 py-1 rounded-full">
@@ -125,15 +129,23 @@ export function DirtyDeclarationsPage() {
                       <> · Islendi: {format(new Date(d.processedAt), 'dd MMM HH:mm', { locale: tr })}</>
                     )}
                   </span>
-                  {d.status === 'pending' && (
+                  <div className="flex items-center gap-2">
                     <button
-                      onClick={() => processMutation.mutate(d.id)}
-                      disabled={processMutation.isPending}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg font-medium hover:bg-green-700 disabled:opacity-40"
+                      onClick={() => setSelected(d)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg font-medium hover:bg-blue-700"
                     >
-                      <CheckCircle2 className="w-4 h-4" /> Teslim Aldim
+                      <FileText className="w-4 h-4" /> Irsaliye
                     </button>
-                  )}
+                    {d.status === 'pending' && (
+                      <button
+                        onClick={() => processMutation.mutate(d.id)}
+                        disabled={processMutation.isPending}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg font-medium hover:bg-green-700 disabled:opacity-40"
+                      >
+                        <CheckCircle2 className="w-4 h-4" /> Yikandi
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -146,6 +158,14 @@ export function DirtyDeclarationsPage() {
             {showProcessed ? 'Beyan bulunamadi' : 'Bekleyen kirli beyani yok'}
           </p>
         </div>
+      )}
+
+      {selected && (
+        <DirtyWaybillModal
+          declaration={selected}
+          hotelName={selected.tenantName || 'Otel'}
+          onClose={() => setSelected(null)}
+        />
       )}
     </div>
   );

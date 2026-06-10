@@ -162,6 +162,7 @@ portalRouter.post('/dirty-declarations', async (req: AuthRequest, res) => {
 
     res.status(201).json({
       id: created.id,
+      declarationNo: created.declarationNo,
       status: created.status,
       items: itemsJson,
       notes: created.notes,
@@ -184,11 +185,14 @@ portalRouter.get('/dirty-declarations', async (req: AuthRequest, res) => {
     }
 
     const page = parseInt(req.query.page as string) || 1;
-    const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
+    const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
     const offset = (page - 1) * limit;
     const status = req.query.status as string;
+    // 60 gun geriye donuk takip (varsayilan 60 gun)
+    const days = Math.min(parseInt(req.query.days as string) || 60, 365);
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-    const conditions = [eq(dirtyDeclarations.tenantId, tenantId)];
+    const conditions = [eq(dirtyDeclarations.tenantId, tenantId), gte(dirtyDeclarations.createdAt, since)];
     if (status) {
       conditions.push(eq(dirtyDeclarations.status, status as any));
     }
@@ -206,9 +210,11 @@ portalRouter.get('/dirty-declarations', async (req: AuthRequest, res) => {
 
     const data = rows.map(r => ({
       id: r.id,
+      declarationNo: r.declarationNo,
       status: r.status,
       items: safeParseItems(r.items),
       notes: r.notes,
+      mergedIntoId: r.mergedIntoId,
       createdAt: r.createdAt,
       processedAt: r.processedAt,
     }));
