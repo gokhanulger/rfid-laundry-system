@@ -41,6 +41,7 @@ import HotelQRCodesPage from './pages/HotelQRCodesPage';
 import { HotelStatusBoardPage } from './pages/HotelStatusBoardPage';
 import { EtaIntegrationPage } from './pages/EtaIntegrationPage';
 import NotificationSettingsPage from './pages/NotificationSettingsPage';
+import { WhatsAppMessagesPage } from './pages/WhatsAppMessagesPage';
 import { TenantPricingPage } from './pages/TenantPricingPage';
 import { IskartaPage } from './pages/IskartaPage';
 import { DirtyDeclarationsPage } from './pages/DirtyDeclarationsPage';
@@ -168,6 +169,7 @@ function App() {
                 <Route path="bulk-tag-assignment" element={<BulkTagAssignmentPage />} />
                 <Route path="eta-integration" element={<EtaIntegrationPage />} />
                 <Route path="notifications" element={<NotificationSettingsPage />} />
+                <Route path="whatsapp-messages" element={<WhatsAppMessagesPage />} />
                 <Route path="tenant-pricing" element={<TenantPricingPage />} />
                 <Route path="iskarta" element={<IskartaPage />} />
                 <Route path="kirli-beyanlar" element={<DirtyDeclarationsPage />} />

@@ -198,7 +198,7 @@ deliveriesRouter.get('/', async (req: AuthRequest, res) => {
   try {
     const user = req.user!;
     const page = parseInt(req.query.page as string) || 1;
-    const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
+    const limit = Math.min(parseInt(req.query.limit as string) || 20, 1000);
     const offset = (page - 1) * limit;
     const status = req.query.status as string | undefined;
     const driverId = req.query.driverId as string | undefined;
@@ -750,6 +750,7 @@ deliveriesRouter.post('/:id/deliver', requireRole('driver', 'laundry_manager', '
         }
         if (wbPhone) {
           await sendDeliveryWhatsApp({
+            tenantId: existingDelivery.tenantId,
             toPhone: wbPhone,
             hotelName: existingDelivery.tenant!.name,
             waybillNumber: waybillForNotify.waybillNumber,
@@ -841,6 +842,7 @@ deliveriesRouter.post('/:id/deliver', requireRole('driver', 'laundry_manager', '
       // 2) WhatsApp notification to hotel phone
       if (tenantPhone) {
         await sendDeliveryWhatsApp({
+          tenantId: existingDelivery.tenantId,
           toPhone: tenantPhone,
           hotelName: existingDelivery.tenant.name,
           waybillNumber: updatedDelivery.barcode,

@@ -7,25 +7,28 @@ import { z } from 'zod';
 import { sendPickupWaybillEmail } from '../services/email';
 import { generateWaybillPdf } from '../services/waybill-pdf';
 import { resolveHotelEmail } from '../services/hotel-contact';
+import { sendPickupWhatsApp } from '../services/whatsapp';
 
 export const pickupsRouter = Router();
 pickupsRouter.use(requireAuth);
 
-// Kirli ürün teslim alma irsaliyesi (PDF) e-postasını gönderir.
+// Kirli ürün teslim alma irsaliyesi: PDF e-posta + WhatsApp bildirimi.
 // E-posta tenant'ta yoksa otelin hotel_owner kullanıcısına düşer.
+// WhatsApp tenant.notificationPhone || tenant.phone'a gider.
 async function sendDirtyPickupIrsaliye(
-  tenant: { id: string; name: string; email: string | null; address: string | null },
+  tenant: {
+    id: string;
+    name: string;
+    email: string | null;
+    address: string | null;
+    phone: string | null;
+    notificationPhone: string | null;
+  },
   bagCode: string,
   itemIds: string[]
 ): Promise<void> {
   try {
-    const recipientEmail = await resolveHotelEmail(tenant.id, tenant.email);
-    if (!recipientEmail) {
-      console.warn(`⚠️ Pickup: email yok (tenant ${tenant.name}), irsaliye gönderilmedi`);
-      return;
-    }
-
-    // Ürün tür özeti
+    // Ürün tür özeti (email PDF ve WhatsApp icin ortak)
     const itemSummaryMap: Record<string, number> = {};
     let totalItems = itemIds.length;
     if (itemIds.length > 0) {
@@ -40,23 +43,44 @@ async function sendDirtyPickupIrsaliye(
       totalItems = rows.length;
     }
     const itemSummary = Object.entries(itemSummaryMap).map(([typeName, count]) => ({ typeName, count }));
+    const dateStr = new Date().toLocaleDateString('tr-TR');
 
-    const pdfBuffer = await generateWaybillPdf({
-      title: 'KİRLİ ÜRÜN TESLİM ALMA İRSALİYESİ',
-      waybillNumber: bagCode,
-      hotelName: tenant.name,
-      hotelAddress: tenant.address || undefined,
-      date: new Date().toLocaleDateString('tr-TR'),
-      itemSummary,
-      bagCount: 0,
-      packageCount: 0,
-      totalItems,
-    });
+    // 1) Email PDF irsaliye
+    const recipientEmail = await resolveHotelEmail(tenant.id, tenant.email);
+    if (recipientEmail) {
+      const pdfBuffer = await generateWaybillPdf({
+        title: 'KİRLİ ÜRÜN TESLİM ALMA İRSALİYESİ',
+        waybillNumber: bagCode,
+        hotelName: tenant.name,
+        hotelAddress: tenant.address || undefined,
+        date: dateStr,
+        itemSummary,
+        bagCount: 0,
+        packageCount: 0,
+        totalItems,
+      });
+      await sendPickupWaybillEmail(recipientEmail, tenant.name, bagCode, totalItems, pdfBuffer);
+      console.log(`📧 Kirli teslim alma irsaliyesi gönderildi -> ${recipientEmail} (${bagCode})`);
+    } else {
+      console.warn(`⚠️ Pickup: email yok (tenant ${tenant.name})`);
+    }
 
-    await sendPickupWaybillEmail(recipientEmail, tenant.name, bagCode, totalItems, pdfBuffer);
-    console.log(`📧 Kirli teslim alma irsaliyesi gönderildi -> ${recipientEmail} (${bagCode})`);
+    // 2) WhatsApp bildirimi
+    const phone = (tenant.notificationPhone || tenant.phone)?.trim();
+    if (phone) {
+      await sendPickupWhatsApp({
+        tenantId: tenant.id,
+        toPhone: phone,
+        hotelName: tenant.name,
+        bagCode,
+        totalItems,
+        date: dateStr,
+      });
+    } else {
+      console.warn(`⚠️ Pickup: telefon yok (tenant ${tenant.name}) - WhatsApp atilmadi`);
+    }
   } catch (err) {
-    console.error('Failed to send dirty pickup irsaliye:', err);
+    console.error('Failed to send dirty pickup notifications:', err);
   }
 }
 

@@ -369,6 +369,7 @@ waybillsRouter.post('/:id/deliver', async (req: AuthRequest, res: Response) => {
       const waybillPhone = (tenant?.notificationPhone || tenant?.phone)?.trim();
       if (waybillPhone) {
         await sendDeliveryWhatsApp({
+          tenantId: waybill.tenantId,
           toPhone: waybillPhone,
           hotelName: tenant!.name,
           waybillNumber: waybill.waybillNumber,

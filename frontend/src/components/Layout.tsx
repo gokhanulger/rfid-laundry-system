@@ -27,6 +27,7 @@ import {
   DollarSign,
   Ban,
   Shirt,
+  MessageSquare,
 } from 'lucide-react';
 
 // Storage key for sidebar state
@@ -116,6 +117,7 @@ export function Layout() {
     { name: 'Otel Fiyatlari', href: '/tenant-pricing', icon: DollarSign },
     { name: 'ETA Entegrasyonu', href: '/eta-integration', icon: Database },
     { name: 'Bildirim Ayarlari', href: '/notifications', icon: Bell },
+    { name: 'WhatsApp Mesajlari', href: '/whatsapp-messages', icon: MessageSquare },
     { name: 'Ayarlar', href: '/settings', icon: Settings },
   ];
 

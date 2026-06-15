@@ -1,4 +1,5 @@
 import { Router, Response } from 'express';
+import crypto from 'crypto';
 import { db } from '../db';
 import {
   notificationSettings,
@@ -12,6 +13,88 @@ import { notificationService, NotificationChannel } from '../services/notificati
 import { logger } from '../utils/logger';
 
 const router = Router();
+
+// ============================================
+// PUBLIC META WHATSAPP WEBHOOK (auth'tan ÖNCE tanımlı olmalı)
+// ============================================
+
+// Meta Webhook doğrulama (GET handshake)
+// Meta Developer Console -> WhatsApp -> Configuration -> Webhook'a şu URL'i gir:
+//   https://<backend>/api/notifications/meta-webhook
+// Verify Token: WHATSAPP_WEBHOOK_VERIFY_TOKEN env değeri (Railway'de belirle).
+router.get('/meta-webhook', (req, res) => {
+  const verifyToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN;
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  if (mode === 'subscribe' && verifyToken && token === verifyToken) {
+    logger.info('Meta webhook verified');
+    return res.status(200).send(String(challenge));
+  }
+  logger.warn('Meta webhook verify failed', { mode, tokenMatches: token === verifyToken });
+  return res.status(403).send('Forbidden');
+});
+
+// Meta Webhook event'leri (mesaj durumu + gelen mesajlar)
+// Status: sent/delivered/read/failed -> notification_logs.status güncellenir.
+router.post('/meta-webhook', async (req, res) => {
+  // İmza doğrulama (opsiyonel; WHATSAPP_APP_SECRET varsa kontrol edilir)
+  try {
+    const appSecret = process.env.WHATSAPP_APP_SECRET;
+    if (appSecret) {
+      const sig = (req.headers['x-hub-signature-256'] as string | undefined) || '';
+      const expected = 'sha256=' + crypto.createHmac('sha256', appSecret).update(JSON.stringify(req.body)).digest('hex');
+      if (sig !== expected) {
+        logger.warn('Meta webhook signature mismatch');
+        return res.status(403).send('Invalid signature');
+      }
+    }
+
+    const entries = (req.body?.entry || []) as any[];
+    for (const entry of entries) {
+      const changes = (entry?.changes || []) as any[];
+      for (const change of changes) {
+        const value = change?.value || {};
+        // 1) Mesaj durum güncellemeleri
+        const statuses = (value.statuses || []) as any[];
+        for (const st of statuses) {
+          const id = st?.id as string | undefined;
+          const status = st?.status as string | undefined;
+          if (!id || !status) continue;
+
+          const updateData: Record<string, any> = {};
+          if (status === 'delivered' || status === 'read') {
+            updateData.status = 'delivered';
+            updateData.deliveredAt = new Date();
+          } else if (status === 'failed') {
+            updateData.status = 'failed';
+            const errs = (st?.errors || []) as any[];
+            if (errs.length > 0) {
+              const e = errs[0];
+              updateData.errorMessage = `${e?.code || ''} - ${e?.title || e?.message || ''}`.trim();
+            }
+          } else if (status === 'sent') {
+            updateData.status = 'sent';
+          }
+          if (Object.keys(updateData).length > 0) {
+            await db.update(notificationLogs).set(updateData).where(eq(notificationLogs.externalId, id));
+          }
+          logger.info('Meta webhook status', { id, status });
+        }
+        // 2) Gelen mesajlar (müşteri cevabı) — şimdilik sadece log
+        const messages = (value.messages || []) as any[];
+        for (const msg of messages) {
+          logger.info('Meta webhook inbound', { from: msg.from, type: msg.type, body: msg.text?.body });
+        }
+      }
+    }
+    res.status(200).send('OK');
+  } catch (err) {
+    logger.error('Meta webhook error', { err });
+    res.status(500).send('Error');
+  }
+});
 
 // All routes require authentication
 router.use(requireAuth);
@@ -273,13 +356,10 @@ router.delete('/templates/:id', requireRole('system_admin'), async (req: AuthReq
 // ============================================
 
 // Get notification logs
-router.get('/logs', requireRole('system_admin', 'hotel_owner'), async (req: AuthRequest, res: Response) => {
+router.get('/logs', requireRole('system_admin', 'laundry_manager', 'hotel_owner'), async (req: AuthRequest, res: Response) => {
   try {
     const { tenantId, channel, status, limit = '50', offset = '0' } = req.query;
-
-    let query = db.select().from(notificationLogs);
-
-    const conditions = [];
+    const conditions: any[] = [];
 
     // Hotel owners can only see their own logs
     if (req.user!.role === 'hotel_owner') {
@@ -287,35 +367,30 @@ router.get('/logs', requireRole('system_admin', 'hotel_owner'), async (req: Auth
     } else if (tenantId) {
       conditions.push(eq(notificationLogs.tenantId, tenantId as string));
     }
+    if (channel) conditions.push(eq(notificationLogs.channel, channel as NotificationChannel));
+    if (status) conditions.push(eq(notificationLogs.status, status as any));
 
-    if (channel) {
-      conditions.push(eq(notificationLogs.channel, channel as NotificationChannel));
-    }
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
 
-    if (status) {
-      conditions.push(eq(notificationLogs.status, status as any));
-    }
+    // Tenant adi ile birlikte donduruyoruz (admin sayfasinda otel adi gosterilsin)
+    const logs = await db.query.notificationLogs.findMany({
+      where,
+      with: { tenant: { columns: { id: true, name: true } } },
+      orderBy: [desc(notificationLogs.createdAt)],
+      limit: parseInt(limit as string),
+      offset: parseInt(offset as string),
+    });
 
-    if (conditions.length > 0) {
-      query = query.where(and(...conditions)) as any;
-    }
-
-    const logs = await query
-      .orderBy(desc(notificationLogs.createdAt))
-      .limit(parseInt(limit as string))
-      .offset(parseInt(offset as string));
-
-    // Get total count
     const [{ count }] = await db
       .select({ count: sql<number>`count(*)` })
       .from(notificationLogs)
-      .where(conditions.length > 0 ? and(...conditions) : undefined);
+      .where(where);
 
     res.json({
       logs,
       total: Number(count),
       limit: parseInt(limit as string),
-      offset: parseInt(offset as string)
+      offset: parseInt(offset as string),
     });
   } catch (error) {
     logger.error('Get logs error', { error });
