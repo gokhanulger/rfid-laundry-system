@@ -79,17 +79,51 @@ router.post(
   }
 );
 
-// Twilio gelen mesaj (müşteri cevap atarsa) — şimdilik sadece log
+// Twilio gelen mesaj (müşteri cevap atarsa) — notification_logs'a inbound olarak kaydedilir
+// ki WhatsApp Mesajları sayfasında otelle aynı thread'de görünsün.
 router.post('/twilio-inbound', express.urlencoded({ extended: false }), async (req: any, res: Response) => {
   try {
-    logger.info('Twilio inbound message', {
-      from: req.body.From,
-      to: req.body.To,
-      body: req.body.Body,
+    const fromRaw = String(req.body.From || '').replace(/^whatsapp:/, '').trim();
+    const body = String(req.body.Body || '');
+    const messageSid = req.body.MessageSid as string | undefined;
+    logger.info('Twilio inbound message', { from: fromRaw, to: req.body.To, body });
+
+    if (!fromRaw) return res.status(200).send('OK');
+
+    // Gelen numarayı son 10 hane ile otele eşle (format farklarına dayanıklı)
+    const fromDigits = fromRaw.replace(/\D/g, '');
+    const last10 = fromDigits.slice(-10);
+    let matchedTenantId: string | null = null;
+    if (last10.length === 10) {
+      const allTenants = await db
+        .select({ id: tenants.id, phone: tenants.phone, notificationPhone: tenants.notificationPhone })
+        .from(tenants);
+      const match = allTenants.find((t) => {
+        const p = (t.phone || '').replace(/\D/g, '');
+        const np = (t.notificationPhone || '').replace(/\D/g, '');
+        return p.endsWith(last10) || np.endsWith(last10);
+      });
+      matchedTenantId = match?.id || null;
+    }
+
+    await db.insert(notificationLogs).values({
+      tenantId: matchedTenantId,
+      channel: 'whatsapp',
+      event: 'inbound_message',
+      direction: 'inbound',
+      recipient: fromRaw, // konuşma anahtarı: otelin telefonu (giden mesajlardaki 'recipient' ile aynı)
+      subject: null,
+      content: body || '(boş mesaj)',
+      status: 'delivered',
+      externalId: messageSid || null,
+      sentAt: new Date(),
+      deliveredAt: new Date(),
     });
+
     res.status(200).send('OK');
   } catch (err) {
-    res.status(500).send('Error');
+    logger.error('Twilio inbound kaydı başarısız', { err });
+    res.status(200).send('OK'); // Twilio'ya 200 dön (retry storm olmasın)
   }
 });
 
@@ -417,7 +451,7 @@ router.get('/logs', requireRole('system_admin', 'laundry_manager', 'hotel_owner'
     // 3) Twilio fiyatlarini paralel cek (sadece WhatsApp + externalId varsa)
     const prices = await Promise.all(
       rows.map(async (r: any) => {
-        if (r.channel === 'whatsapp' && r.externalId) {
+        if (r.channel === 'whatsapp' && r.externalId && r.direction !== 'inbound') {
           return await fetchTwilioPrice(r.externalId);
         }
         return { price: null, priceUnit: null };

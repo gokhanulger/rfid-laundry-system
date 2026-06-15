@@ -148,6 +148,13 @@
       "when": 1781000000000,
       "tag": "0015_notifications",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1782000000000,
+      "tag": "0022_notification_inbound",
+      "breakpoints": true
     }
   ]
 }

@@ -40,6 +40,7 @@ const eventLabels: Record<NotificationEvent, string> = {
   pickup_received: 'Toplama Tamamlandı',
   daily_summary: 'Günlük Özet',
   alert_new: 'Yeni Uyarı',
+  inbound_message: 'Gelen Mesaj',
 };
 
 // Channel icons and labels

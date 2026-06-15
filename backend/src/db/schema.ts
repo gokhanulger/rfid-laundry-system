@@ -651,7 +651,8 @@ export const notificationEventEnum = pgEnum('notification_event', [
   'pickup_created',
   'pickup_received',
   'daily_summary',
-  'alert_new'
+  'alert_new',
+  'inbound_message'
 ]);
 
 export const notificationStatusEnum = pgEnum('notification_status', [
@@ -703,6 +704,8 @@ export const notificationLogs = pgTable('notification_logs', {
   subject: text('subject'),
   content: text('content').notNull(),
   status: notificationStatusEnum('status').default('pending'),
+  // 'outbound' = sistemin otele gonderdigi, 'inbound' = otelin cevabi
+  direction: text('direction').default('outbound').notNull(),
   externalId: text('external_id'),
   errorMessage: text('error_message'),
   sentAt: timestamp('sent_at'),

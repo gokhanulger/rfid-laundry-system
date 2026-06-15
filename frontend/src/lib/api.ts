@@ -898,8 +898,10 @@ export type NotificationEvent =
   | 'pickup_created'
   | 'pickup_received'
   | 'daily_summary'
-  | 'alert_new';
+  | 'alert_new'
+  | 'inbound_message';
 export type NotificationStatus = 'pending' | 'sent' | 'failed' | 'delivered';
+export type NotificationDirection = 'outbound' | 'inbound';
 
 export interface NotificationSetting {
   id: string;
@@ -937,6 +939,7 @@ export interface NotificationLog {
   subject?: string;
   content: string;
   status: NotificationStatus;
+  direction?: NotificationDirection;
   externalId?: string;
   errorMessage?: string;
   sentAt?: string;
