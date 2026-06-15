@@ -336,13 +336,14 @@ waybillsRouter.post('/:id/deliver', async (req: AuthRequest, res: Response) => {
         where: eq(tenants.id, waybill.tenantId),
       });
 
+      // Item summary'i email VE WhatsApp icin disarida hesapla
+      let itemSummary: Array<{ typeName: string; count: number }> = [];
+      try {
+        itemSummary = JSON.parse(waybill.itemSummary || '[]');
+      } catch {}
+
       const recipientEmail = await resolveHotelEmail(waybill.tenantId, tenant?.email);
       if (recipientEmail) {
-        let itemSummary: Array<{ typeName: string; count: number }> = [];
-        try {
-          itemSummary = JSON.parse(waybill.itemSummary || '[]');
-        } catch {}
-
         const pdfBuffer = await generateWaybillPdf({
           waybillNumber: waybill.waybillNumber,
           hotelName: tenant?.name || '',
