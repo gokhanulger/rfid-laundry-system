@@ -375,6 +375,7 @@ waybillsRouter.post('/:id/deliver', async (req: AuthRequest, res: Response) => {
           waybillNumber: waybill.waybillNumber,
           totalItems: waybill.totalItems || 0,
           date: new Date(waybill.printedAt || waybill.createdAt).toLocaleDateString('tr-TR'),
+          itemSummary,
         });
       } else {
         console.log(`No phone configured for tenant ${waybill.tenantId}, skipping waybill WhatsApp`);

@@ -756,6 +756,7 @@ deliveriesRouter.post('/:id/deliver', requireRole('driver', 'laundry_manager', '
             waybillNumber: waybillForNotify.waybillNumber,
             totalItems: waybillForNotify.totalItems || 0,
             date: wbDate,
+            itemSummary: wbSummary,
           });
         }
       } catch (e) {
@@ -848,6 +849,7 @@ deliveriesRouter.post('/:id/deliver', requireRole('driver', 'laundry_manager', '
           waybillNumber: updatedDelivery.barcode,
           totalItems,
           date: deliveryDate,
+          itemSummary: Object.values(itemSummaryMap),
         });
       } else {
         console.warn(`⚠️ No phone configured for WhatsApp - tenant ${existingDelivery.tenant?.name} (${existingDelivery.tenantId})`);

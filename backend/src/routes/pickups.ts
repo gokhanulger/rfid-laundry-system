@@ -75,6 +75,7 @@ async function sendDirtyPickupIrsaliye(
         bagCode,
         totalItems,
         date: dateStr,
+        itemSummary,
       });
     } else {
       console.warn(`⚠️ Pickup: telefon yok (tenant ${tenant.name}) - WhatsApp atilmadi`);

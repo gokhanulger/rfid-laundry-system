@@ -24,6 +24,11 @@
 import { db } from '../db';
 import { notificationLogs } from '../db/schema';
 
+export interface ItemLine {
+  typeName: string;
+  count: number;
+}
+
 export interface DeliveryWhatsAppParams {
   tenantId: string;
   toPhone: string;
@@ -31,6 +36,7 @@ export interface DeliveryWhatsAppParams {
   waybillNumber: string;
   totalItems: number;
   date: string;
+  itemSummary?: ItemLine[]; // urun kirilim listesi (2 x Carsaf, 3 x Battaniye ...)
 }
 
 export interface PickupWhatsAppParams {
@@ -40,6 +46,13 @@ export interface PickupWhatsAppParams {
   bagCode: string;
   totalItems: number;
   date: string;
+  itemSummary?: ItemLine[];
+}
+
+// Items listesini "2 x Carsaf" gibi cok satirli formata cevirir
+function formatItemsBreakdown(items?: ItemLine[]): string {
+  if (!items || items.length === 0) return '-';
+  return items.map((it) => `${it.count} x ${it.typeName}`).join('\n');
 }
 
 /**
@@ -176,11 +189,13 @@ async function logNotification(
 }
 
 export async function sendDeliveryWhatsApp(params: DeliveryWhatsAppParams): Promise<boolean> {
+  const detail = formatItemsBreakdown(params.itemSummary);
   const fallbackBody =
     `Sayın ${params.hotelName}, çamaşır teslimatınız tamamlanmıştır.\n` +
     `İrsaliye No: ${params.waybillNumber}\n` +
+    `Tarih: ${params.date}\n\n` +
+    `Detay:\n${detail}\n\n` +
     `Toplam: ${params.totalItems} adet\n` +
-    `Tarih: ${params.date}\n` +
     `İrsaliye PDF'i e-posta adresinize gönderilmiştir.`;
 
   const to = normalizeTurkishPhone(params.toPhone);
@@ -203,7 +218,13 @@ export async function sendDeliveryWhatsApp(params: DeliveryWhatsAppParams): Prom
   }
 
   const contentVariables = cfg.templateDeliverySid
-    ? { '1': params.hotelName, '2': params.waybillNumber, '3': String(params.totalItems), '4': params.date }
+    ? {
+        '1': params.hotelName,
+        '2': params.waybillNumber,
+        '3': params.date,
+        '4': detail,
+        '5': String(params.totalItems),
+      }
     : undefined;
   const result = await twilioSend(cfg, to, fallbackBody, cfg.templateDeliverySid, contentVariables);
   await logNotification(params.tenantId, 'delivery_delivered', to, fallbackBody, result);
@@ -214,11 +235,13 @@ export async function sendDeliveryWhatsApp(params: DeliveryWhatsAppParams): Prom
 }
 
 export async function sendPickupWhatsApp(params: PickupWhatsAppParams): Promise<boolean> {
+  const detail = formatItemsBreakdown(params.itemSummary);
   const fallbackBody =
     `Sayın ${params.hotelName}, kirli ürünleriniz teslim alınmıştır.\n` +
-    `İrsaliye / Çuval No: ${params.bagCode}\n` +
-    `Teslim Alınan: ${params.totalItems} adet\n` +
-    `Tarih: ${params.date}\n` +
+    `İrsaliye/Çuval No: ${params.bagCode}\n` +
+    `Tarih: ${params.date}\n\n` +
+    `Detay:\n${detail}\n\n` +
+    `Toplam: ${params.totalItems} adet\n` +
     `İrsaliye PDF'i e-posta adresinize gönderilmiştir.`;
 
   const to = normalizeTurkishPhone(params.toPhone);
@@ -241,7 +264,13 @@ export async function sendPickupWhatsApp(params: PickupWhatsAppParams): Promise<
   }
 
   const contentVariables = cfg.templatePickupSid
-    ? { '1': params.hotelName, '2': params.bagCode, '3': String(params.totalItems), '4': params.date }
+    ? {
+        '1': params.hotelName,
+        '2': params.bagCode,
+        '3': params.date,
+        '4': detail,
+        '5': String(params.totalItems),
+      }
     : undefined;
   const result = await twilioSend(cfg, to, fallbackBody, cfg.templatePickupSid, contentVariables);
   await logNotification(params.tenantId, 'pickup_received', to, fallbackBody, result);
