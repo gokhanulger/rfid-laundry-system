@@ -49,11 +49,14 @@ export interface PickupWhatsAppParams {
   itemSummary?: ItemLine[];
 }
 
-// Items listesini "2 x Carsaf" gibi cok satirli formata cevirir
+// Items listesini "2 adet Carsaf" gibi cok satirli formata cevirir
 function formatItemsBreakdown(items?: ItemLine[]): string {
   if (!items || items.length === 0) return '-';
-  return items.map((it) => `${it.count} x ${it.typeName}`).join('\n');
+  return items.map((it) => `${it.count} adet ${it.typeName}`).join('\n');
 }
+
+// Imza — tum WhatsApp mesajlarinin sonuna eklenir
+const SIGNATURE = '\n\n— *Demet Laundry*';
 
 /**
  * Türkiye telefonunu E.164 ('+' ile baslar) formatina cevirir.
@@ -196,7 +199,8 @@ export async function sendDeliveryWhatsApp(params: DeliveryWhatsAppParams): Prom
     `Tarih: ${params.date}\n\n` +
     `Detay:\n${detail}\n\n` +
     `Toplam: ${params.totalItems} adet\n` +
-    `İrsaliye PDF'i e-posta adresinize gönderilmiştir.`;
+    `İrsaliye PDF'i e-posta adresinize gönderilmiştir.` +
+    SIGNATURE;
 
   const to = normalizeTurkishPhone(params.toPhone);
   if (!to) {
@@ -242,7 +246,8 @@ export async function sendPickupWhatsApp(params: PickupWhatsAppParams): Promise<
     `Tarih: ${params.date}\n\n` +
     `Detay:\n${detail}\n\n` +
     `Toplam: ${params.totalItems} adet\n` +
-    `İrsaliye PDF'i e-posta adresinize gönderilmiştir.`;
+    `İrsaliye PDF'i e-posta adresinize gönderilmiştir.` +
+    SIGNATURE;
 
   const to = normalizeTurkishPhone(params.toPhone);
   if (!to) {
