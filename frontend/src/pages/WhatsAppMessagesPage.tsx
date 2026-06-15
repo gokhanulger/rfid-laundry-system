@@ -18,8 +18,35 @@ import { formatDistanceToNow, format } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import { notificationApi, type NotificationLog, type NotificationStatus } from '../lib/api';
 
-// Backend artik 'tenant' relation'unu da donduyor; tipi yerel olarak genisletiyoruz
-type LogWithTenant = NotificationLog & { tenant?: { id: string; name: string } | null };
+// Backend artik 'tenant' + 'cost' alanlarini donduyor; tipi yerel olarak genisletiyoruz
+type LogWithTenant = NotificationLog & {
+  tenant?: { id: string; name: string } | null;
+  cost?: string | null;
+  costUnit?: string | null;
+};
+
+// Twilio fiyatlari negatif (giderim) string olarak gelir; absolute alip formatla
+function fmtCost(c?: string | null, unit?: string | null): string {
+  if (c == null) return '—';
+  const n = Math.abs(parseFloat(c));
+  if (isNaN(n)) return '—';
+  return `${n.toFixed(4)} ${unit || ''}`.trim();
+}
+
+function sumCost(logs: LogWithTenant[]): { sum: number; unit: string } {
+  let sum = 0;
+  let unit = 'USD';
+  logs.forEach((l) => {
+    if (l.cost != null) {
+      const n = Math.abs(parseFloat(l.cost));
+      if (!isNaN(n)) {
+        sum += n;
+        if (l.costUnit) unit = l.costUnit;
+      }
+    }
+  });
+  return { sum, unit };
+}
 
 const EVENT_LABEL: Record<string, { label: string; color: string }> = {
   delivery_delivered: { label: 'Temiz Teslim', color: 'bg-emerald-100 text-emerald-800' },
@@ -84,6 +111,9 @@ export function WhatsAppMessagesPage() {
     return c;
   }, [logs]);
 
+  // Toplam maliyet (sayfa icindeki loglar uzerinden)
+  const totalCost = useMemo(() => sumCost(logs), [logs]);
+
   return (
     <div className="p-4 md:p-6 bg-gray-50 min-h-screen">
       {/* Header */}
@@ -110,12 +140,22 @@ export function WhatsAppMessagesPage() {
       </div>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">
         <StatCard label="Toplam" count={total} icon={MessageSquare} color="text-gray-600" />
         <StatCard label="İletildi" count={counts.delivered} icon={CheckCircle2} color="text-emerald-600" />
         <StatCard label="Gönderildi" count={counts.sent} icon={Check} color="text-blue-600" />
         <StatCard label="Beklemede" count={counts.pending} icon={Clock} color="text-gray-500" />
         <StatCard label="Başarısız" count={counts.failed} icon={XCircle} color="text-red-600" />
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <div className="flex items-center gap-2">
+            <span className="text-emerald-600 text-sm font-semibold">$</span>
+            <span className="text-xs text-gray-500">Toplam Maliyet</span>
+          </div>
+          <div className="mt-2 text-2xl font-bold text-emerald-700">
+            {totalCost.sum.toFixed(4)} <span className="text-sm font-normal text-gray-500">{totalCost.unit}</span>
+          </div>
+          <div className="text-[10px] text-gray-400 mt-0.5">bu sayfadaki {logs.length} mesaj</div>
+        </div>
       </div>
 
       {/* Filters */}
@@ -177,6 +217,7 @@ export function WhatsAppMessagesPage() {
                   <th className="px-4 py-3 font-medium">Alıcı</th>
                   <th className="px-4 py-3 font-medium">Olay</th>
                   <th className="px-4 py-3 font-medium">Durum</th>
+                  <th className="px-4 py-3 font-medium text-right">Maliyet</th>
                   <th className="px-4 py-3 font-medium">Mesaj</th>
                 </tr>
               </thead>
@@ -214,6 +255,9 @@ export function WhatsAppMessagesPage() {
                           <StatusIcon className="w-3 h-3" />
                           {STATUS_BADGE[log.status]?.label || log.status}
                         </span>
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono text-xs text-gray-700 whitespace-nowrap">
+                        {fmtCost(log.cost, log.costUnit)}
                       </td>
                       <td className="px-4 py-3 text-gray-600 max-w-md truncate">
                         {log.errorMessage ? (
@@ -345,6 +389,16 @@ function MessageDetailModal({ log, onClose }: { log: LogWithTenant; onClose: () 
               <Field
                 label="İletim"
                 value={format(new Date(log.deliveredAt), 'dd MMM yyyy HH:mm:ss', { locale: tr })}
+              />
+            )}
+            {log.cost && (
+              <Field
+                label="Maliyet"
+                value={
+                  <span className="font-mono font-semibold text-emerald-700">
+                    {fmtCost(log.cost, log.costUnit)}
+                  </span>
+                }
               />
             )}
           </div>

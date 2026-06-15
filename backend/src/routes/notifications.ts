@@ -7,7 +7,7 @@ import {
   notificationLogs,
   tenants
 } from '../db/schema';
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { eq, and, desc, sql, inArray } from 'drizzle-orm';
 import { requireAuth, requireRole, AuthRequest } from '../middleware/auth';
 import { notificationService, NotificationChannel } from '../services/notifications';
 import { logger } from '../utils/logger';
@@ -353,12 +353,41 @@ router.delete('/templates/:id', requireRole('system_admin'), async (req: AuthReq
 // ============================================
 
 // Get notification logs
+// Twilio mesaj fiyati cekici (cached in-memory, 5dk TTL)
+const priceCache = new Map<string, { price: string | null; priceUnit: string | null; ts: number }>();
+async function fetchTwilioPrice(messageSid: string): Promise<{ price: string | null; priceUnit: string | null }> {
+  const cached = priceCache.get(messageSid);
+  if (cached && Date.now() - cached.ts < 5 * 60 * 1000) {
+    return { price: cached.price, priceUnit: cached.priceUnit };
+  }
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const keySid = process.env.TWILIO_API_KEY_SID;
+  const keySec = process.env.TWILIO_API_KEY_SECRET;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  if (!accountSid) return { price: null, priceUnit: null };
+  const authUser = keySid || accountSid;
+  const authPass = keySec || authToken;
+  if (!authPass) return { price: null, priceUnit: null };
+  try {
+    const auth = Buffer.from(`${authUser}:${authPass}`).toString('base64');
+    const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages/${messageSid}.json`, {
+      headers: { Authorization: `Basic ${auth}` },
+    });
+    if (!r.ok) return { price: null, priceUnit: null };
+    const data: any = await r.json();
+    const out = { price: data.price ?? null, priceUnit: data.price_unit ?? null };
+    priceCache.set(messageSid, { ...out, ts: Date.now() });
+    return out;
+  } catch {
+    return { price: null, priceUnit: null };
+  }
+}
+
 router.get('/logs', requireRole('system_admin', 'laundry_manager', 'hotel_owner'), async (req: AuthRequest, res: Response) => {
   try {
     const { tenantId, channel, status, limit = '50', offset = '0' } = req.query;
     const conditions: any[] = [];
 
-    // Hotel owners can only see their own logs
     if (req.user!.role === 'hotel_owner') {
       conditions.push(eq(notificationLogs.tenantId, req.user!.tenantId!));
     } else if (tenantId) {
@@ -368,63 +397,52 @@ router.get('/logs', requireRole('system_admin', 'laundry_manager', 'hotel_owner'
     if (status) conditions.push(eq(notificationLogs.status, status as any));
 
     const where = conditions.length > 0 ? and(...conditions) : undefined;
+    const lim = parseInt(limit as string);
+    const off = parseInt(offset as string);
 
-    // Tenant adini leftJoin ile cekiyoruz (relational query'den daha guvenilir)
-    const rows = await db
-      .select({
-        id: notificationLogs.id,
-        tenantId: notificationLogs.tenantId,
-        channel: notificationLogs.channel,
-        event: notificationLogs.event,
-        recipient: notificationLogs.recipient,
-        subject: notificationLogs.subject,
-        content: notificationLogs.content,
-        status: notificationLogs.status,
-        externalId: notificationLogs.externalId,
-        errorMessage: notificationLogs.errorMessage,
-        sentAt: notificationLogs.sentAt,
-        deliveredAt: notificationLogs.deliveredAt,
-        createdAt: notificationLogs.createdAt,
-        tenantName: tenants.name,
+    // 1) Loglar (basit select, JOIN yok)
+    const base = db.select().from(notificationLogs);
+    const rows = where
+      ? await base.where(where).orderBy(desc(notificationLogs.createdAt)).limit(lim).offset(off)
+      : await base.orderBy(desc(notificationLogs.createdAt)).limit(lim).offset(off);
+
+    // 2) Tenant adlarini ayri query ile cek
+    const tIds = Array.from(new Set(rows.map((r: any) => r.tenantId).filter(Boolean))) as string[];
+    const tenantMap = new Map<string, string>();
+    if (tIds.length > 0) {
+      const tRows = await db.select({ id: tenants.id, name: tenants.name }).from(tenants).where(inArray(tenants.id, tIds));
+      tRows.forEach((t) => tenantMap.set(t.id, t.name));
+    }
+
+    // 3) Twilio fiyatlarini paralel cek (sadece WhatsApp + externalId varsa)
+    const prices = await Promise.all(
+      rows.map(async (r: any) => {
+        if (r.channel === 'whatsapp' && r.externalId) {
+          return await fetchTwilioPrice(r.externalId);
+        }
+        return { price: null, priceUnit: null };
       })
-      .from(notificationLogs)
-      .leftJoin(tenants, eq(notificationLogs.tenantId, tenants.id))
-      .where(where)
-      .orderBy(desc(notificationLogs.createdAt))
-      .limit(parseInt(limit as string))
-      .offset(parseInt(offset as string));
+    );
 
-    // Frontend'de `log.tenant.name` bekliyor; mapleyelim
-    const logs = rows.map((r: any) => ({
-      id: r.id,
-      tenantId: r.tenantId,
-      channel: r.channel,
-      event: r.event,
-      recipient: r.recipient,
-      subject: r.subject,
-      content: r.content,
-      status: r.status,
-      externalId: r.externalId,
-      errorMessage: r.errorMessage,
-      sentAt: r.sentAt,
-      deliveredAt: r.deliveredAt,
-      createdAt: r.createdAt,
-      tenant: r.tenantName ? { id: r.tenantId, name: r.tenantName } : null,
+    const logs = rows.map((r: any, i: number) => ({
+      ...r,
+      tenant: r.tenantId && tenantMap.has(r.tenantId) ? { id: r.tenantId, name: tenantMap.get(r.tenantId) } : null,
+      cost: prices[i].price,
+      costUnit: prices[i].priceUnit,
     }));
 
-    const [{ count }] = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(notificationLogs)
-      .where(where);
+    // 4) Toplam sayim
+    const totalQ = db.select({ count: sql<number>`count(*)` }).from(notificationLogs);
+    const totalRes = where ? await totalQ.where(where) : await totalQ;
+    const total = Number(totalRes[0]?.count || 0);
 
-    res.json({
-      logs,
-      total: Number(count),
-      limit: parseInt(limit as string),
-      offset: parseInt(offset as string),
+    res.json({ logs, total, limit: lim, offset: off });
+  } catch (error: any) {
+    logger.error('Get logs error', {
+      msg: error?.message || String(error),
+      code: error?.code,
+      stack: error?.stack?.split('\n').slice(0, 6).join('\n'),
     });
-  } catch (error) {
-    logger.error('Get logs error', { error });
     res.status(500).json({ error: 'Loglar alınamadı' });
   }
 });
