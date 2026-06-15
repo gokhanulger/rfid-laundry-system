@@ -1,25 +1,22 @@
 /**
- * WhatsApp gönderici — Meta WhatsApp Cloud API (Graph API) üzerinden.
+ * WhatsApp gönderici — Twilio Messaging API üzerinden.
  *
  * Gerekli env (Railway):
- *   WHATSAPP_PHONE_ID            Meta WhatsApp telefon numarası ID'si (zorunlu)
- *   WHATSAPP_ACCESS_TOKEN        Kalıcı (system user) access token (zorunlu)
- *   WHATSAPP_API_VERSION         Graph API sürümü (varsayılan: v21.0)
- *   WHATSAPP_TEMPLATE_DELIVERY   Temiz teslim sablon adi (vars: teslimat_bildirimi)
- *   WHATSAPP_TEMPLATE_PICKUP     Kirli teslim alma sablon adi (vars: teslim_alma_bildirimi)
- *   WHATSAPP_TEMPLATE_LANG       Şablon dil kodu (vars: tr)
- *   WHATSAPP_USE_TEMPLATE        'false' ise serbest metin (sadece 24sa penceresi / test)
- *   WHATSAPP_WEBHOOK_VERIFY_TOKEN  Meta webhook doğrulama token'ı (notifications.ts'de kullanılır)
+ *   TWILIO_ACCOUNT_SID            AC ile baslayan account SID (zorunlu)
+ *   TWILIO_AUTH_TOKEN             Auth token (zorunlu)
+ *   TWILIO_WHATSAPP_FROM          Gonderici (sandbox: "whatsapp:+14155238886",
+ *                                  production: "whatsapp:+90..." kendi onaylı sender) (zorunlu)
+ *   TWILIO_TEMPLATE_DELIVERY_SID  Temiz teslim icin onayli Content SID (HX...) (ops.)
+ *   TWILIO_TEMPLATE_PICKUP_SID    Kirli teslim alma icin Content SID (ops.)
+ *   TWILIO_STATUS_CALLBACK_URL    Mesaj durum guncellemesi gelecek URL (ops.; set yoksa
+ *                                  status callback yapilmaz). Tipik:
+ *                                  https://<backend>/api/notifications/twilio-status
  *
- * ÖNEMLİ: İşletmenin başlattığı (24 saatlik pencere dışı) mesajlar için Meta
- * yalnızca ONAYLI ŞABLON mesajlarına izin verir. Sablonlar Meta Business Manager'da
- * onaylatılmalıdır.
+ * Template Content SID'leri set degilse SERBEST METIN gonderir. Twilio sandbox modunda
+ * (alici "join <kod>" ile opt-in yapmis ise) veya 24 saatlik musteri penceresinde calisir.
+ * Production'da otomatik bildirim icin Content API uzerinden onayli template kullanmak gerekir.
  *
- * Onerilen sablon govdesi (4 parametre):
- *   delivery: "Sayın {{1}}, çamaşır teslimatınız tamamlanmıştır. İrsaliye No: {{2}} - Toplam: {{3}} adet - Tarih: {{4}}. İrsaliye PDF'i e-posta adresinize gönderilmiştir."
- *   pickup:   "Sayın {{1}}, kirli ürünleriniz teslim alınmıştır. İrsaliye/Çuval No: {{2}} - Adet: {{3}} - Tarih: {{4}}. İrsaliye PDF'i e-posta adresinize gönderilmiştir."
- *
- * Tüm gönderimler notification_logs tablosuna kaydedilir (admin mesajlar sayfasında görünür).
+ * Tum gonderimler notification_logs tablosuna kaydedilir (admin sayfasinda gorulur).
  */
 
 import { db } from '../db';
@@ -44,8 +41,8 @@ export interface PickupWhatsAppParams {
 }
 
 /**
- * Türkiye telefonunu Meta'nın beklediği formata çevirir (basinda + olmadan, sadece rakam).
- * Örnek: "0532 123 45 67" -> "905321234567"
+ * Türkiye telefonunu E.164 ('+' ile baslar) formatina cevirir.
+ * Twilio "whatsapp:+90..." formatini bekler; biz "+90..." donduruyoruz, caller "whatsapp:" prefix'ini ekler.
  */
 export function normalizeTurkishPhone(raw: string | null | undefined): string | null {
   if (!raw) return null;
@@ -55,31 +52,30 @@ export function normalizeTurkishPhone(raw: string | null | undefined): string | 
   if (digits.length === 11 && digits.startsWith('0')) digits = '90' + digits.slice(1);
   else if (digits.length === 10) digits = '90' + digits;
   if (digits.length < 11) return null;
-  return digits;
+  return '+' + digits;
 }
 
-interface MetaConfig {
-  phoneId: string;
-  accessToken: string;
-  apiVersion: string;
-  templateDelivery: string;
-  templatePickup: string;
-  templateLang: string;
-  useTemplate: boolean;
+interface TwilioConfig {
+  accountSid: string;
+  authToken: string;
+  from: string;
+  templateDeliverySid?: string;
+  templatePickupSid?: string;
+  statusCallbackUrl?: string;
 }
 
-function getConfig(): MetaConfig | null {
-  const phoneId = process.env.WHATSAPP_PHONE_ID;
-  const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
-  if (!phoneId || !accessToken) return null;
+function getConfig(): TwilioConfig | null {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const from = process.env.TWILIO_WHATSAPP_FROM;
+  if (!accountSid || !authToken || !from) return null;
   return {
-    phoneId,
-    accessToken,
-    apiVersion: process.env.WHATSAPP_API_VERSION || 'v21.0',
-    templateDelivery: process.env.WHATSAPP_TEMPLATE_DELIVERY || 'teslimat_bildirimi',
-    templatePickup: process.env.WHATSAPP_TEMPLATE_PICKUP || 'teslim_alma_bildirimi',
-    templateLang: process.env.WHATSAPP_TEMPLATE_LANG || 'tr',
-    useTemplate: (process.env.WHATSAPP_USE_TEMPLATE || 'true').toLowerCase() !== 'false',
+    accountSid,
+    authToken,
+    from,
+    templateDeliverySid: process.env.TWILIO_TEMPLATE_DELIVERY_SID,
+    templatePickupSid: process.env.TWILIO_TEMPLATE_PICKUP_SID,
+    statusCallbackUrl: process.env.TWILIO_STATUS_CALLBACK_URL,
   };
 }
 
@@ -89,58 +85,47 @@ interface SendResult {
   error?: string;
 }
 
-async function metaSend(
-  cfg: MetaConfig,
-  to: string,
-  freeformBody: string,
-  templateName: string,
-  templateParams: string[]
+async function twilioSend(
+  cfg: TwilioConfig,
+  toE164: string,
+  body: string,
+  contentSid?: string,
+  contentVariables?: Record<string, string>
 ): Promise<SendResult> {
-  const url = `https://graph.facebook.com/${cfg.apiVersion}/${cfg.phoneId}/messages`;
-  let body: Record<string, unknown>;
-  if (cfg.useTemplate) {
-    body = {
-      messaging_product: 'whatsapp',
-      to,
-      type: 'template',
-      template: {
-        name: templateName,
-        language: { code: cfg.templateLang },
-        components: [
-          {
-            type: 'body',
-            parameters: templateParams.map((p) => ({ type: 'text', text: p })),
-          },
-        ],
-      },
-    };
+  const params = new URLSearchParams();
+  params.append('From', cfg.from);
+  params.append('To', `whatsapp:${toE164}`);
+  if (contentSid) {
+    params.append('ContentSid', contentSid);
+    if (contentVariables) params.append('ContentVariables', JSON.stringify(contentVariables));
   } else {
-    body = {
-      messaging_product: 'whatsapp',
-      recipient_type: 'individual',
-      to,
-      type: 'text',
-      text: { body: freeformBody },
-    };
+    params.append('Body', body);
   }
+  if (cfg.statusCallbackUrl) {
+    params.append('StatusCallback', cfg.statusCallbackUrl);
+  }
+
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${cfg.accountSid}/Messages.json`;
+  const auth = Buffer.from(`${cfg.accountSid}:${cfg.authToken}`).toString('base64');
+
   try {
     const response = await fetch(url, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${cfg.accessToken}`,
-        'Content-Type': 'application/json',
+        Authorization: `Basic ${auth}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
       },
-      body: JSON.stringify(body),
+      body: params.toString(),
     });
     const result = (await response.json()) as any;
     if (!response.ok) {
-      const errMsg = result?.error?.message || `HTTP ${response.status}`;
-      console.error('Meta WhatsApp gönderim hatası:', errMsg);
-      return { success: false, error: errMsg };
+      const errMsg = result?.message || result?.code || `HTTP ${response.status}`;
+      console.error('Twilio WhatsApp gönderim hatası:', errMsg);
+      return { success: false, error: String(errMsg) };
     }
-    return { success: true, externalId: result?.messages?.[0]?.id as string | undefined };
+    return { success: true, externalId: result.sid as string | undefined };
   } catch (err: any) {
-    console.error('Meta WhatsApp istisnası:', err);
+    console.error('Twilio WhatsApp istisnası:', err);
     return { success: false, error: err?.message || 'Unknown error' };
   }
 }
@@ -180,7 +165,7 @@ export async function sendDeliveryWhatsApp(params: DeliveryWhatsAppParams): Prom
 
   const to = normalizeTurkishPhone(params.toPhone);
   if (!to) {
-    console.warn(`WhatsApp: geçersiz telefon "${params.toPhone}" - mesaj gönderilmedi`);
+    console.warn(`WhatsApp: gecersiz telefon "${params.toPhone}" - mesaj gönderilmedi`);
     await logNotification(params.tenantId, 'delivery_delivered', params.toPhone || '', fallbackBody, {
       success: false,
       error: 'Geçersiz telefon numarası',
@@ -189,23 +174,21 @@ export async function sendDeliveryWhatsApp(params: DeliveryWhatsAppParams): Prom
   }
   const cfg = getConfig();
   if (!cfg) {
-    console.warn('Meta WhatsApp yapılandırılmamış - mesaj gönderilmedi');
+    console.warn('Twilio yapilandirilmamis - mesaj gönderilmedi');
     await logNotification(params.tenantId, 'delivery_delivered', to, fallbackBody, {
       success: false,
-      error: 'Meta WhatsApp env yapılandırılmamış',
+      error: 'Twilio env yapılandırılmamış',
     });
     return false;
   }
 
-  const result = await metaSend(cfg, to, fallbackBody, cfg.templateDelivery, [
-    params.hotelName,
-    params.waybillNumber,
-    String(params.totalItems),
-    params.date,
-  ]);
+  const contentVariables = cfg.templateDeliverySid
+    ? { '1': params.hotelName, '2': params.waybillNumber, '3': String(params.totalItems), '4': params.date }
+    : undefined;
+  const result = await twilioSend(cfg, to, fallbackBody, cfg.templateDeliverySid, contentVariables);
   await logNotification(params.tenantId, 'delivery_delivered', to, fallbackBody, result);
   if (result.success) {
-    console.log(`Meta WhatsApp (temiz teslim) gönderildi -> ${to} (msg id: ${result.externalId || 'n/a'})`);
+    console.log(`Twilio WhatsApp (temiz teslim) gönderildi -> ${to} (sid: ${result.externalId})`);
   }
   return result.success;
 }
@@ -220,7 +203,7 @@ export async function sendPickupWhatsApp(params: PickupWhatsAppParams): Promise<
 
   const to = normalizeTurkishPhone(params.toPhone);
   if (!to) {
-    console.warn(`WhatsApp: geçersiz telefon "${params.toPhone}" - mesaj gönderilmedi`);
+    console.warn(`WhatsApp: gecersiz telefon "${params.toPhone}" - mesaj gönderilmedi`);
     await logNotification(params.tenantId, 'pickup_received', params.toPhone || '', fallbackBody, {
       success: false,
       error: 'Geçersiz telefon numarası',
@@ -229,23 +212,21 @@ export async function sendPickupWhatsApp(params: PickupWhatsAppParams): Promise<
   }
   const cfg = getConfig();
   if (!cfg) {
-    console.warn('Meta WhatsApp yapılandırılmamış - mesaj gönderilmedi');
+    console.warn('Twilio yapilandirilmamis - mesaj gönderilmedi');
     await logNotification(params.tenantId, 'pickup_received', to, fallbackBody, {
       success: false,
-      error: 'Meta WhatsApp env yapılandırılmamış',
+      error: 'Twilio env yapılandırılmamış',
     });
     return false;
   }
 
-  const result = await metaSend(cfg, to, fallbackBody, cfg.templatePickup, [
-    params.hotelName,
-    params.bagCode,
-    String(params.totalItems),
-    params.date,
-  ]);
+  const contentVariables = cfg.templatePickupSid
+    ? { '1': params.hotelName, '2': params.bagCode, '3': String(params.totalItems), '4': params.date }
+    : undefined;
+  const result = await twilioSend(cfg, to, fallbackBody, cfg.templatePickupSid, contentVariables);
   await logNotification(params.tenantId, 'pickup_received', to, fallbackBody, result);
   if (result.success) {
-    console.log(`Meta WhatsApp (kirli teslim alma) gönderildi -> ${to} (msg id: ${result.externalId || 'n/a'})`);
+    console.log(`Twilio WhatsApp (kirli teslim alma) gönderildi -> ${to} (sid: ${result.externalId})`);
   }
   return result.success;
 }

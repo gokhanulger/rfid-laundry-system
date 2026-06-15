@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import express, { Router, Response } from 'express';
 import crypto from 'crypto';
 import { db } from '../db';
 import {
@@ -15,83 +15,80 @@ import { logger } from '../utils/logger';
 const router = Router();
 
 // ============================================
-// PUBLIC META WHATSAPP WEBHOOK (auth'tan ÖNCE tanımlı olmalı)
+// PUBLIC TWILIO WEBHOOKS (auth'tan ÖNCE tanımlı olmalı)
 // ============================================
 
-// Meta Webhook doğrulama (GET handshake)
-// Meta Developer Console -> WhatsApp -> Configuration -> Webhook'a şu URL'i gir:
-//   https://<backend>/api/notifications/meta-webhook
-// Verify Token: WHATSAPP_WEBHOOK_VERIFY_TOKEN env değeri (Railway'de belirle).
-router.get('/meta-webhook', (req, res) => {
-  const verifyToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN;
-  const mode = req.query['hub.mode'];
-  const token = req.query['hub.verify_token'];
-  const challenge = req.query['hub.challenge'];
+// Twilio mesaj durumu callback: queued/sent/delivered/read/failed/undelivered
+// Twilio Console -> Messaging -> WhatsApp Sender (veya Programmable Messaging)
+// Status callback URL alanına şu URL girilir:
+//   https://<backend>/api/notifications/twilio-status
+// notification_logs.status güncellenir. X-Twilio-Signature ile doğrulanır.
+router.post(
+  '/twilio-status',
+  express.urlencoded({ extended: false }),
+  async (req: any, res: Response) => {
+    try {
+      // Twilio imza doğrulama (HMAC-SHA1 of URL + sorted params concat) — auth token varsa kontrol
+      const authToken = process.env.TWILIO_AUTH_TOKEN;
+      const signature = req.headers['x-twilio-signature'] as string | undefined;
+      if (authToken && signature) {
+        const proto = (req.headers['x-forwarded-proto'] as string) || 'https';
+        const host = req.headers['host'];
+        const fullUrl = `${proto}://${host}${req.originalUrl}`;
+        const sortedKeys = Object.keys(req.body || {}).sort();
+        const concatenated = sortedKeys.reduce((acc, k) => acc + k + (req.body[k] ?? ''), fullUrl);
+        const expected = crypto.createHmac('sha1', authToken).update(concatenated).digest('base64');
+        if (expected !== signature) {
+          logger.warn('Twilio signature mismatch', { fullUrl });
+          return res.status(403).send('Invalid signature');
+        }
+      }
 
-  if (mode === 'subscribe' && verifyToken && token === verifyToken) {
-    logger.info('Meta webhook verified');
-    return res.status(200).send(String(challenge));
+      const sid = req.body.MessageSid as string | undefined;
+      const messageStatus = req.body.MessageStatus as string | undefined;
+      const errorCode = req.body.ErrorCode as string | undefined;
+      const errorMessage = req.body.ErrorMessage as string | undefined;
+
+      if (!sid || !messageStatus) {
+        return res.status(400).send('Missing MessageSid or MessageStatus');
+      }
+
+      const updateData: Record<string, any> = {};
+      if (messageStatus === 'delivered' || messageStatus === 'read') {
+        updateData.status = 'delivered';
+        updateData.deliveredAt = new Date();
+      } else if (messageStatus === 'failed' || messageStatus === 'undelivered') {
+        updateData.status = 'failed';
+        if (errorCode || errorMessage) {
+          updateData.errorMessage = [errorCode, errorMessage].filter(Boolean).join(' - ');
+        }
+      } else if (messageStatus === 'sent') {
+        updateData.status = 'sent';
+      }
+
+      if (Object.keys(updateData).length > 0) {
+        await db.update(notificationLogs).set(updateData).where(eq(notificationLogs.externalId, sid));
+      }
+
+      logger.info('Twilio status callback', { sid, messageStatus });
+      res.status(200).send('OK');
+    } catch (err) {
+      logger.error('Twilio status callback error', { err });
+      res.status(500).send('Error');
+    }
   }
-  logger.warn('Meta webhook verify failed', { mode, tokenMatches: token === verifyToken });
-  return res.status(403).send('Forbidden');
-});
+);
 
-// Meta Webhook event'leri (mesaj durumu + gelen mesajlar)
-// Status: sent/delivered/read/failed -> notification_logs.status güncellenir.
-router.post('/meta-webhook', async (req, res) => {
-  // İmza doğrulama (opsiyonel; WHATSAPP_APP_SECRET varsa kontrol edilir)
+// Twilio gelen mesaj (müşteri cevap atarsa) — şimdilik sadece log
+router.post('/twilio-inbound', express.urlencoded({ extended: false }), async (req: any, res: Response) => {
   try {
-    const appSecret = process.env.WHATSAPP_APP_SECRET;
-    if (appSecret) {
-      const sig = (req.headers['x-hub-signature-256'] as string | undefined) || '';
-      const expected = 'sha256=' + crypto.createHmac('sha256', appSecret).update(JSON.stringify(req.body)).digest('hex');
-      if (sig !== expected) {
-        logger.warn('Meta webhook signature mismatch');
-        return res.status(403).send('Invalid signature');
-      }
-    }
-
-    const entries = (req.body?.entry || []) as any[];
-    for (const entry of entries) {
-      const changes = (entry?.changes || []) as any[];
-      for (const change of changes) {
-        const value = change?.value || {};
-        // 1) Mesaj durum güncellemeleri
-        const statuses = (value.statuses || []) as any[];
-        for (const st of statuses) {
-          const id = st?.id as string | undefined;
-          const status = st?.status as string | undefined;
-          if (!id || !status) continue;
-
-          const updateData: Record<string, any> = {};
-          if (status === 'delivered' || status === 'read') {
-            updateData.status = 'delivered';
-            updateData.deliveredAt = new Date();
-          } else if (status === 'failed') {
-            updateData.status = 'failed';
-            const errs = (st?.errors || []) as any[];
-            if (errs.length > 0) {
-              const e = errs[0];
-              updateData.errorMessage = `${e?.code || ''} - ${e?.title || e?.message || ''}`.trim();
-            }
-          } else if (status === 'sent') {
-            updateData.status = 'sent';
-          }
-          if (Object.keys(updateData).length > 0) {
-            await db.update(notificationLogs).set(updateData).where(eq(notificationLogs.externalId, id));
-          }
-          logger.info('Meta webhook status', { id, status });
-        }
-        // 2) Gelen mesajlar (müşteri cevabı) — şimdilik sadece log
-        const messages = (value.messages || []) as any[];
-        for (const msg of messages) {
-          logger.info('Meta webhook inbound', { from: msg.from, type: msg.type, body: msg.text?.body });
-        }
-      }
-    }
+    logger.info('Twilio inbound message', {
+      from: req.body.From,
+      to: req.body.To,
+      body: req.body.Body,
+    });
     res.status(200).send('OK');
   } catch (err) {
-    logger.error('Meta webhook error', { err });
     res.status(500).send('Error');
   }
 });
