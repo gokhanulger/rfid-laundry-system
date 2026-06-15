@@ -1033,6 +1033,12 @@ export const notificationApi = {
     const { data } = await api.post('/notifications/test', { tenantId, channel, recipient });
     return data;
   },
+
+  // Bir konuşmayı (telefon) bir otele ata — bilinmeyen numaraları bağlar
+  assignThread: async (phone: string, tenantId: string): Promise<{ success: boolean; updatedCount: number }> => {
+    const { data } = await api.post('/notifications/assign', { phone, tenantId });
+    return data;
+  },
 };
 
 export default api;

@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   MessageSquare,
   RefreshCw,
@@ -12,10 +12,13 @@ import {
   Phone,
   Building2,
   ArrowLeft,
+  UserPlus,
+  X,
 } from 'lucide-react';
 import { formatDistanceToNow, format } from 'date-fns';
 import { tr } from 'date-fns/locale';
-import { notificationApi, type NotificationLog, type NotificationStatus } from '../lib/api';
+import { notificationApi, settingsApi, type NotificationLog, type NotificationStatus } from '../lib/api';
+import type { Tenant } from '../types';
 
 // Backend artik 'tenant' + 'cost' + 'direction' alanlarini donduyor; tipi yerel olarak genisletiyoruz
 type LogWithTenant = NotificationLog & {
@@ -109,11 +112,19 @@ export function WhatsAppMessagesPage() {
   const [search, setSearch] = useState('');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const threadEndRef = useRef<HTMLDivElement | null>(null);
+  const queryClient = useQueryClient();
 
   const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['notification-logs', 'whatsapp', 'threads'],
     queryFn: () => notificationApi.getLogs({ channel: 'whatsapp', limit: 200, offset: 0 }),
     refetchInterval: 30_000,
+  });
+
+  // Atama için otel listesi
+  const { data: tenants = [] } = useQuery({
+    queryKey: ['tenants', 'for-assign'],
+    queryFn: () => settingsApi.getTenants(),
+    staleTime: 5 * 60 * 1000,
   });
 
   const logs = (data?.logs || []) as LogWithTenant[];
@@ -289,7 +300,7 @@ export function WhatsAppMessagesPage() {
                 <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center">
                   <Building2 className="w-4 h-4" />
                 </div>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="font-semibold text-gray-900 truncate">
                     {selected.tenantName || 'Bilinmeyen Otel'}
                   </div>
@@ -297,6 +308,14 @@ export function WhatsAppMessagesPage() {
                     <Phone className="w-3 h-3" /> {selected.phone}
                   </div>
                 </div>
+                <AssignHotel
+                  phone={selected.phone}
+                  assigned={!!selected.tenantName}
+                  tenants={tenants}
+                  onAssigned={() => {
+                    queryClient.invalidateQueries({ queryKey: ['notification-logs', 'whatsapp', 'threads'] });
+                  }}
+                />
               </div>
 
               {/* Mesaj baloncukları */}
@@ -350,6 +369,94 @@ export function WhatsAppMessagesPage() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function AssignHotel({
+  phone,
+  assigned,
+  tenants,
+  onAssigned,
+}: {
+  phone: string;
+  assigned: boolean;
+  tenants: Tenant[];
+  onAssigned: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const filtered = useMemo(() => {
+    const s = q.toLowerCase();
+    return tenants.filter((t) => (t.name || '').toLowerCase().includes(s)).slice(0, 50);
+  }, [tenants, q]);
+
+  const assign = async (tenantId: string) => {
+    setSaving(true);
+    try {
+      await notificationApi.assignThread(phone, tenantId);
+      setOpen(false);
+      setQ('');
+      onAssigned();
+    } catch {
+      alert('Atama başarısız oldu');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="relative flex-shrink-0">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium ${
+          assigned
+            ? 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+            : 'bg-emerald-600 text-white hover:bg-emerald-700'
+        }`}
+      >
+        <UserPlus className="w-4 h-4" />
+        {assigned ? 'Değiştir' : 'Otele Ata'}
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg z-20 flex flex-col max-h-80">
+            <div className="p-2 border-b border-gray-100 flex items-center gap-2">
+              <Search className="w-4 h-4 text-gray-400 flex-shrink-0" />
+              <input
+                autoFocus
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Otel ara..."
+                className="flex-1 text-sm outline-none min-w-0"
+              />
+              <button onClick={() => setOpen(false)} className="flex-shrink-0">
+                <X className="w-4 h-4 text-gray-400" />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1">
+              {filtered.length === 0 ? (
+                <div className="p-3 text-sm text-gray-400 text-center">Otel bulunamadı</div>
+              ) : (
+                filtered.map((t) => (
+                  <button
+                    key={t.id}
+                    disabled={saving}
+                    onClick={() => assign(t.id)}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-emerald-50 disabled:opacity-50 flex items-center gap-2"
+                  >
+                    <Building2 className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                    <span className="truncate">{t.name}</span>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

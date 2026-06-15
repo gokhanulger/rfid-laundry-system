@@ -5,6 +5,7 @@ import {
   notificationSettings,
   notificationTemplates,
   notificationLogs,
+  whatsappNumberMap,
   tenants
 } from '../db/schema';
 import { eq, and, desc, sql, inArray } from 'drizzle-orm';
@@ -95,15 +96,26 @@ router.post('/twilio-inbound', express.urlencoded({ extended: false }), async (r
     const last10 = fromDigits.slice(-10);
     let matchedTenantId: string | null = null;
     if (last10.length === 10) {
-      const allTenants = await db
-        .select({ id: tenants.id, phone: tenants.phone, notificationPhone: tenants.notificationPhone })
-        .from(tenants);
-      const match = allTenants.find((t) => {
-        const p = (t.phone || '').replace(/\D/g, '');
-        const np = (t.notificationPhone || '').replace(/\D/g, '');
-        return p.endsWith(last10) || np.endsWith(last10);
-      });
-      matchedTenantId = match?.id || null;
+      // 1) Önce manuel numara->otel eşlemesine bak (kayıtlı telefondan farklı numaralar)
+      const [mapped] = await db
+        .select({ tenantId: whatsappNumberMap.tenantId })
+        .from(whatsappNumberMap)
+        .where(eq(whatsappNumberMap.phoneLast10, last10))
+        .limit(1);
+      if (mapped) {
+        matchedTenantId = mapped.tenantId;
+      } else {
+        // 2) Otelin kayıtlı telefon/bildirim numarasıyla eşleştir
+        const allTenants = await db
+          .select({ id: tenants.id, phone: tenants.phone, notificationPhone: tenants.notificationPhone })
+          .from(tenants);
+        const match = allTenants.find((t) => {
+          const p = (t.phone || '').replace(/\D/g, '');
+          const np = (t.notificationPhone || '').replace(/\D/g, '');
+          return p.endsWith(last10) || np.endsWith(last10);
+        });
+        matchedTenantId = match?.id || null;
+      }
     }
 
     await db.insert(notificationLogs).values({
@@ -482,6 +494,60 @@ router.get('/logs', requireRole('system_admin', 'laundry_manager', 'hotel_owner'
       _code: error?.cause?.code,
       _detail: error?.cause?.detail,
     });
+  }
+});
+
+// Bir konuşmayı (telefon numarası) bir otele ata
+// Bilinmeyen/farklı numaradan gelen mesajları sistemdeki bir otele bağlar.
+// Hem eşlemeyi kaydeder (sonraki mesajlar otomatik o otele düşer) hem mevcut logları günceller.
+router.post('/assign', requireRole('system_admin', 'laundry_manager'), async (req: AuthRequest, res: Response) => {
+  try {
+    const { phone, tenantId } = req.body;
+    if (!phone || !tenantId) {
+      return res.status(400).json({ error: 'Telefon ve otel zorunludur' });
+    }
+    const last10 = String(phone).replace(/\D/g, '').slice(-10);
+    if (last10.length !== 10) {
+      return res.status(400).json({ error: 'Geçersiz telefon numarası' });
+    }
+
+    // Otel gerçekten var mı?
+    const [tenant] = await db.select({ id: tenants.id }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+    if (!tenant) {
+      return res.status(404).json({ error: 'Otel bulunamadı' });
+    }
+
+    // Eşlemeyi kaydet/güncelle (gelecekteki mesajlar otomatik bu otele düşsün)
+    const [existing] = await db
+      .select()
+      .from(whatsappNumberMap)
+      .where(eq(whatsappNumberMap.phoneLast10, last10))
+      .limit(1);
+    if (existing) {
+      await db
+        .update(whatsappNumberMap)
+        .set({ tenantId, updatedAt: new Date() })
+        .where(eq(whatsappNumberMap.id, existing.id));
+    } else {
+      await db.insert(whatsappNumberMap).values({ phoneLast10: last10, tenantId });
+    }
+
+    // Bu numaraya ait mevcut tüm WhatsApp loglarını da bu otele bağla
+    const updated = await db
+      .update(notificationLogs)
+      .set({ tenantId })
+      .where(
+        and(
+          eq(notificationLogs.channel, 'whatsapp'),
+          sql`right(regexp_replace(${notificationLogs.recipient}, '\D', '', 'g'), 10) = ${last10}`
+        )
+      )
+      .returning({ id: notificationLogs.id });
+
+    res.json({ success: true, updatedCount: updated.length });
+  } catch (error) {
+    logger.error('Assign thread error', { error });
+    res.status(500).json({ error: 'Atama başarısız' });
   }
 });
 

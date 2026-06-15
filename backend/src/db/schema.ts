@@ -713,6 +713,15 @@ export const notificationLogs = pgTable('notification_logs', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+// WhatsApp numara -> otel eslemesi (kayitli telefondan farkli numaralar icin)
+export const whatsappNumberMap = pgTable('whatsapp_number_map', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  phoneLast10: text('phone_last10').notNull().unique(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 // Notification Relations
 export const notificationSettingsRelations = relations(notificationSettings, ({ one }) => ({
   tenant: one(tenants, {
