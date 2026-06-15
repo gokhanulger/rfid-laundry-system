@@ -2,19 +2,21 @@
  * WhatsApp gönderici — Twilio Messaging API üzerinden.
  *
  * Gerekli env (Railway):
- *   TWILIO_ACCOUNT_SID            AC ile baslayan account SID (zorunlu)
- *   TWILIO_AUTH_TOKEN             Auth token (zorunlu)
- *   TWILIO_WHATSAPP_FROM          Gonderici (sandbox: "whatsapp:+14155238886",
- *                                  production: "whatsapp:+90..." kendi onaylı sender) (zorunlu)
+ *   TWILIO_ACCOUNT_SID            AC ile baslayan account SID (URL icin zorunlu)
+ *   TWILIO_WHATSAPP_FROM          Gonderici (production: "whatsapp:+15054813444" gibi
+ *                                  Twilio satin alinan numara) (zorunlu)
+ *
+ *   Auth (iki yoldan biri):
+ *     A) TWILIO_AUTH_TOKEN        Klasik auth token
+ *     B) TWILIO_API_KEY_SID + TWILIO_API_KEY_SECRET   (SK... ile baslar; tercih)
+ *
  *   TWILIO_TEMPLATE_DELIVERY_SID  Temiz teslim icin onayli Content SID (HX...) (ops.)
  *   TWILIO_TEMPLATE_PICKUP_SID    Kirli teslim alma icin Content SID (ops.)
- *   TWILIO_STATUS_CALLBACK_URL    Mesaj durum guncellemesi gelecek URL (ops.; set yoksa
- *                                  status callback yapilmaz). Tipik:
- *                                  https://<backend>/api/notifications/twilio-status
+ *   TWILIO_STATUS_CALLBACK_URL    Mesaj durum guncellemesi gelecek URL (ops.)
  *
- * Template Content SID'leri set degilse SERBEST METIN gonderir. Twilio sandbox modunda
- * (alici "join <kod>" ile opt-in yapmis ise) veya 24 saatlik musteri penceresinde calisir.
- * Production'da otomatik bildirim icin Content API uzerinden onayli template kullanmak gerekir.
+ * Template Content SID'leri set degilse SERBEST METIN gonderir (24 saatlik musteri
+ * penceresinde calisir). Production isletmenin baslattigi bildirimleri icin onayli
+ * template kullanmak gerekir.
  *
  * Tum gonderimler notification_logs tablosuna kaydedilir (admin sayfasinda gorulur).
  */
@@ -57,7 +59,8 @@ export function normalizeTurkishPhone(raw: string | null | undefined): string | 
 
 interface TwilioConfig {
   accountSid: string;
-  authToken: string;
+  authUser: string; // Account SID (klasik) veya API Key SID (SK...)
+  authPass: string; // Auth Token (klasik) veya API Key Secret
   from: string;
   templateDeliverySid?: string;
   templatePickupSid?: string;
@@ -66,12 +69,29 @@ interface TwilioConfig {
 
 function getConfig(): TwilioConfig | null {
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
   const from = process.env.TWILIO_WHATSAPP_FROM;
-  if (!accountSid || !authToken || !from) return null;
+  if (!accountSid || !from) return null;
+
+  // API Key tercih (set ise), yoksa klasik Auth Token
+  const apiKeySid = process.env.TWILIO_API_KEY_SID;
+  const apiKeySecret = process.env.TWILIO_API_KEY_SECRET;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+
+  let authUser: string, authPass: string;
+  if (apiKeySid && apiKeySecret) {
+    authUser = apiKeySid;
+    authPass = apiKeySecret;
+  } else if (authToken) {
+    authUser = accountSid;
+    authPass = authToken;
+  } else {
+    return null; // hicbir auth yontemi yok
+  }
+
   return {
     accountSid,
-    authToken,
+    authUser,
+    authPass,
     from,
     templateDeliverySid: process.env.TWILIO_TEMPLATE_DELIVERY_SID,
     templatePickupSid: process.env.TWILIO_TEMPLATE_PICKUP_SID,
@@ -106,7 +126,7 @@ async function twilioSend(
   }
 
   const url = `https://api.twilio.com/2010-04-01/Accounts/${cfg.accountSid}/Messages.json`;
-  const auth = Buffer.from(`${cfg.accountSid}:${cfg.authToken}`).toString('base64');
+  const auth = Buffer.from(`${cfg.authUser}:${cfg.authPass}`).toString('base64');
 
   try {
     const response = await fetch(url, {
