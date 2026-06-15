@@ -438,12 +438,9 @@ router.get('/logs', requireRole('system_admin', 'laundry_manager', 'hotel_owner'
 
     res.json({ logs, total, limit: lim, offset: off });
   } catch (error: any) {
-    logger.error('Get logs error', {
-      msg: error?.message || String(error),
-      code: error?.code,
-      stack: error?.stack?.split('\n').slice(0, 6).join('\n'),
-    });
-    res.status(500).json({ error: 'Loglar alınamadı' });
+    // console.error stack'i koruyor (logger objesi flatten ediyor)
+    console.error('Get logs error:', error?.message || error, '\nSTACK:', error?.stack);
+    res.status(500).json({ error: 'Loglar alınamadı', _debug: error?.message });
   }
 });
 
