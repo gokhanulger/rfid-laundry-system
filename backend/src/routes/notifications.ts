@@ -369,14 +369,48 @@ router.get('/logs', requireRole('system_admin', 'laundry_manager', 'hotel_owner'
 
     const where = conditions.length > 0 ? and(...conditions) : undefined;
 
-    // Tenant adi ile birlikte donduruyoruz (admin sayfasinda otel adi gosterilsin)
-    const logs = await db.query.notificationLogs.findMany({
-      where,
-      with: { tenant: { columns: { id: true, name: true } } },
-      orderBy: [desc(notificationLogs.createdAt)],
-      limit: parseInt(limit as string),
-      offset: parseInt(offset as string),
-    });
+    // Tenant adini leftJoin ile cekiyoruz (relational query'den daha guvenilir)
+    const rows = await db
+      .select({
+        id: notificationLogs.id,
+        tenantId: notificationLogs.tenantId,
+        channel: notificationLogs.channel,
+        event: notificationLogs.event,
+        recipient: notificationLogs.recipient,
+        subject: notificationLogs.subject,
+        content: notificationLogs.content,
+        status: notificationLogs.status,
+        externalId: notificationLogs.externalId,
+        errorMessage: notificationLogs.errorMessage,
+        sentAt: notificationLogs.sentAt,
+        deliveredAt: notificationLogs.deliveredAt,
+        createdAt: notificationLogs.createdAt,
+        tenantName: tenants.name,
+      })
+      .from(notificationLogs)
+      .leftJoin(tenants, eq(notificationLogs.tenantId, tenants.id))
+      .where(where)
+      .orderBy(desc(notificationLogs.createdAt))
+      .limit(parseInt(limit as string))
+      .offset(parseInt(offset as string));
+
+    // Frontend'de `log.tenant.name` bekliyor; mapleyelim
+    const logs = rows.map((r: any) => ({
+      id: r.id,
+      tenantId: r.tenantId,
+      channel: r.channel,
+      event: r.event,
+      recipient: r.recipient,
+      subject: r.subject,
+      content: r.content,
+      status: r.status,
+      externalId: r.externalId,
+      errorMessage: r.errorMessage,
+      sentAt: r.sentAt,
+      deliveredAt: r.deliveredAt,
+      createdAt: r.createdAt,
+      tenant: r.tenantName ? { id: r.tenantId, name: r.tenantName } : null,
+    }));
 
     const [{ count }] = await db
       .select({ count: sql<number>`count(*)` })
