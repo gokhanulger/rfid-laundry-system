@@ -1,0 +1,44 @@
+name: Günlük Ciro WhatsApp
+
+# Gece 00:30 TR = 21:30 UTC (Türkiye sabit UTC+3, yaz saati yok).
+# Gün bittikten sonra çalışır; biten günün TAM cirosunu raporlar.
+on:
+  schedule:
+    - cron: '30 21 * * *'
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Test için tarih (YYYY-MM-DD, boş bırak = bugün TR)'
+        required: false
+      force:
+        description: 'Aynı gün tekrar gönder (1 = evet)'
+        required: false
+
+concurrency:
+  group: daily-ciro
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Günlük ciro raporunu tetikle
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          BASE="https://rfid-laundry-backend-production.up.railway.app/api/reports/daily-ciro"
+          Q=""
+          if [ -n "${{ github.event.inputs.date }}" ]; then Q="?date=${{ github.event.inputs.date }}"; fi
+          if [ "${{ github.event.inputs.force }}" = "1" ]; then
+            if [ -z "$Q" ]; then Q="?force=1"; else Q="$Q&force=1"; fi
+          fi
+          echo "POST $BASE$Q"
+          code=$(curl -s -o /tmp/resp.json -w "%{http_code}" --max-time 60 \
+            -X POST "$BASE$Q" \
+            -H "x-cron-secret: $CRON_SECRET")
+          echo "HTTP $code"
+          cat /tmp/resp.json
+          echo
+          # 2xx degilse job'u dusur
+          [ "${code:0:1}" = "2" ]

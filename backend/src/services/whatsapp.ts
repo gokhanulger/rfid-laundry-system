@@ -80,6 +80,7 @@ interface TwilioConfig {
   from: string;
   templateDeliverySid?: string;
   templatePickupSid?: string;
+  templateCiroSid?: string;
   statusCallbackUrl?: string;
 }
 
@@ -111,6 +112,7 @@ function getConfig(): TwilioConfig | null {
     from,
     templateDeliverySid: process.env.TWILIO_TEMPLATE_DELIVERY_SID,
     templatePickupSid: process.env.TWILIO_TEMPLATE_PICKUP_SID,
+    templateCiroSid: process.env.TWILIO_TEMPLATE_CIRO_SID,
     statusCallbackUrl: process.env.TWILIO_STATUS_CALLBACK_URL,
   };
 }
@@ -283,4 +285,96 @@ export async function sendPickupWhatsApp(params: PickupWhatsAppParams): Promise<
     console.log(`Twilio WhatsApp (kirli teslim alma) gönderildi -> ${to} (sid: ${result.externalId})`);
   }
   return result.success;
+}
+
+// --- Gunluk ciro raporu (her gun saat 22:00 TR, sahip numaralarina) ---
+
+export interface DailyCiroParams {
+  toPhones: string[]; // alici numaralari (sahip/yonetici)
+  date: string; // "16.06.2026"
+  hotelBreakdown: string; // otel-bazinda cok satirli ozet ({{2}})
+  totalRevenue: string; // "4.700,00 TL"
+  waybillCount: number;
+  itemCount: number;
+}
+
+// Ciro bildirimini notification_logs'a yazar (event: daily_summary, tenant yok)
+async function logCiro(recipient: string, content: string, result: SendResult): Promise<void> {
+  try {
+    await db.insert(notificationLogs).values({
+      tenantId: null,
+      channel: 'whatsapp',
+      event: 'daily_summary',
+      recipient,
+      subject: null,
+      content,
+      status: result.success ? 'sent' : 'failed',
+      externalId: result.externalId || null,
+      errorMessage: result.error || null,
+      sentAt: result.success ? new Date() : null,
+    });
+  } catch (logErr) {
+    console.error('notification_logs (ciro) yazilamadi:', logErr);
+  }
+}
+
+export interface DailyCiroResult {
+  to: string;
+  success: boolean;
+  error?: string;
+  sid?: string;
+}
+
+export async function sendDailyCiroWhatsApp(
+  p: DailyCiroParams
+): Promise<{ sent: number; results: DailyCiroResult[] }> {
+  const fallbackBody =
+    `Günlük Ciro Raporu - ${p.date}\n\n` +
+    `Otel bazında:\n${p.hotelBreakdown}\n\n` +
+    `Toplam Ciro: ${p.totalRevenue}\n` +
+    `İrşaliye: ${p.waybillCount} adet\n` +
+    `Ürün: ${p.itemCount} adet` +
+    SIGNATURE;
+
+  const results: DailyCiroResult[] = [];
+  const cfg = getConfig();
+  if (!cfg) {
+    console.warn('Twilio yapilandirilmamis - ciro raporu gönderilmedi');
+    for (const raw of p.toPhones) {
+      const to = normalizeTurkishPhone(raw) || raw;
+      await logCiro(to, fallbackBody, { success: false, error: 'Twilio env yapılandırılmamış' });
+      results.push({ to, success: false, error: 'Twilio env yapılandırılmamış' });
+    }
+    return { sent: 0, results };
+  }
+
+  const contentVariables = cfg.templateCiroSid
+    ? {
+        '1': p.date,
+        '2': p.hotelBreakdown,
+        '3': p.totalRevenue,
+        '4': String(p.waybillCount),
+        '5': String(p.itemCount),
+      }
+    : undefined;
+
+  let sent = 0;
+  for (const raw of p.toPhones) {
+    const to = normalizeTurkishPhone(raw);
+    if (!to) {
+      await logCiro(raw, fallbackBody, { success: false, error: 'Geçersiz telefon numarası' });
+      results.push({ to: raw, success: false, error: 'Geçersiz telefon numarası' });
+      continue;
+    }
+    const result = await twilioSend(cfg, to, fallbackBody, cfg.templateCiroSid, contentVariables);
+    await logCiro(to, fallbackBody, result);
+    if (result.success) {
+      sent++;
+      console.log(`Twilio WhatsApp (gunluk ciro) gönderildi -> ${to} (sid: ${result.externalId})`);
+    } else {
+      console.error(`Twilio WhatsApp (gunluk ciro) basarisiz -> ${to}: ${result.error}`);
+    }
+    results.push({ to, success: result.success, error: result.error, sid: result.externalId });
+  }
+  return { sent, results };
 }
