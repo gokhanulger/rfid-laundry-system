@@ -101,42 +101,33 @@ export function ItemManagementPage() {
     queryFn: settingsApi.getItemTypes,
   });
 
-  // Fetch ALL items for selected hotel (paginated - backend max 100)
+  // Fetch ALL items for selected hotel (large pages, remaining pages in parallel)
   const { data: itemsData, isLoading: itemsLoading, refetch } = useQuery({
     queryKey: ['items', selectedHotelId, statusFilter, searchTerm],
     queryFn: async () => {
       if (!selectedHotelId) return { data: [], total: 0 };
 
-      const allItems: Item[] = [];
-      let page = 1;
-      const limit = 100; // Backend max is 100
-      let totalPages = 1;
-
-      // First request to get total pages
-      const firstResult = await itemsApi.getAll({
-        page: 1,
+      const limit = 1000; // Backend max is 1000
+      const baseParams = {
         limit,
         tenantId: selectedHotelId,
         status: statusFilter || undefined,
-        search: searchTerm || undefined
-      });
+        search: searchTerm || undefined,
+      };
 
-      if (firstResult.data) {
-        allItems.push(...firstResult.data);
-        totalPages = firstResult.pagination?.totalPages || 1;
-      }
+      // First request to get total pages
+      const firstResult = await itemsApi.getAll({ ...baseParams, page: 1 });
+      const allItems: Item[] = [...(firstResult.data || [])];
+      const totalPages = firstResult.pagination?.totalPages || 1;
 
-      // Fetch remaining pages
-      for (page = 2; page <= totalPages && page <= 100; page++) {
-        const result = await itemsApi.getAll({
-          page,
-          limit,
-          tenantId: selectedHotelId,
-          status: statusFilter || undefined,
-          search: searchTerm || undefined
-        });
-        if (result.data && result.data.length > 0) {
-          allItems.push(...result.data);
+      // Fetch remaining pages in parallel
+      if (totalPages > 1) {
+        const pages = Array.from({ length: totalPages - 1 }, (_, i) => i + 2);
+        const results = await Promise.all(
+          pages.map((page) => itemsApi.getAll({ ...baseParams, page }))
+        );
+        for (const result of results) {
+          if (result.data?.length) allItems.push(...result.data);
         }
       }
 
@@ -145,51 +136,23 @@ export function ItemManagementPage() {
     enabled: !!selectedHotelId,
   });
 
-  // Fetch ALL items to count per hotel (paginated - backend max 100)
-  const { data: allItemsData, isLoading: allItemsLoading } = useQuery({
-    queryKey: ['all-items-summary'],
-    queryFn: async () => {
-      const allItems: Item[] = [];
-      const limit = 100; // Backend max is 100
-      let totalPages = 1;
-
-      // First request to get total pages
-      const firstResult = await itemsApi.getAll({ page: 1, limit });
-      if (firstResult.data) {
-        allItems.push(...firstResult.data);
-        totalPages = firstResult.pagination?.totalPages || 1;
-      }
-
-      // Fetch remaining pages
-      for (let page = 2; page <= totalPages && page <= 500; page++) {
-        const result = await itemsApi.getAll({ page, limit });
-        if (result.data && result.data.length > 0) {
-          allItems.push(...result.data);
-        }
-      }
-
-      return { data: allItems, total: allItems.length };
-    },
+  // Per-hotel item counts via a single grouped DB query (not a full item fetch)
+  const { data: summaryData, isLoading: allItemsLoading } = useQuery({
+    queryKey: ['items-summary-by-tenant'],
+    queryFn: itemsApi.getSummaryByTenant,
     enabled: !selectedHotelId, // Only fetch when on hotel selection screen
     staleTime: 60000, // Cache for 1 minute
   });
 
-  // Calculate hotel stats from all items
-  const hotelStats = useMemo(() => {
-    if (!allItemsData?.data) return {};
-    const stats: Record<string, number> = {};
-    for (const item of allItemsData.data) {
-      stats[item.tenantId] = (stats[item.tenantId] || 0) + 1;
-    }
-    return stats;
-  }, [allItemsData]);
+  // Hotel stats come directly from the grouped query
+  const hotelStats = summaryData?.counts ?? {};
 
   const createMutation = useMutation({
     mutationFn: itemsApi.create,
     onSuccess: () => {
       toast.success('Ürün başarıyla oluşturuldu!');
       queryClient.invalidateQueries({ queryKey: ['items'] });
-      queryClient.invalidateQueries({ queryKey: ['all-items-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['items-summary-by-tenant'] });
       closeModal();
     },
     onError: (err) => toast.error('Ürün oluşturulamadı', getErrorMessage(err)),
@@ -210,7 +173,7 @@ export function ItemManagementPage() {
     onSuccess: () => {
       toast.success('Ürün başarıyla silindi!');
       queryClient.invalidateQueries({ queryKey: ['items'] });
-      queryClient.invalidateQueries({ queryKey: ['all-items-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['items-summary-by-tenant'] });
     },
     onError: (err) => toast.error('Ürün silinemedi', getErrorMessage(err)),
   });
@@ -369,7 +332,7 @@ export function ItemManagementPage() {
   }, [tenants, hotelDropdownSearch]);
 
   // Total items count
-  const totalItemsCount = allItemsData?.total || allItemsData?.data?.length || 0;
+  const totalItemsCount = summaryData?.total || 0;
 
   // Hotel Selection View
   if (!selectedHotelId) {

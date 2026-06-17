@@ -107,18 +107,19 @@ itemsRouter.get('/', async (req: AuthRequest, res) => {
       },
     });
 
-    // Get total count for pagination
-    const totalCount = await db.query.items.findMany({
-      where: conditions.length > 0 ? and(...conditions) : undefined,
-    });
+    // Get total count for pagination (SQL count, not full-table fetch)
+    const [{ total }] = await db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(items)
+      .where(conditions.length > 0 ? and(...conditions) : undefined);
 
     res.json({
       data: allItems,
       pagination: {
         page,
         limit,
-        total: totalCount.length,
-        totalPages: Math.ceil(totalCount.length / limit),
+        total,
+        totalPages: Math.ceil(total / limit),
       }
     });
   } catch (error) {
@@ -273,6 +274,42 @@ itemsRouter.get('/discarded', async (req: AuthRequest, res) => {
     res.json(discardedItems);
   } catch (error) {
     console.error('Get discarded items error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get item counts grouped by tenant - MUST be before /:id route
+// Replaces fetching every item just to count per-hotel on the selection screen.
+itemsRouter.get('/summary/by-tenant', async (req: AuthRequest, res) => {
+  try {
+    const user = req.user!;
+
+    // Tenant isolation: hotel-bound users only see their own tenant count
+    const conditions: any[] = [];
+    const rolesWithFullAccess = ['system_admin', 'ironer', 'laundry_manager', 'packager', 'operator'];
+    if (!rolesWithFullAccess.includes(user.role) && user.tenantId) {
+      conditions.push(eq(items.tenantId, user.tenantId));
+    }
+
+    const rows = await db
+      .select({
+        tenantId: items.tenantId,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(items)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .groupBy(items.tenantId);
+
+    const counts: Record<string, number> = {};
+    let total = 0;
+    for (const row of rows) {
+      counts[row.tenantId] = row.count;
+      total += row.count;
+    }
+
+    res.json({ counts, total });
+  } catch (error) {
+    console.error('Get items summary error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

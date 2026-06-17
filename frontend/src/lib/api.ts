@@ -164,6 +164,12 @@ export const itemsApi = {
     return data;
   },
 
+  // Per-hotel item counts (single grouped query, not a full item fetch)
+  getSummaryByTenant: async (): Promise<{ counts: Record<string, number>; total: number }> => {
+    const { data } = await api.get<{ counts: Record<string, number>; total: number }>('/items/summary/by-tenant');
+    return data;
+  },
+
   getByRfid: async (rfidTag: string): Promise<Item> => {
     const { data } = await api.get<Item>(`/items/rfid/${rfidTag}`);
     return data;
