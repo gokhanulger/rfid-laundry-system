@@ -3,7 +3,7 @@ import { sql } from 'drizzle-orm';
 import { db } from '../db';
 import { items } from '../db/schema';
 import { requireAuth, AuthRequest } from '../middleware/auth';
-import { sendDailyCiroWhatsApp } from '../services/whatsapp';
+import { sendDailyCiroWhatsApp, sendDeliveryWhatsApp, sendPickupWhatsApp } from '../services/whatsapp';
 
 export const reportsRouter = Router();
 
@@ -128,6 +128,97 @@ reportsRouter.post('/daily-ciro', async (req, res) => {
     });
   } catch (error) {
     console.error('daily-ciro error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// BILDIRIM YENIDEN GONDERME — basarisiz WhatsApp bildirimlerini ID ile tekrar dener.
+// Auth YOK; CRON_SECRET ile korunur (ciro ile ayni). requireAuth'tan ONCE tanimlanir.
+//   POST /api/reports/resend-notifications?secret=<CRON_SECRET>&ids=<id1,id2,...>
+// GUVENLIK: sadece ACIKCA verilen ID'leri, yalnizca status='failed' olanlari isler.
+// Icerik (content) metninden parametreleri yeniden kurup sablonla tekrar gonderir.
+// ---------------------------------------------------------------------------
+reportsRouter.post('/resend-notifications', async (req, res) => {
+  try {
+    const secret = process.env.CRON_SECRET;
+    const provided = req.header('x-cron-secret') || (req.query.secret as string | undefined);
+    if (!secret || provided !== secret) {
+      return res.status(401).json({ error: 'unauthorized' });
+    }
+
+    const rawIds =
+      (req.query.ids as string | undefined) ??
+      (Array.isArray(req.body?.ids) ? req.body.ids.join(',') : (req.body?.ids as string | undefined));
+    const ids = String(rawIds || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (ids.length === 0) return res.status(400).json({ error: 'ids gerekli (virgulle ayrilmis)' });
+    if (ids.length > 50) return res.status(400).json({ error: 'en fazla 50 id islenebilir' });
+
+    const results: any[] = [];
+    for (const id of ids) {
+      const rRes: any = await db.execute(sql`
+        SELECT id, tenant_id, event, recipient, content, status
+        FROM notification_logs WHERE id = ${id}::uuid AND channel = 'whatsapp' LIMIT 1`);
+      const row = (Array.isArray(rRes) ? rRes[0] : rRes.rows?.[0]) as any;
+      if (!row) {
+        results.push({ id, ok: false, reason: 'bulunamadi' });
+        continue;
+      }
+      if (row.status !== 'failed') {
+        results.push({ id, ok: false, reason: `status=${row.status} (sadece failed yeniden gonderilir)` });
+        continue;
+      }
+
+      // content (fallbackBody) metninden parametreleri geri kur
+      const c: string = row.content || '';
+      const hotelName = (c.match(/^Sayın (.+?), /) || [])[1] || '';
+      const date = (c.match(/Tarih: (.+)/) || [])[1]?.trim() || '';
+      const total = parseInt((c.match(/Toplam: (\d+) adet/) || [])[1] || '0', 10);
+      const detail = (c.match(/Detay:\n([\s\S]+?)\n\nToplam:/) || [])[1] || '';
+      const itemSummary = detail
+        .split('\n')
+        .map((l) => {
+          const m = l.match(/^(\d+) adet (.+)$/);
+          return m ? { count: parseInt(m[1], 10), typeName: m[2].trim() } : null;
+        })
+        .filter(Boolean) as { count: number; typeName: string }[];
+
+      let ok = false;
+      if (row.event === 'delivery_delivered') {
+        const wb = (c.match(/İrsaliye No: (.+)/) || [])[1]?.trim() || '';
+        ok = await sendDeliveryWhatsApp({
+          tenantId: row.tenant_id,
+          toPhone: row.recipient,
+          hotelName,
+          waybillNumber: wb,
+          totalItems: total,
+          date,
+          itemSummary,
+        });
+      } else if (row.event === 'pickup_received') {
+        const bag = (c.match(/İrsaliye\/Çuval No: (.+)/) || [])[1]?.trim() || '';
+        ok = await sendPickupWhatsApp({
+          tenantId: row.tenant_id,
+          toPhone: row.recipient,
+          hotelName,
+          bagCode: bag,
+          totalItems: total,
+          date,
+          itemSummary,
+        });
+      } else {
+        results.push({ id, ok: false, reason: `event=${row.event} desteklenmiyor` });
+        continue;
+      }
+      results.push({ id, ok, hotel: hotelName, recipient: row.recipient });
+    }
+
+    return res.json({ requested: ids.length, results });
+  } catch (error) {
+    console.error('resend-notifications error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });

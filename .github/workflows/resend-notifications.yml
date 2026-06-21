@@ -1,0 +1,31 @@
+name: Bildirim Yeniden Gonder
+
+# Basarisiz WhatsApp bildirimlerini (notification_logs id ile) manuel olarak tekrar gonderir.
+# Sadece status='failed' olan kayitlari isler. CRON_SECRET ile korunur.
+on:
+  workflow_dispatch:
+    inputs:
+      ids:
+        description: 'notification_logs ID listesi (virgulle ayrilmis)'
+        required: true
+
+jobs:
+  resend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Yeniden gonderim tetikle
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          BASE="https://rfid-laundry-backend-production.up.railway.app/api/reports/resend-notifications"
+          echo "POST $BASE (ids gizli)"
+          code=$(curl -s -o /tmp/resp.json -w "%{http_code}" --max-time 60 \
+            -X POST "$BASE" \
+            -H "x-cron-secret: $CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            -d "{\"ids\": \"${{ github.event.inputs.ids }}\"}")
+          echo "HTTP $code"
+          cat /tmp/resp.json
+          echo
+          [ "${code:0:1}" = "2" ]
