@@ -164,9 +164,9 @@ export function WhatsAppMessagesPage() {
   }, [selectedKey, selected?.messages.length]);
 
   return (
-    <div className="p-4 md:p-6 bg-gray-50 min-h-screen flex flex-col">
+    <div className="p-4 md:p-6 bg-gray-50 h-full flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="mb-4 flex items-center justify-between flex-wrap gap-3">
+      <div className="mb-4 flex-shrink-0 flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
             <div className="p-2 bg-emerald-500/10 rounded-lg">
@@ -188,8 +188,8 @@ export function WhatsAppMessagesPage() {
         </button>
       </div>
 
-      {/* Stat cards */}
-      <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-4">
+      {/* Stat cards — sabit (sticky) ust kisim, kaymaz */}
+      <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-4 flex-shrink-0">
         <StatCard label="Toplam" count={total} icon={MessageSquare} color="text-gray-600" />
         <StatCard label="İletildi" count={counts.delivered} icon={CheckCircle2} color="text-emerald-600" />
         <StatCard label="Gönderildi" count={counts.sent} icon={Check} color="text-blue-600" />
@@ -207,10 +207,10 @@ export function WhatsAppMessagesPage() {
       </div>
 
       {/* Conversation layout */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden flex-1 flex min-h-[60vh]">
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden flex-1 flex min-h-0">
         {/* Sol: konuşma listesi */}
         <div
-          className={`w-full md:w-80 md:flex-shrink-0 border-r border-gray-200 flex flex-col ${
+          className={`w-full md:w-80 md:flex-shrink-0 border-r border-gray-200 flex-col min-h-0 ${
             selected ? 'hidden md:flex' : 'flex'
           }`}
         >
@@ -279,7 +279,7 @@ export function WhatsAppMessagesPage() {
         </div>
 
         {/* Sağ: seçili konuşma thread'i */}
-        <div className={`flex-1 flex-col ${selected ? 'flex' : 'hidden md:flex'}`}>
+        <div className={`flex-1 flex-col min-h-0 ${selected ? 'flex' : 'hidden md:flex'}`}>
           {!selected ? (
             <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
               <div className="text-center">
