@@ -102,10 +102,11 @@ reportsRouter.post('/daily-ciro', async (req, res) => {
     }
 
     // 7) Alicilar — Railway DAILY_CIRO_RECIPIENTS env'i (set ise) baz alinir.
-    //    +905325837431 env'e dogrudan erisim olmadigindan kodda garanti ekleniyor (dedup).
+    //    Asagidaki numaralar env'e dogrudan erisim olmadigindan kodda garanti ekleniyor (dedup).
     const baseRecipients = (process.env.DAILY_CIRO_RECIPIENTS || '+905323735583,+14257864847')
       .split(',').map((s) => s.trim()).filter(Boolean);
-    const recipients = Array.from(new Set([...baseRecipients, '+905325837431']));
+    const extraRecipients = ['+905325837431', '+905325037804'];
+    const recipients = Array.from(new Set([...baseRecipients, ...extraRecipients]));
 
     // 8) Gonder
     const sendRes = await sendDailyCiroWhatsApp({
