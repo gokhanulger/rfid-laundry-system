@@ -355,7 +355,7 @@ export async function sendDailyCiroWhatsApp(
     `Günlük Ciro Raporu - ${p.date}\n\n` +
     `Otel bazında:\n${p.hotelBreakdown}\n\n` +
     `Toplam Ciro: ${p.totalRevenue}\n` +
-    `İrşaliye: ${p.waybillCount} adet\n` +
+    `İrsaliye: ${p.waybillCount} adet\n` +
     `Ürün: ${p.itemCount} adet` +
     SIGNATURE;
 

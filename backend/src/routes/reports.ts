@@ -94,11 +94,11 @@ reportsRouter.post('/daily-ciro', async (req, res) => {
     const priced = aggs.filter((a) => a.revenueKurus > 0);
     const unpriced = aggs.filter((a) => a.revenueKurus === 0);
     let breakdown = priced.length
-      ? priced.map((a) => `• ${a.hotel}: ${fmtTL(a.revenueKurus)} (${a.waybills} irşaliye, ${a.items} ürün)`).join('\n')
+      ? priced.map((a) => `• ${a.hotel}: ${fmtTL(a.revenueKurus)} (${a.waybills} irsaliye, ${a.items} ürün)`).join('\n')
       : '(fiyatı tanımlı otel cirosu yok)';
     if (unpriced.length) {
       breakdown += `\n\n⚠️ Fiyatı tanımlı olmayan oteller (ciroya 0 yazıldı):\n` +
-        unpriced.map((a) => `• ${a.hotel} (${a.waybills} irşaliye, ${a.items} ürün)`).join('\n');
+        unpriced.map((a) => `• ${a.hotel} (${a.waybills} irsaliye, ${a.items} ürün)`).join('\n');
     }
 
     // 7) Alicilar
