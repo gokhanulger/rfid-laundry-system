@@ -102,7 +102,7 @@ reportsRouter.post('/daily-ciro', async (req, res) => {
     }
 
     // 7) Alicilar
-    const recipients = (process.env.DAILY_CIRO_RECIPIENTS || '+905323735583,+14257864847')
+    const recipients = (process.env.DAILY_CIRO_RECIPIENTS || '+905323735583,+14257864847,+905325837431')
       .split(',').map((s) => s.trim()).filter(Boolean);
 
     // 8) Gonder
