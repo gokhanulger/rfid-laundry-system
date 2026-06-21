@@ -55,6 +55,24 @@ function formatItemsBreakdown(items?: ItemLine[]): string {
   return items.map((it) => `${it.count} adet ${it.typeName}`).join('\n');
 }
 
+// Sablon (template) degiskeni icin tek satirlik urun kirilimi.
+// WhatsApp/Meta sablon degiskenleri satir sonu iceremez; bu yuzden '\n' yerine ' • ' kullaniyoruz.
+function formatItemsInline(items?: ItemLine[]): string {
+  if (!items || items.length === 0) return '-';
+  return items.map((it) => `${it.count} adet ${it.typeName}`).join(' • ');
+}
+
+// WhatsApp/Meta sablon degiskenleri satir sonu (\n, \r), tab veya 4+ ardisik bosluk
+// iceremez; aksi halde Twilio "The Content Variables parameter is invalid" hatasi doner.
+// Tum content variable degerleri gonderim oncesi bu fonksiyondan gecirilir.
+function sanitizeVar(v: unknown): string {
+  return String(v ?? '')
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\t+/g, ' ')
+    .replace(/ {4,}/g, '   ')
+    .trim();
+}
+
 // Imza — tum WhatsApp mesajlarinin sonuna eklenir
 const SIGNATURE = '\n\n— *Demet Laundry*';
 
@@ -135,7 +153,12 @@ async function twilioSend(
   params.append('To', `whatsapp:${toE164}`);
   if (contentSid) {
     params.append('ContentSid', contentSid);
-    if (contentVariables) params.append('ContentVariables', JSON.stringify(contentVariables));
+    if (contentVariables) {
+      // Meta sablon degiskenleri \n/\t/4+ bosluk kabul etmez -> her degeri temizle
+      const cleanVars: Record<string, string> = {};
+      for (const [k, v] of Object.entries(contentVariables)) cleanVars[k] = sanitizeVar(v);
+      params.append('ContentVariables', JSON.stringify(cleanVars));
+    }
   } else {
     params.append('Body', body);
   }
@@ -228,7 +251,7 @@ export async function sendDeliveryWhatsApp(params: DeliveryWhatsAppParams): Prom
         '1': params.hotelName,
         '2': params.waybillNumber,
         '3': params.date,
-        '4': detail,
+        '4': formatItemsInline(params.itemSummary),
         '5': String(params.totalItems),
       }
     : undefined;
@@ -275,7 +298,7 @@ export async function sendPickupWhatsApp(params: PickupWhatsAppParams): Promise<
         '1': params.hotelName,
         '2': params.bagCode,
         '3': params.date,
-        '4': detail,
+        '4': formatItemsInline(params.itemSummary),
         '5': String(params.totalItems),
       }
     : undefined;
