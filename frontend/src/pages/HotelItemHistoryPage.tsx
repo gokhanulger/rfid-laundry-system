@@ -12,11 +12,11 @@ import {
   FileText,
   Search,
 } from 'lucide-react';
-import { pickupsApi, deliveriesApi, waybillsApi } from '../lib/api';
+import { pickupsApi, waybillsApi } from '../lib/api';
 import type { Waybill } from '../lib/api';
 import type { Pickup, Delivery, PickupItem, DeliveryItem } from '../types';
 
-type TabType = 'pickups' | 'deliveries' | 'waybills';
+type TabType = 'pickups' | 'waybills';
 
 export function HotelItemHistoryPage() {
   const [activeTab, setActiveTab] = useState<TabType>('pickups');
@@ -30,25 +30,16 @@ export function HotelItemHistoryPage() {
     queryFn: () => pickupsApi.getAll({ limit: 200 }),
   });
 
-  // Fetch deliveries (delivered status)
-  const { data: deliveriesData, isLoading: loadingDeliveries, refetch: refetchDeliveries } = useQuery({
-    queryKey: ['hotel-deliveries-history'],
-    queryFn: () => deliveriesApi.getAll({ status: 'delivered', limit: 200 }),
-  });
-
   // Fetch waybills (irsaliye) with nested deliveries (paket) + items (urun)
   const { data: waybillsData, isLoading: loadingWaybills, refetch: refetchWaybills } = useQuery({
     queryKey: ['hotel-waybills-history'],
     queryFn: () => waybillsApi.getAll({ limit: 200 }),
   });
 
-  const isLoading =
-    activeTab === 'pickups' ? loadingPickups : activeTab === 'deliveries' ? loadingDeliveries : loadingWaybills;
-  const refetch =
-    activeTab === 'pickups' ? refetchPickups : activeTab === 'deliveries' ? refetchDeliveries : refetchWaybills;
+  const isLoading = activeTab === 'pickups' ? loadingPickups : loadingWaybills;
+  const refetch = activeTab === 'pickups' ? refetchPickups : refetchWaybills;
 
   const pickups = pickupsData?.data || [];
-  const deliveries = deliveriesData?.data || [];
   const waybills = waybillsData?.data || [];
 
   // Filter by date
@@ -81,25 +72,11 @@ export function HotelItemHistoryPage() {
     ) || false;
   };
 
-  const filterDeliveryBySearch = (delivery: Delivery) => {
-    if (!searchTerm) return true;
-    const search = searchTerm.toLowerCase();
-    if (delivery.barcode.toLowerCase().includes(search)) return true;
-    return delivery.deliveryItems?.some(di =>
-      di.item?.rfidTag.toLowerCase().includes(search)
-    ) || false;
-  };
-
   // Filtered data
   const filteredPickups = pickups
     .filter(p => filterByDate(p.pickupDate || p.createdAt))
     .filter(filterPickupBySearch)
     .sort((a, b) => new Date(b.pickupDate || b.createdAt).getTime() - new Date(a.pickupDate || a.createdAt).getTime());
-
-  const filteredDeliveries = deliveries
-    .filter(d => filterByDate(d.deliveredAt || d.createdAt))
-    .filter(filterDeliveryBySearch)
-    .sort((a, b) => new Date(b.deliveredAt || b.createdAt).getTime() - new Date(a.deliveredAt || a.createdAt).getTime());
 
   // Helper: all delivery items inside a waybill (across its paket/deliveries)
   const getWaybillDeliveries = (waybill: Waybill): Delivery[] =>
@@ -142,7 +119,6 @@ export function HotelItemHistoryPage() {
   };
 
   const groupedPickups = groupByDate(filteredPickups, p => p.pickupDate || p.createdAt);
-  const groupedDeliveries = groupByDate(filteredDeliveries, d => d.deliveredAt || d.createdAt);
   const groupedWaybills = groupByDate(filteredWaybills, w => w.printedAt || w.createdAt);
 
   // Waybill (irsaliye) status label + color
@@ -188,7 +164,7 @@ export function HotelItemHistoryPage() {
 
   // Stats
   const totalPickupItems = pickups.reduce((sum, p) => sum + (p.pickupItems?.length || 0), 0);
-  const totalDeliveryItems = deliveries.reduce((sum, d) => sum + (d.deliveryItems?.length || 0), 0);
+  const totalDeliveryItems = waybills.reduce((sum, w) => sum + getWaybillItems(w).length, 0);
 
   return (
     <div className="p-6 space-y-6 animate-fade-in">
@@ -256,20 +232,6 @@ export function HotelItemHistoryPage() {
             </span>
           </button>
           <button
-            onClick={() => setActiveTab('deliveries')}
-            className={`flex-1 flex items-center justify-center gap-2 px-6 py-4 font-medium transition-colors ${
-              activeTab === 'deliveries'
-                ? 'text-green-600 border-b-2 border-green-600 bg-green-50'
-                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-            }`}
-          >
-            <ArrowDownCircle className="w-5 h-5" />
-            Teslim Edilen Urunler
-            <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-sm">
-              {filteredDeliveries.length}
-            </span>
-          </button>
-          <button
             onClick={() => setActiveTab('waybills')}
             className={`flex-1 flex items-center justify-center gap-2 px-6 py-4 font-medium transition-colors ${
               activeTab === 'waybills'
@@ -278,7 +240,7 @@ export function HotelItemHistoryPage() {
             }`}
           >
             <FileText className="w-5 h-5" />
-            Irsaliyeler
+            Teslim Edilen Urunler
             <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-sm">
               {filteredWaybills.length}
             </span>
@@ -340,17 +302,40 @@ export function HotelItemHistoryPage() {
                 <p className="text-xl text-gray-500">Toplama kaydı bulunamadı</p>
               </div>
             ) : (
-              <div className="space-y-6">
-                {Object.entries(groupedPickups).map(([date, datePickups]) => (
-                  <div key={date}>
-                    <div className="flex items-center gap-2 mb-3">
-                      <Calendar className="w-5 h-5 text-orange-600" />
-                      <h3 className="font-semibold text-gray-800">{date}</h3>
-                      <span className="px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full text-sm">
-                        {datePickups.length} toplama
-                      </span>
-                    </div>
-                    <div className="space-y-2">
+              <div className="space-y-3">
+                {Object.entries(groupedPickups).map(([date, datePickups]) => {
+                  const dayKey = `pday-${date}`;
+                  const dayExpanded = expandedIds.has(dayKey);
+                  const dayItemCount = datePickups.reduce((s, p) => s + (p.pickupItems?.length || 0), 0);
+
+                  return (
+                    <div key={date} className="border border-gray-200 rounded-xl overflow-hidden">
+                      {/* GUN */}
+                      <button
+                        onClick={() => toggleExpand(dayKey)}
+                        className="w-full px-4 py-3 flex items-center justify-between bg-orange-50 hover:bg-orange-100 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          {dayExpanded ? (
+                            <ChevronDown className="w-5 h-5 text-orange-500" />
+                          ) : (
+                            <ChevronRight className="w-5 h-5 text-orange-500" />
+                          )}
+                          <Calendar className="w-5 h-5 text-orange-600" />
+                          <h3 className="font-semibold text-gray-800">{date}</h3>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full text-sm">
+                            {datePickups.length} toplama
+                          </span>
+                          <span className="px-3 py-1 bg-orange-500 text-white rounded-full text-sm font-bold">
+                            {dayItemCount} urun
+                          </span>
+                        </div>
+                      </button>
+
+                      {dayExpanded && (
+                      <div className="p-3 space-y-2 bg-white">
                       {datePickups.map((pickup) => {
                         const isExpanded = expandedIds.has(pickup.id);
                         const itemCount = pickup.pickupItems?.length || 0;
@@ -361,6 +346,7 @@ export function HotelItemHistoryPage() {
                             key={pickup.id}
                             className="bg-gray-50 rounded-lg border border-gray-200 overflow-hidden"
                           >
+                            {/* CUVAL / TORBA */}
                             <button
                               onClick={() => toggleExpand(pickup.id)}
                               className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-100"
@@ -371,6 +357,7 @@ export function HotelItemHistoryPage() {
                                 ) : (
                                   <ChevronRight className="w-5 h-5 text-gray-400" />
                                 )}
+                                <Package className="w-5 h-5 text-orange-400" />
                                 <div className="text-left">
                                   <p className="font-mono font-semibold text-gray-900">
                                     {pickup.bagCode}
@@ -381,7 +368,7 @@ export function HotelItemHistoryPage() {
                                 </div>
                               </div>
                               <div className="flex items-center gap-4">
-                                <div className="flex gap-1 flex-wrap justify-end">
+                                <div className="hidden md:flex gap-1 flex-wrap justify-end">
                                   {Object.entries(typeSummary).slice(0, 3).map(([type, count]) => (
                                     <span
                                       key={type}
@@ -397,152 +384,89 @@ export function HotelItemHistoryPage() {
                               </div>
                             </button>
 
-                            {isExpanded && pickup.pickupItems && pickup.pickupItems.length > 0 && (
-                              <div className="border-t border-gray-200 bg-white p-4">
-                                <p className="text-sm font-semibold text-gray-600 mb-3">
-                                  RFID Etiketleri
-                                </p>
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                                  {pickup.pickupItems.map((pi) => (
-                                    <div
-                                      key={pi.id}
-                                      className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg border"
-                                    >
-                                      <Tag className="w-4 h-4 text-orange-500" />
-                                      <span className="font-mono text-sm">{pi.item?.rfidTag || 'N/A'}</span>
-                                      <span className="text-xs text-gray-500 ml-auto">
-                                        {pi.item?.itemType?.name || ''}
-                                      </span>
-                                    </div>
-                                  ))}
+                            {isExpanded && (
+                              pickup.pickupItems && pickup.pickupItems.length > 0 ? (
+                                <div className="border-t border-gray-200 bg-white p-4">
+                                  <p className="text-sm font-semibold text-gray-600 mb-3">
+                                    RFID Etiketleri
+                                  </p>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                                    {pickup.pickupItems.map((pi) => (
+                                      <div
+                                        key={pi.id}
+                                        className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg border"
+                                      >
+                                        <Tag className="w-4 h-4 text-orange-500" />
+                                        <span className="font-mono text-sm">{pi.item?.rfidTag || 'N/A'}</span>
+                                        <span className="text-xs text-gray-500 ml-auto">
+                                          {pi.item?.itemType?.name || ''}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
                                 </div>
-                              </div>
+                              ) : (
+                                <div className="border-t border-gray-200 bg-white p-4">
+                                  <p className="text-sm text-gray-400">Bu toplamada RFID etiketli ürün yok</p>
+                                </div>
+                              )
                             )}
                           </div>
                         );
                       })}
+                      </div>
+                      )}
                     </div>
-                  </div>
-                ))}
-              </div>
-            )
-          ) : activeTab === 'deliveries' ? (
-            /* Deliveries Tab */
-            filteredDeliveries.length === 0 ? (
-              <div className="text-center py-12">
-                <ArrowDownCircle className="w-16 h-16 mx-auto text-gray-300 mb-4" />
-                <p className="text-xl text-gray-500">Teslimat kaydı bulunamadı</p>
-              </div>
-            ) : (
-              <div className="space-y-6">
-                {Object.entries(groupedDeliveries).map(([date, dateDeliveries]) => (
-                  <div key={date}>
-                    <div className="flex items-center gap-2 mb-3">
-                      <Calendar className="w-5 h-5 text-green-600" />
-                      <h3 className="font-semibold text-gray-800">{date}</h3>
-                      <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-sm">
-                        {dateDeliveries.length} teslimat
-                      </span>
-                    </div>
-                    <div className="space-y-2">
-                      {dateDeliveries.map((delivery) => {
-                        const isExpanded = expandedIds.has(delivery.id);
-                        const itemCount = delivery.deliveryItems?.length || 0;
-                        const typeSummary = getItemTypeSummary(delivery.deliveryItems || []);
-
-                        return (
-                          <div
-                            key={delivery.id}
-                            className="bg-gray-50 rounded-lg border border-gray-200 overflow-hidden"
-                          >
-                            <button
-                              onClick={() => toggleExpand(delivery.id)}
-                              className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-100"
-                            >
-                              <div className="flex items-center gap-4">
-                                {isExpanded ? (
-                                  <ChevronDown className="w-5 h-5 text-gray-400" />
-                                ) : (
-                                  <ChevronRight className="w-5 h-5 text-gray-400" />
-                                )}
-                                <div className="text-left">
-                                  <p className="font-mono font-semibold text-gray-900">
-                                    {delivery.barcode}
-                                  </p>
-                                  <p className="text-sm text-gray-500">
-                                    {formatTime(delivery.deliveredAt || delivery.createdAt)}
-                                    {delivery.packageCount > 1 && (
-                                      <span className="ml-2">• {delivery.packageCount} paket</span>
-                                    )}
-                                  </p>
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-4">
-                                <div className="flex gap-1 flex-wrap justify-end">
-                                  {Object.entries(typeSummary).slice(0, 3).map(([type, count]) => (
-                                    <span
-                                      key={type}
-                                      className="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs"
-                                    >
-                                      {type}: {count}
-                                    </span>
-                                  ))}
-                                </div>
-                                <span className="px-3 py-1 bg-green-500 text-white rounded-full font-bold">
-                                  {itemCount} urun
-                                </span>
-                              </div>
-                            </button>
-
-                            {isExpanded && delivery.deliveryItems && delivery.deliveryItems.length > 0 && (
-                              <div className="border-t border-gray-200 bg-white p-4">
-                                <p className="text-sm font-semibold text-gray-600 mb-3">
-                                  RFID Etiketleri
-                                </p>
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                                  {delivery.deliveryItems.map((di) => (
-                                    <div
-                                      key={di.id}
-                                      className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg border"
-                                    >
-                                      <Tag className="w-4 h-4 text-green-500" />
-                                      <span className="font-mono text-sm">{di.item?.rfidTag || 'N/A'}</span>
-                                      <span className="text-xs text-gray-500 ml-auto">
-                                        {di.item?.itemType?.name || ''}
-                                      </span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )
           ) : (
-            /* Waybills (Irsaliye) Tab — Gun / Irsaliye / Paket / Urun */
+            /* Teslim Edilen Urunler — Gun / Irsaliye / Paket / Urun */
             filteredWaybills.length === 0 ? (
               <div className="text-center py-12">
                 <FileText className="w-16 h-16 mx-auto text-gray-300 mb-4" />
                 <p className="text-xl text-gray-500">İrsaliye kaydı bulunamadı</p>
               </div>
             ) : (
-              <div className="space-y-6">
-                {Object.entries(groupedWaybills).map(([date, dateWaybills]) => (
-                  <div key={date}>
-                    {/* GUN */}
-                    <div className="flex items-center gap-2 mb-3">
-                      <Calendar className="w-5 h-5 text-indigo-600" />
-                      <h3 className="font-semibold text-gray-800">{date}</h3>
-                      <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-sm">
-                        {dateWaybills.length} irsaliye
-                      </span>
-                    </div>
-                    <div className="space-y-2">
+              <div className="space-y-3">
+                {Object.entries(groupedWaybills).map(([date, dateWaybills]) => {
+                  const dayKey = `wday-${date}`;
+                  const dayExpanded = expandedIds.has(dayKey);
+                  const dayPkgCount = dateWaybills.reduce((s, w) => s + getWaybillDeliveries(w).length, 0);
+                  const dayItemCount = dateWaybills.reduce((s, w) => s + getWaybillItems(w).length, 0);
+
+                  return (
+                    <div key={date} className="border border-gray-200 rounded-xl overflow-hidden">
+                      {/* GUN */}
+                      <button
+                        onClick={() => toggleExpand(dayKey)}
+                        className="w-full px-4 py-3 flex items-center justify-between bg-indigo-50 hover:bg-indigo-100 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          {dayExpanded ? (
+                            <ChevronDown className="w-5 h-5 text-indigo-500" />
+                          ) : (
+                            <ChevronRight className="w-5 h-5 text-indigo-500" />
+                          )}
+                          <Calendar className="w-5 h-5 text-indigo-600" />
+                          <h3 className="font-semibold text-gray-800">{date}</h3>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-sm">
+                            {dateWaybills.length} irsaliye
+                          </span>
+                          <span className="hidden sm:inline px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-sm">
+                            {dayPkgCount} paket
+                          </span>
+                          <span className="px-3 py-1 bg-indigo-500 text-white rounded-full text-sm font-bold">
+                            {dayItemCount} urun
+                          </span>
+                        </div>
+                      </button>
+
+                      {dayExpanded && (
+                      <div className="p-3 space-y-2 bg-white">
                       {dateWaybills.map((waybill) => {
                         const wbKey = `wb-${waybill.id}`;
                         const wbExpanded = expandedIds.has(wbKey);
@@ -675,9 +599,11 @@ export function HotelItemHistoryPage() {
                           </div>
                         );
                       })}
+                      </div>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )
           )}
