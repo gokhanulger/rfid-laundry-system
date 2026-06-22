@@ -1,6 +1,6 @@
 {
   "name": "rfid-laundry-frontend",
-  "version": "1.0.0",
+  "version": "1.0.4",
   "description": "RFID Çamaşırhane Takip Sistemi",
   "type": "module",
   "engines": {

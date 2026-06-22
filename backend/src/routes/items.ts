@@ -46,6 +46,16 @@ const discardSchema = z.object({
   { message: 'En az bir itemId veya rfidTag gerekli' }
 );
 
+// Lekeli (stained) isaretleme: urun(ler)i isStained=true yapar. itemIds veya rfidTags ile calisir.
+const markStainedSchema = z.object({
+  itemIds: z.array(z.string().uuid()).optional(),
+  rfidTags: z.array(z.string()).optional(),
+  reason: z.string().optional(),
+}).refine(
+  (d) => (d.itemIds && d.itemIds.length > 0) || (d.rfidTags && d.rfidTags.length > 0),
+  { message: 'En az bir itemId veya rfidTag gerekli' }
+);
+
 const scanSchema = z.object({
   rfidTags: z.array(z.string()).min(1, 'At least one RFID tag is required'),
 });
@@ -274,6 +284,37 @@ itemsRouter.get('/discarded', async (req: AuthRequest, res) => {
     res.json(discardedItems);
   } catch (error) {
     console.error('Get discarded items error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Lekeli (stained) urunler - otel portali bu listeyi gorur. /:id route'undan ONCE olmali.
+itemsRouter.get('/stained', async (req: AuthRequest, res) => {
+  try {
+    const user = req.user!;
+    const tenantId = req.query.tenantId as string | undefined;
+
+    const conditions: any[] = [eq(items.isStained, true)];
+
+    // Otel kullanicisi sadece kendi urunlerini gorur; admin/laundry tenantId ile filtreleyebilir
+    if (user.role !== 'system_admin' && user.tenantId) {
+      conditions.push(eq(items.tenantId, user.tenantId));
+    } else if (tenantId) {
+      conditions.push(eq(items.tenantId, tenantId));
+    }
+
+    const stainedItems = await db.query.items.findMany({
+      where: and(...conditions),
+      orderBy: [desc(items.stainedAt)],
+      with: {
+        itemType: true,
+        tenant: true,
+      },
+    });
+
+    res.json(stainedItems);
+  } catch (error) {
+    console.error('Get stained items error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -509,6 +550,76 @@ itemsRouter.post('/discard', requireRole('operator', 'laundry_manager', 'system_
     res.json({ message: 'Urunler iskartaya ayrildi', items: updatedItems, count: updatedItems.length });
   } catch (error) {
     console.error('Discard items error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Lekeli isaretle (LEKELI): urun(ler)i isStained=true yapar. Urun normal akista kalir
+// (yikanir/teslim edilir) ama otel portalindeki "Lekeli" listesinde gorunur.
+itemsRouter.post('/mark-stained', requireRole('operator', 'laundry_manager', 'system_admin', 'ironer'), async (req: AuthRequest, res) => {
+  try {
+    const validation = markStainedSchema.safeParse(req.body);
+    if (!validation.success) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: validation.error.errors
+      });
+    }
+
+    const { itemIds, rfidTags, reason } = validation.data;
+    const user = req.user!;
+
+    // Hedef item ID'lerini topla
+    const targetIds = new Set<string>(itemIds || []);
+
+    // rfidTags verildiyse, taranan etiketleri DB urunlerine esle (taranan etiket DB rfidTag'ini icerir)
+    if (rfidTags && rfidTags.length > 0) {
+      const scopeConditions: any[] = [];
+      if (user.role !== 'system_admin' && user.tenantId) {
+        scopeConditions.push(eq(items.tenantId, user.tenantId));
+      }
+      const candidates = await db.query.items.findMany({
+        where: scopeConditions.length > 0 ? and(...scopeConditions) : undefined,
+        columns: { id: true, rfidTag: true },
+      });
+      for (const scannedTag of rfidTags) {
+        const matches = candidates.filter(it => scannedTag.includes(it.rfidTag));
+        if (matches.length > 0) {
+          const best = matches.sort((a, b) => b.rfidTag.length - a.rfidTag.length)[0];
+          targetIds.add(best.id);
+        }
+      }
+    }
+
+    if (targetIds.size === 0) {
+      return res.status(404).json({ error: 'Eslesen urun bulunamadi' });
+    }
+
+    const updateConditions: any[] = [inArray(items.id, [...targetIds])];
+    if (user.role !== 'system_admin' && user.tenantId) {
+      updateConditions.push(eq(items.tenantId, user.tenantId));
+    }
+
+    await db.update(items)
+      .set({
+        isStained: true,
+        stainedAt: new Date(),
+        stainedReason: reason || null,
+        updatedAt: new Date(),
+      })
+      .where(and(...updateConditions));
+
+    const updatedItems = await db.query.items.findMany({
+      where: inArray(items.id, [...targetIds]),
+      with: {
+        itemType: true,
+        tenant: true,
+      },
+    });
+
+    res.json({ message: 'Urunler lekeli olarak isaretlendi', items: updatedItems, count: updatedItems.length });
+  } catch (error) {
+    console.error('Mark stained items error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

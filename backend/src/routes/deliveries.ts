@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { db, withTransaction } from '../db';
 import { deliveries, deliveryItems, deliveryPackages, items, tenants, users, waybills, waybillDeliveries } from '../db/schema';
-import { eq, and, inArray, desc, lt } from 'drizzle-orm';
+import { eq, and, inArray, desc, lt, gte } from 'drizzle-orm';
 import { requireAuth, AuthRequest, requireRole } from '../middleware/auth';
 import { z } from 'zod';
 import { sendWaybillDeliveryEmail } from '../services/email';
@@ -253,6 +253,67 @@ deliveriesRouter.get('/', async (req: AuthRequest, res) => {
     });
   } catch (error) {
     console.error('Get deliveries error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Camasirhane geneli "islenen urun" sayaci: bugun (Turkiye saati) paketlenen
+// urunlerin TOPLAMI, vardiyaya (Gunduz/Gece) gore ayrilmis. Tum makineler ayni
+// rakami gorsun diye localStorage yerine sunucudan toplulastirilir.
+deliveriesRouter.get('/stats/processed', async (req: AuthRequest, res) => {
+  try {
+    const user = req.user!;
+
+    // Turkiye gununun (UTC+3) baslangicini UTC olarak hesapla
+    const now = new Date();
+    const tr = new Date(now.getTime() + 3 * 60 * 60 * 1000); // Turkiye saati
+    const startOfTurkeyDayUtc = new Date(Date.UTC(
+      tr.getUTCFullYear(), tr.getUTCMonth(), tr.getUTCDate(), 0, 0, 0
+    ).valueOf() - 3 * 60 * 60 * 1000);
+
+    // Utucu her etiket bastiginda bir teslimat OLUSTURUR. Bu yuzden "islenen urun"
+    // sayaci, bugun OLUSTURULAN teslimatlara (etiket basimi) gore artar. Iptal edilen
+    // teslimatlar veritabanindan silindigi icin dogal olarak sayilmaz.
+    const conditions = [
+      gte(deliveries.createdAt, startOfTurkeyDayUtc),
+    ];
+    // system_admin tum otelleri gorur; digerleri kendi otelini
+    if (user.role !== 'system_admin' && user.tenantId) {
+      conditions.push(eq(deliveries.tenantId, user.tenantId));
+    }
+
+    const todays = await db.query.deliveries.findMany({
+      where: and(...conditions),
+      columns: { notes: true, createdAt: true },
+      with: { deliveryItems: { columns: { id: true } } },
+    });
+
+    const counter = { day: 0, night: 0 };
+    for (const d of todays) {
+      // Urun adedi: notes JSON'undaki count'larin toplami; yoksa kalem sayisi
+      let products = 0;
+      if (d.notes) {
+        try {
+          const parsed = JSON.parse(d.notes);
+          if (Array.isArray(parsed)) {
+            products = parsed.reduce((s: number, it: any) => s + (it.count || 0), 0);
+          }
+        } catch { /* notes JSON degil, gec */ }
+      }
+      if (products === 0) {
+        products = d.deliveryItems?.length || 0;
+      }
+      if (products <= 0 || !d.createdAt) continue;
+
+      // Etiket basim (olusturma) anindaki Turkiye saatine gore vardiya (Gunduz 08:00-18:00)
+      const trHour = (new Date(d.createdAt).getUTCHours() + 3) % 24;
+      if (trHour >= 8 && trHour < 18) counter.day += products;
+      else counter.night += products;
+    }
+
+    res.json(counter);
+  } catch (error) {
+    console.error('Get processed stats error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

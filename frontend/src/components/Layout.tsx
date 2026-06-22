@@ -26,6 +26,7 @@ import {
   Database,
   DollarSign,
   Ban,
+  Droplet,
   Shirt,
   MessageSquare,
 } from 'lucide-react';
@@ -89,6 +90,7 @@ export function Layout() {
     { name: 'Mutabakat', href: '/reconciliation', icon: FileText },
     { name: 'Discard Urunler', href: '/alerts', icon: Bell },
     { name: 'Iskarta', href: '/portal/iskarta', icon: Ban },
+    { name: 'Lekeli', href: '/portal/lekeli', icon: Droplet },
   ];
 
   // Navigation for admin/laundry manager (full access)

@@ -53,6 +53,7 @@ import { PortalDeliveryHistory } from './pages/portal/PortalDeliveryHistory';
 import { PortalPickupHistory } from './pages/portal/PortalPickupHistory';
 import { PortalWaybills } from './pages/portal/PortalWaybills';
 import { PortalIskarta } from './pages/portal/PortalIskarta';
+import { PortalLekeli } from './pages/portal/PortalLekeli';
 import { PortalDirtyDelivery } from './pages/portal/PortalDirtyDelivery';
 
 // Driver Pages
@@ -182,6 +183,7 @@ function App() {
                 <Route path="portal/pickups" element={<PortalPickupHistory />} />
                 <Route path="portal/waybills" element={<PortalWaybills />} />
                 <Route path="portal/iskarta" element={<PortalIskarta />} />
+                <Route path="portal/lekeli" element={<PortalLekeli />} />
 
                 {/* Driver Pages */}
                 <Route path="driver" element={<Navigate to="/driver/dirty-pickup" replace />} />

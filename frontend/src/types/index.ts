@@ -62,6 +62,8 @@ export interface Item {
   lastWashDate: string | null;
   discardedAt?: string | null;
   discardedReason?: string | null;
+  stainedAt?: string | null;
+  stainedReason?: string | null;
   createdAt: string;
   updatedAt: string;
   itemType?: ItemType;

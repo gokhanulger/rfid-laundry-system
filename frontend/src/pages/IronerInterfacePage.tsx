@@ -3,7 +3,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Printer, Sparkles, Building2, X, Plus, Search, Delete, Trash2, Sun, Moon, Settings, Wifi, WifiOff, Radio, AlertTriangle, CheckCircle, HelpCircle, XCircle, RefreshCw, Loader2 } from 'lucide-react';
 import { itemsApi, deliveriesApi, settingsApi, dirtyDeclarationsApi, getErrorMessage, getStoredToken, type DirtyDeclaration } from '../lib/api';
 import { useToast } from '../components/Toast';
-import { Barcode, dirtyBarcodeValue } from '../components/Barcode';
 import { generateDeliveryLabel } from '../lib/pdfGenerator';
 import { isElectron, getPrinters, savePreferredPrinter, getPreferredPrinter, type Printer as PrinterType } from '../lib/printer';
 import type { Item, Tenant, Delivery } from '../types';
@@ -12,7 +11,6 @@ import type { UhfTag, UhfReaderStatus } from '../types/electron';
 // Storage keys
 const SELECTED_HOTELS_KEY = 'laundry_selected_hotels';
 const LAST_PRINTED_TYPE_KEY = 'laundry_last_printed_type';
-const PRODUCT_COUNTER_KEY = 'laundry_product_counter';
 
 // Shift type
 type ShiftType = 'day' | 'night';
@@ -75,8 +73,16 @@ export function IronerInterfacePage() {
   const [activeHotelId, setActiveHotelId] = useState<string | null>(null);
   // Print list per hotel - accumulates items before printing
   const [printList, setPrintList] = useState<Record<string, PrintListItem[]>>({});
-  // Product counter per shift (counts products, not labels)
-  const [productCounter, setProductCounter] = useState<{ day: number; night: number }>({ day: 0, night: 0 });
+  // Camasirhane geneli islenen urun sayaci (bugun, vardiyaya gore) - tum makineler ayni
+  // toplami gorsun diye localStorage yerine sunucudan toplulastirilir.
+  const { data: processedStats } = useQuery({
+    queryKey: ['processed-stats'],
+    queryFn: () => deliveriesApi.getProcessedStats(),
+    refetchInterval: 10 * 1000, // 10 sn'de bir tazele
+    staleTime: 5 * 1000,
+    retry: 1,
+  });
+  const productCounter = processedStats ?? { day: 0, night: 0 };
   // Current shift - auto-detected based on Turkey time
   const [currentShift, setCurrentShift] = useState<ShiftType>(getCurrentShiftTurkey());
   // Printer selection
@@ -160,26 +166,13 @@ export function IronerInterfacePage() {
       }
     }
 
-    // Load product counter
-    const loadCounter = () => {
-      const savedCounter = localStorage.getItem(PRODUCT_COUNTER_KEY);
-      if (savedCounter) {
-        try {
-          setProductCounter(JSON.parse(savedCounter));
-        } catch {
-          // Ignore parse errors
-        }
-      }
-    };
-    loadCounter();
-
-    // Auto-detect shift based on Turkey time and update every minute
+    // Islenen urun sayaci artik sunucudan geliyor (yukarki useQuery). Burada sadece
+    // vardiyayi (Gunduz/Gece) Turkiye saatine gore guncel tut.
     const updateShift = () => setCurrentShift(getCurrentShiftTurkey());
     updateShift();
 
-    // Refresh counter and shift every 5 seconds (to catch packager updates)
+    // Vardiyayi 5 sn'de bir tazele
     const refreshInterval = setInterval(() => {
-      loadCounter();
       updateShift();
     }, 5000);
 
@@ -812,9 +805,19 @@ export function IronerInterfacePage() {
 
   // Mark items clean and create delivery mutation
   const processAndPrintMutation = useMutation({
-    mutationFn: async ({ hotelId, itemIds, labelCount, labelExtraData }: { hotelId: string; itemIds: string[]; labelCount: number; labelExtraData?: LabelExtraItem[] }) => {
+    mutationFn: async ({ hotelId, itemIds, labelCount, labelExtraData, stainedItemIds }: { hotelId: string; itemIds: string[]; labelCount: number; labelExtraData?: LabelExtraItem[]; stainedItemIds?: string[] }) => {
       let fullDelivery: Delivery | null = null;
       let isOffline = false;
+
+      // LEKELI isaretli urunleri lekeli olarak kaydet (otel portalinde gorunur).
+      // Urun normal akista kalir; sadece isStained=true yapilir. Offline ise sessizce gec.
+      if (stainedItemIds && stainedItemIds.length > 0) {
+        try {
+          await itemsApi.markStainedItems({ itemIds: stainedItemIds, reason: 'Utucu - LEKELI' });
+        } catch (stainErr) {
+          console.warn('[Lekeli] API kullanilamiyor, lekeli isaretleme atlandi:', stainErr);
+        }
+      }
 
       try {
         // First mark items as ready for delivery (skip if no items)
@@ -2272,7 +2275,6 @@ export function IronerInterfacePage() {
                                   {new Date(d.createdAt).toLocaleDateString('tr-TR')}
                                 </span>
                               </div>
-                              <div className="my-1 flex justify-center"><Barcode value={dirtyBarcodeValue(d.declarationNo)} height={26} width={1.1} fontSize={9} /></div>
                               <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto">
                                 {d.items.map((it, i) => (
                                   <span key={i} className="text-[11px] bg-amber-50 border border-amber-200 text-amber-900 px-1.5 py-0.5 rounded">
@@ -2565,16 +2567,23 @@ export function IronerInterfacePage() {
 
                               // Normal akis: temizle + teslimat olustur + etiket bas
                               const allItemIds: string[] = [];
+                              // LEKELI isaretli turlerin urun ID'leri (otel portaline dussun)
+                              const stainedItemIds: string[] = [];
                               itemsToPrint.forEach(item => {
                                 const availableItems = itemsByType[item.typeId] || [];
-                                allItemIds.push(...availableItems.slice(0, item.count).map(i => i.id));
+                                const ids = availableItems.slice(0, item.count).map(i => i.id);
+                                allItemIds.push(...ids);
+                                if (item.hasarliCount > 0) {
+                                  stainedItemIds.push(...ids);
+                                }
                               });
 
                               processAndPrintMutation.mutate({
                                 hotelId,
                                 itemIds: allItemIds,
                                 labelCount: 1,
-                                labelExtraData
+                                labelExtraData,
+                                stainedItemIds
                               });
 
                               // Clear print list after printing

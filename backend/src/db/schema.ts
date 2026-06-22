@@ -146,6 +146,8 @@ export const items = pgTable('items', {
   lastWashDate: timestamp('last_wash_date'),
   discardedAt: timestamp('discarded_at'), // Iskartaya ayrilma zamani (status='discarded' ise dolu)
   discardedReason: text('discarded_reason'), // Iskarta nedeni (opsiyonel)
+  stainedAt: timestamp('stained_at'), // Lekeli olarak isaretlenme zamani (isStained=true ise dolu)
+  stainedReason: text('stained_reason'), // Lekeli nedeni (opsiyonel)
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

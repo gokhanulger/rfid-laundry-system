@@ -242,6 +242,20 @@ export const itemsApi = {
     return data;
   },
 
+  // Lekeli isaretle (toplu): itemIds veya rfidTags ile
+  markStainedItems: async (params: { itemIds?: string[]; rfidTags?: string[]; reason?: string }): Promise<{ items: Item[]; count: number }> => {
+    const { data } = await api.post<{ items: Item[]; count: number }>('/items/mark-stained', params);
+    return data;
+  },
+
+  // Lekeli urunler (otel portali kendi tenant'ini gorur)
+  getStained: async (tenantId?: string): Promise<Item[]> => {
+    const { data } = await api.get<Item[]>('/items/stained', {
+      params: { tenantId },
+    });
+    return data;
+  },
+
   undiscard: async (id: string): Promise<Item> => {
     const { data } = await api.post<Item>(`/items/${id}/undiscard`, {});
     return data;
@@ -293,6 +307,12 @@ export const deliveriesApi = {
 
   getById: async (id: string): Promise<Delivery> => {
     const { data } = await api.get<Delivery>(`/deliveries/${id}`);
+    return data;
+  },
+
+  // Camasirhane geneli islenen urun sayaci (bugun, vardiyaya gore) - tum makineler ayni rakami gorur
+  getProcessedStats: async (): Promise<{ day: number; night: number }> => {
+    const { data } = await api.get<{ day: number; night: number }>('/deliveries/stats/processed');
     return data;
   },
 

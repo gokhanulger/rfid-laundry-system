@@ -169,6 +169,13 @@
       "when": 1783000000000,
       "tag": "0024_items_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1783500000000,
+      "tag": "0025_items_stained",
+      "breakpoints": true
     }
   ]
 }
