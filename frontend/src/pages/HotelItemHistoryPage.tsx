@@ -9,12 +9,14 @@ import {
   RefreshCw,
   Tag,
   Package,
+  FileText,
   Search,
 } from 'lucide-react';
-import { pickupsApi, deliveriesApi } from '../lib/api';
+import { pickupsApi, deliveriesApi, waybillsApi } from '../lib/api';
+import type { Waybill } from '../lib/api';
 import type { Pickup, Delivery, PickupItem, DeliveryItem } from '../types';
 
-type TabType = 'pickups' | 'deliveries';
+type TabType = 'pickups' | 'deliveries' | 'waybills';
 
 export function HotelItemHistoryPage() {
   const [activeTab, setActiveTab] = useState<TabType>('pickups');
@@ -34,11 +36,20 @@ export function HotelItemHistoryPage() {
     queryFn: () => deliveriesApi.getAll({ status: 'delivered', limit: 200 }),
   });
 
-  const isLoading = activeTab === 'pickups' ? loadingPickups : loadingDeliveries;
-  const refetch = activeTab === 'pickups' ? refetchPickups : refetchDeliveries;
+  // Fetch waybills (irsaliye) with nested deliveries (paket) + items (urun)
+  const { data: waybillsData, isLoading: loadingWaybills, refetch: refetchWaybills } = useQuery({
+    queryKey: ['hotel-waybills-history'],
+    queryFn: () => waybillsApi.getAll({ limit: 200 }),
+  });
+
+  const isLoading =
+    activeTab === 'pickups' ? loadingPickups : activeTab === 'deliveries' ? loadingDeliveries : loadingWaybills;
+  const refetch =
+    activeTab === 'pickups' ? refetchPickups : activeTab === 'deliveries' ? refetchDeliveries : refetchWaybills;
 
   const pickups = pickupsData?.data || [];
   const deliveries = deliveriesData?.data || [];
+  const waybills = waybillsData?.data || [];
 
   // Filter by date
   const filterByDate = (dateStr: string) => {
@@ -90,6 +101,28 @@ export function HotelItemHistoryPage() {
     .filter(filterDeliveryBySearch)
     .sort((a, b) => new Date(b.deliveredAt || b.createdAt).getTime() - new Date(a.deliveredAt || a.createdAt).getTime());
 
+  // Helper: all delivery items inside a waybill (across its paket/deliveries)
+  const getWaybillDeliveries = (waybill: Waybill): Delivery[] =>
+    (waybill.waybillDeliveries || []).map(wd => wd.delivery).filter((d): d is Delivery => !!d);
+
+  const getWaybillItems = (waybill: Waybill): DeliveryItem[] =>
+    getWaybillDeliveries(waybill).flatMap(d => d.deliveryItems || []);
+
+  const filterWaybillBySearch = (waybill: Waybill) => {
+    if (!searchTerm) return true;
+    const search = searchTerm.toLowerCase();
+    if (waybill.waybillNumber.toLowerCase().includes(search)) return true;
+    return getWaybillDeliveries(waybill).some(d => {
+      if (d.barcode?.toLowerCase().includes(search)) return true;
+      return d.deliveryItems?.some(di => di.item?.rfidTag.toLowerCase().includes(search)) || false;
+    });
+  };
+
+  const filteredWaybills = waybills
+    .filter(w => filterByDate(w.printedAt || w.createdAt))
+    .filter(filterWaybillBySearch)
+    .sort((a, b) => new Date(b.printedAt || b.createdAt).getTime() - new Date(a.printedAt || a.createdAt).getTime());
+
   // Group by date
   const groupByDate = <T extends { createdAt: string }>(
     items: T[],
@@ -110,6 +143,21 @@ export function HotelItemHistoryPage() {
 
   const groupedPickups = groupByDate(filteredPickups, p => p.pickupDate || p.createdAt);
   const groupedDeliveries = groupByDate(filteredDeliveries, d => d.deliveredAt || d.createdAt);
+  const groupedWaybills = groupByDate(filteredWaybills, w => w.printedAt || w.createdAt);
+
+  // Waybill (irsaliye) status label + color
+  const waybillStatusInfo = (status: Waybill['status']): { label: string; cls: string } => {
+    switch (status) {
+      case 'delivered':
+        return { label: 'Teslim Edildi', cls: 'bg-green-100 text-green-700' };
+      case 'picked_up':
+        return { label: 'Yolda', cls: 'bg-blue-100 text-blue-700' };
+      case 'printed':
+        return { label: 'Yazdırıldı', cls: 'bg-indigo-100 text-indigo-700' };
+      default:
+        return { label: 'Oluşturuldu', cls: 'bg-gray-100 text-gray-600' };
+    }
+  };
 
   const toggleExpand = (id: string) => {
     const newSet = new Set(expandedIds);
@@ -219,6 +267,20 @@ export function HotelItemHistoryPage() {
             Teslim Edilen Urunler
             <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-sm">
               {filteredDeliveries.length}
+            </span>
+          </button>
+          <button
+            onClick={() => setActiveTab('waybills')}
+            className={`flex-1 flex items-center justify-center gap-2 px-6 py-4 font-medium transition-colors ${
+              activeTab === 'waybills'
+                ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50'
+                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            <FileText className="w-5 h-5" />
+            Irsaliyeler
+            <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-sm">
+              {filteredWaybills.length}
             </span>
           </button>
         </div>
@@ -364,7 +426,7 @@ export function HotelItemHistoryPage() {
                 ))}
               </div>
             )
-          ) : (
+          ) : activeTab === 'deliveries' ? (
             /* Deliveries Tab */
             filteredDeliveries.length === 0 ? (
               <div className="text-center py-12">
@@ -451,6 +513,163 @@ export function HotelItemHistoryPage() {
                                     </div>
                                   ))}
                                 </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )
+          ) : (
+            /* Waybills (Irsaliye) Tab — Gun / Irsaliye / Paket / Urun */
+            filteredWaybills.length === 0 ? (
+              <div className="text-center py-12">
+                <FileText className="w-16 h-16 mx-auto text-gray-300 mb-4" />
+                <p className="text-xl text-gray-500">İrsaliye kaydı bulunamadı</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {Object.entries(groupedWaybills).map(([date, dateWaybills]) => (
+                  <div key={date}>
+                    {/* GUN */}
+                    <div className="flex items-center gap-2 mb-3">
+                      <Calendar className="w-5 h-5 text-indigo-600" />
+                      <h3 className="font-semibold text-gray-800">{date}</h3>
+                      <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-sm">
+                        {dateWaybills.length} irsaliye
+                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      {dateWaybills.map((waybill) => {
+                        const wbKey = `wb-${waybill.id}`;
+                        const wbExpanded = expandedIds.has(wbKey);
+                        const wbDeliveries = getWaybillDeliveries(waybill);
+                        const wbItems = getWaybillItems(waybill);
+                        const typeSummary = getItemTypeSummary(wbItems);
+                        const status = waybillStatusInfo(waybill.status);
+
+                        return (
+                          <div
+                            key={waybill.id}
+                            className="bg-gray-50 rounded-lg border border-gray-200 overflow-hidden"
+                          >
+                            {/* IRSALIYE */}
+                            <button
+                              onClick={() => toggleExpand(wbKey)}
+                              className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-100"
+                            >
+                              <div className="flex items-center gap-4">
+                                {wbExpanded ? (
+                                  <ChevronDown className="w-5 h-5 text-gray-400" />
+                                ) : (
+                                  <ChevronRight className="w-5 h-5 text-gray-400" />
+                                )}
+                                <FileText className="w-5 h-5 text-indigo-500" />
+                                <div className="text-left">
+                                  <p className="font-mono font-semibold text-gray-900">
+                                    {waybill.waybillNumber}
+                                  </p>
+                                  <p className="text-sm text-gray-500">
+                                    {formatTime(waybill.printedAt || waybill.createdAt)}
+                                    <span className={`ml-2 px-2 py-0.5 rounded text-xs ${status.cls}`}>
+                                      {status.label}
+                                    </span>
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <div className="hidden md:flex gap-1 flex-wrap justify-end">
+                                  {Object.entries(typeSummary).slice(0, 3).map(([type, count]) => (
+                                    <span
+                                      key={type}
+                                      className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded text-xs"
+                                    >
+                                      {type}: {count}
+                                    </span>
+                                  ))}
+                                </div>
+                                <span className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-sm font-semibold">
+                                  {wbDeliveries.length} paket
+                                </span>
+                                <span className="px-3 py-1 bg-indigo-500 text-white rounded-full font-bold">
+                                  {wbItems.length} urun
+                                </span>
+                              </div>
+                            </button>
+
+                            {wbExpanded && (
+                              <div className="border-t border-gray-200 bg-white p-3 space-y-2">
+                                {wbDeliveries.length === 0 ? (
+                                  <p className="text-sm text-gray-400 px-2 py-1">Bu irsaliyede paket bulunamadı</p>
+                                ) : (
+                                  wbDeliveries.map((delivery, idx) => {
+                                    const pkgKey = `pkg-${delivery.id}`;
+                                    const pkgExpanded = expandedIds.has(pkgKey);
+                                    const pkgItems = delivery.deliveryItems || [];
+
+                                    return (
+                                      <div
+                                        key={delivery.id}
+                                        className="rounded-lg border border-gray-200 overflow-hidden"
+                                      >
+                                        {/* PAKET */}
+                                        <button
+                                          onClick={() => toggleExpand(pkgKey)}
+                                          className="w-full px-3 py-2 flex items-center justify-between hover:bg-gray-50 bg-gray-50/60"
+                                        >
+                                          <div className="flex items-center gap-3">
+                                            {pkgExpanded ? (
+                                              <ChevronDown className="w-4 h-4 text-gray-400" />
+                                            ) : (
+                                              <ChevronRight className="w-4 h-4 text-gray-400" />
+                                            )}
+                                            <Package className="w-4 h-4 text-indigo-400" />
+                                            <div className="text-left">
+                                              <p className="font-medium text-gray-800 text-sm">
+                                                Paket {idx + 1}
+                                              </p>
+                                              <p className="text-xs text-gray-400 font-mono">
+                                                {delivery.barcode}
+                                              </p>
+                                            </div>
+                                          </div>
+                                          <span className="px-2.5 py-1 bg-indigo-500 text-white rounded-full text-xs font-bold">
+                                            {pkgItems.length} urun
+                                          </span>
+                                        </button>
+
+                                        {/* URUN */}
+                                        {pkgExpanded && (
+                                          pkgItems.length > 0 ? (
+                                            <div className="border-t border-gray-200 p-3">
+                                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                                                {pkgItems.map((di) => (
+                                                  <div
+                                                    key={di.id}
+                                                    className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg border"
+                                                  >
+                                                    <Tag className="w-4 h-4 text-indigo-500" />
+                                                    <span className="font-mono text-sm">{di.item?.rfidTag || 'N/A'}</span>
+                                                    <span className="text-xs text-gray-500 ml-auto">
+                                                      {di.item?.itemType?.name || ''}
+                                                    </span>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            </div>
+                                          ) : (
+                                            <div className="border-t border-gray-200 p-3">
+                                              <p className="text-sm text-gray-400">Bu pakette RFID etiketli ürün yok</p>
+                                            </div>
+                                          )
+                                        )}
+                                      </div>
+                                    );
+                                  })
+                                )}
                               </div>
                             )}
                           </div>
