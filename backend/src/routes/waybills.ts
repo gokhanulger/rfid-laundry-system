@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { db } from '../db';
 import { waybills, waybillDeliveries, deliveries, items, tenants } from '../db/schema';
-import { eq, desc, and, inArray } from 'drizzle-orm';
+import { eq, desc, and, inArray, sql } from 'drizzle-orm';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { sendWaybillDeliveryEmail } from '../services/email';
 import { sendDeliveryWhatsApp } from '../services/whatsapp';
@@ -44,25 +44,26 @@ waybillsRouter.get('/', async (req: AuthRequest, res: Response) => {
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
+    // Liste gorunumu HAFIF tutulur: urun dokumu waybill.itemSummary (JSON) ve
+    // delivery.notes (JSON) icinde hazir; bu yuzden deliveryItems -> item -> itemType
+    // join'i CEKILMEZ (eski hali 100 kayitta ~2MB/10sn idi). Tam dokum gerekirse
+    // GET /waybills/:id kullanilir. Boylece limit olmadan tum irsaliyeler hizli doner.
     const [waybillList, countResult] = await Promise.all([
       db.query.waybills.findMany({
         where: whereClause,
         with: {
-          tenant: true,
-          printedByUser: true,
+          tenant: { columns: { id: true, name: true, address: true } },
           waybillDeliveries: {
             with: {
               delivery: {
-                with: {
-                  deliveryItems: {
-                    with: {
-                      item: {
-                        with: {
-                          itemType: true,
-                        },
-                      },
-                    },
-                  },
+                columns: {
+                  id: true,
+                  barcode: true,
+                  status: true,
+                  packagedAt: true,
+                  createdAt: true,
+                  notes: true,
+                  tenantId: true,
                 },
               },
             },
@@ -72,16 +73,18 @@ waybillsRouter.get('/', async (req: AuthRequest, res: Response) => {
         limit: limitNum,
         offset,
       }),
-      db.select().from(waybills).where(whereClause),
+      db.select({ count: sql<number>`count(*)::int` }).from(waybills).where(whereClause),
     ]);
+
+    const total = countResult[0]?.count ?? 0;
 
     res.json({
       data: waybillList,
       pagination: {
         page: pageNum,
         limit: limitNum,
-        total: countResult.length,
-        totalPages: Math.ceil(countResult.length / limitNum),
+        total,
+        totalPages: limitNum > 0 ? Math.ceil(total / limitNum) : 0,
       },
     });
   } catch (error) {

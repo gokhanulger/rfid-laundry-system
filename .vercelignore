@@ -14,3 +14,16 @@ node_modules
 *.asar
 *.dmg
 *.AppImage
+*.apk
+*.rar
+*.zip
+
+# Native SDKs / hardware drivers (not part of web build)
+900MHz UHF Reader SDK(MM)
+MW-8817 M KONFİGRASYON
+android-app
+tablet-app
+eta-sync-agent
+eta-sync-agent 2
+cloudflare-proxy
+test-results

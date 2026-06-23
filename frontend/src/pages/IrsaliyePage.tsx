@@ -246,6 +246,7 @@ export function IrsaliyePage() {
   const [barcodeInput, setBarcodeInput] = useState('');
   const [scannedPackages, setScannedPackages] = useState<ScannedPackage[]>(restoredSession.scannedPackages);
   const [selectedHotelId, setSelectedHotelId] = useState<string | null>(restoredSession.selectedHotelId);
+  const [hotelSearch, setHotelSearch] = useState(''); // Otel grid arama kutusu
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
   const queryClient = useQueryClient();
@@ -445,7 +446,7 @@ export function IrsaliyePage() {
   // Get waybills for history tab - auto-refresh (API only, non-critical)
   const { data: waybillsData, refetch: refetchWaybills } = useQuery({
     queryKey: ['waybills'],
-    queryFn: () => waybillsApi.getAll({ limit: 100 }),
+    queryFn: () => waybillsApi.getAll({ limit: 10000 }),
     refetchInterval: online ? 5000 : false,
   });
 
@@ -576,8 +577,10 @@ export function IrsaliyePage() {
         return;
       }
 
-      // Yanlış otel kontrolü - scannedPackages üzerinden kontrol et (stale state önleme)
-      const currentHotelId = selectedHotelId || (scannedPackages.length > 0 ? scannedPackages[0].delivery.tenantId : null);
+      // Yanlış otel kontrolü - SECILI otel onceliklidir. Operator hangi oteli sectiyse
+      // o otelin paketleri sorunsuz okunur (baska otelin paketleri elde park halinde olsa bile).
+      // Araya secili otelden FARKLI bir otelin paketi girerse uyari verir.
+      const currentHotelId = selectedHotelId || sessionHotelId;
       if (currentHotelId && delivery.tenantId !== currentHotelId) {
         playErrorSound(); // Yanlış otel - can sesi
         const scannedHotel = tenants?.find(t => t.id === delivery.tenantId);
@@ -612,12 +615,15 @@ export function IrsaliyePage() {
         };
       }
 
-      const alreadyScanned = scannedPackages.some(
-        sp => sp.pkg.packageBarcode === pkg!.packageBarcode
-      );
+      // Hem gevsek taranan listede HEM DE cuvallardaki paketlerde kontrol et.
+      // Cuvala konan paket scannedPackages'ten cikar; sadece ona bakarsak ayni paket
+      // tekrar okutulup gevsek listeye yeniden eklenir ve PAKET SAYISI sisir.
+      const alreadyScanned =
+        scannedPackages.some(sp => sp.pkg.packageBarcode === pkg!.packageBarcode) ||
+        packagesInBags.some(sp => sp.pkg.packageBarcode === pkg!.packageBarcode);
       if (alreadyScanned) {
         playErrorSound(); // Zaten taranmış - can sesi
-        toast.warning('Bu paket zaten taranmis!');
+        toast.warning('Bu paket zaten taranmis (cuvalda veya listede)!');
         setBarcodeInput('');
         return;
       }
@@ -678,19 +684,31 @@ export function IrsaliyePage() {
     });
   };
 
-  const handleClearAll = () => {
-    setScannedPackages([]);
-    setBags([]);
-    setSelectedHotelId(null);
-  };
-
-  // Clear only scanned packages (keep bags)
-  const handleClearScanned = () => {
-    setScannedPackages([]);
-  };
-
-  // Get all packages in bags for this session
+  // Get all packages in bags for this session (TUM oteller - dedup/uniqueness icin ham liste)
   const packagesInBags = bags.flatMap(bag => bag.packages);
+
+  // Bir cuvalin ait oldugu otel = icindeki ilk paketin oteli (cuvallar tek oteldir).
+  const bagHotelId = (bag: Bag) => bag.packages[0]?.delivery.tenantId ?? null;
+
+  // Oturum oteli: elde tutulan ilk paketin/cuvalin oteli (otomatik tespit).
+  const sessionHotelId =
+    scannedPackages[0]?.delivery.tenantId ??
+    bags[0]?.packages[0]?.delivery.tenantId ??
+    null;
+
+  // AKTIF OTEL: operatorun uzerinde calistigi otel. Grid'den secilen otel onceliklidir;
+  // secim yoksa eldeki paketlerin oteline duser. Calisanlar farkli otellerde es zamanli
+  // calisabilsin diye taranan paketler/cuvallar otel bazinda AYRISTIRILIR: secili otelin
+  // disindaki paketler "park" halinde bekler, sadece aktif otelin calisma seti gosterilir,
+  // cuvallanir ve basilir. Boylece bir irsaliyede/cuvalda oteller karismaz.
+  const activeHotelId = selectedHotelId || sessionHotelId;
+  const activeScannedPackages = activeHotelId
+    ? scannedPackages.filter(sp => sp.delivery.tenantId === activeHotelId)
+    : scannedPackages;
+  const activeBags = activeHotelId
+    ? bags.filter(bag => bagHotelId(bag) === activeHotelId)
+    : bags;
+  const activePackagesInBags = activeBags.flatMap(bag => bag.packages);
 
   // Check if a package is already in a bag
   const isPackageInBag = (deliveryId: string) => {
@@ -700,7 +718,14 @@ export function IrsaliyePage() {
   const calculateTotals = () => {
     const totals: Record<string, { name: string; count: number }> = {};
 
-    scannedPackages.forEach(({ delivery }) => {
+    // Urun adetleri TESLIMAT bazindadir (notes/deliveryItems tum teslimati temsil eder),
+    // paket bazinda degil. Bir teslimatin birden fazla paketi varsa her paket icin tekrar
+    // saymak adetleri katlar. Bu yuzden teslimatlari id'ye gore tekillestir.
+    const uniqueDeliveries = Array.from(
+      new Map(activeScannedPackages.map(({ delivery }) => [delivery.id, delivery])).values()
+    );
+
+    uniqueDeliveries.forEach((delivery) => {
       let hasNotesData = false;
 
       // First try to get from notes (labelExtraData from ironer)
@@ -744,10 +769,17 @@ export function IrsaliyePage() {
   const calculateAllTotals = () => {
     const totals: Record<string, { name: string; count: number }> = {};
 
-    // Include packages from all bags
-    const allPackages = [...packagesInBags, ...scannedPackages];
+    // Sadece AKTIF otelin paketleri (toplamlar secili otelin irsaliyesine gore hesaplanir)
+    const allPackages = [...activePackagesInBags, ...activeScannedPackages];
 
-    allPackages.forEach(({ delivery }) => {
+    // Urun adetleri TESLIMAT bazindadir, paket bazinda degil. Ayni teslimat hem cuvalda
+    // hem taranan listede olabilir veya cok paketli olabilir; her durumda teslimat ID'sine
+    // gore tekillestirip bir kez sayiyoruz ki adetler katlanmasin.
+    const uniqueDeliveries = Array.from(
+      new Map(allPackages.map(({ delivery }) => [delivery.id, delivery])).values()
+    );
+
+    uniqueDeliveries.forEach((delivery) => {
       let hasNotesData = false;
 
       // Önce notes'tan veri almayı dene
@@ -795,8 +827,17 @@ export function IrsaliyePage() {
       return;
     }
 
-    // Need at least some packages (in bags or scanned)
-    const allPackages = [...packagesInBags, ...scannedPackages];
+    // Irsaliye DAIMA tek otele basilir: aktif (secili) otel. Diger otellerin paketleri
+    // elde park halinde kalir, bu irsaliyeye girmez.
+    const printHotelId = selectedHotelId || sessionHotelId;
+
+    // Sadece basilan otelin paketleri (cuvalda + gevsek taranan).
+    // Ayni fiziksel paket hem cuvalda hem taranan listede gorunebilir; paket barkoduna
+    // gore tekillestir ki hem PAKET SAYISI hem urun adetleri sismesin (baskida katlanma fix).
+    const allPackagesRaw = [...activePackagesInBags, ...activeScannedPackages];
+    const allPackages = Array.from(
+      new Map(allPackagesRaw.map((p) => [p.pkg.packageBarcode, p])).values()
+    );
     if (allPackages.length === 0) {
       toast.error('Lutfen once paketleri secin');
       return;
@@ -822,7 +863,7 @@ export function IrsaliyePage() {
       try {
         // Electron: try offline-first waybill creation
         if (hasLocalDb) {
-          const result = await (window as any).electronAPI.dbCreateWaybill(uniqueDeliveryIds, bags.length, null);
+          const result = await (window as any).electronAPI.dbCreateWaybill(uniqueDeliveryIds, activeBags.length, null);
           if (result.success) {
             if (result.online && result.result) {
               waybill = result.result;
@@ -840,7 +881,7 @@ export function IrsaliyePage() {
             throw new Error(result.error || 'Irsaliye olusturulamadi');
           }
         } else {
-          waybill = await waybillsApi.create(uniqueDeliveryIds, bags.length);
+          waybill = await waybillsApi.create(uniqueDeliveryIds, activeBags.length);
           console.log('generateIrsaliyePDF: Waybill created:', waybill);
           toast.success(`Irsaliye ${waybill.waybillNumber} olusturuldu. ${uniqueDeliveryIds.length} paket eklendi.`);
         }
@@ -850,7 +891,8 @@ export function IrsaliyePage() {
         return; // API basarisiz - PDF yazdirma
       }
 
-    const hotel = tenants?.find(t => t.id === selectedHotelId);
+    // Baski daima aktif (secili) otele yapilir.
+    const hotel = tenants?.find(t => t.id === printHotelId);
     const totals = calculateAllTotals();
     const documentNo = waybill.waybillNumber;
     const today = new Date().toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -943,7 +985,7 @@ export function IrsaliyePage() {
     doc.setFontSize(14);
     doc.setFont('helvetica', 'bold');
     doc.text('CUVAL SAYISI :', margin, yPos);
-    doc.text(bags.length.toString(), pageWidth - margin - 20, yPos, { align: 'right' });
+    doc.text(activeBags.length.toString(), pageWidth - margin - 20, yPos, { align: 'right' });
 
     yPos += 8;
 
@@ -1160,11 +1202,13 @@ export function IrsaliyePage() {
       }
     }
 
-    // Clear everything and exit hotel view
-    console.log('generateIrsaliyePDF: Clearing data and refreshing');
+    // Sadece basilan otelin paketlerini/cuvallarini temizle; diger otellerin paketleri
+    // park halinde KORUNUR (calisanlar farkli otellerde es zamanli calisabilir).
+    console.log('generateIrsaliyePDF: Clearing printed hotel data and refreshing');
     // Irsaliyesi basilan teslimatlari packaged listesinden hemen gizle (ekrandan gitsin)
     addWaybilledIds(uniqueDeliveryIds);
-    handleClearAll();
+    setScannedPackages(prev => prev.filter(sp => sp.delivery.tenantId !== printHotelId));
+    setBags(prev => prev.filter(bag => (bag.packages[0]?.delivery.tenantId ?? null) !== printHotelId));
     setSelectedHotelId(null);
 
     // Cache'i temizle ve yeniden yukle
@@ -1388,9 +1432,12 @@ export function IrsaliyePage() {
 
   // Generate bag label for driver scanning
   const generateBagLabel = async () => {
-    console.log('[BagLabel] Starting generateBagLabel, packages:', scannedPackages.length);
+    // Cuval SADECE aktif (secili) otelin gevsek paketlerinden olusur; oteller karismaz.
+    const bagPackages = activeScannedPackages;
+    const bagOwnerHotelId = activeHotelId;
+    console.log('[BagLabel] Starting generateBagLabel, packages:', bagPackages.length);
 
-    if (scannedPackages.length === 0) {
+    if (bagPackages.length === 0) {
       toast.error('Lütfen önce paketleri tarayın');
       return;
     }
@@ -1405,7 +1452,7 @@ export function IrsaliyePage() {
 
     try {
       // Get unique delivery IDs
-      const uniqueDeliveryIds = [...new Set(scannedPackages.map(({ delivery }) => delivery.id))];
+      const uniqueDeliveryIds = [...new Set(bagPackages.map(({ delivery }) => delivery.id))];
       console.log('[BagLabel] Creating bag for deliveries:', uniqueDeliveryIds);
 
       // Create bag via API
@@ -1528,7 +1575,7 @@ export function IrsaliyePage() {
         </head>
         <body>
           <div class="header">ÇUVAL - ${truncatedName}</div>
-          <div class="info">${today} | ${scannedPackages.length} Paket</div>
+          <div class="info">${today} | ${bagPackages.length} Paket</div>
           <div class="divider"></div>
           <div class="items">
             ${totals.slice(0, 8).map(item => `
@@ -1590,15 +1637,15 @@ export function IrsaliyePage() {
       const newBag: Bag = {
         id: `bag-${Date.now()}`,
         bagCode,
-        packages: [...scannedPackages],
+        packages: [...bagPackages],
         createdAt: new Date(),
       };
       setBags(prev => [...prev, newBag]);
 
-      toast.success(`${scannedPackages.length} paket ${bagCode} çuvalına eklendi.`);
+      toast.success(`${bagPackages.length} paket ${bagCode} çuvalına eklendi.`);
 
-      // Clear scanned packages but STAY on hotel view
-      handleClearScanned();
+      // Sadece bu otelin gevsek paketlerini cuvala tasidik; diger otellerin paketleri kalir.
+      setScannedPackages(prev => prev.filter(sp => sp.delivery.tenantId !== bagOwnerHotelId));
 
       // Refresh to get updated data
       queryClient.invalidateQueries({ queryKey: ['deliveries'] });
@@ -1711,6 +1758,12 @@ export function IrsaliyePage() {
     };
   }).filter(h => h.packagedCount > 0);
 
+  // Otel arama filtresi (Turkce-duyarli)
+  const hotelSearchNorm = hotelSearch.trim().toLocaleLowerCase('tr-TR');
+  const filteredHotelStatuses = hotelSearchNorm
+    ? hotelPackageStatuses.filter(h => h.name.toLocaleLowerCase('tr-TR').includes(hotelSearchNorm))
+    : hotelPackageStatuses;
+
   // Get waybills list for history
   const allWaybills = waybillsData?.data || [];
 
@@ -1734,19 +1787,18 @@ export function IrsaliyePage() {
       // Ayni otele tiklandi: paneli kapat ama taranan paketleri KORU (yesil kalsin, kalici)
       setSelectedHotelId(null);
     } else {
-      // Farkli otel acildi: eldeki taranan paketler/cuvallar baska otele aitse temizle
-      const sessionTenantId = scannedPackages[0]?.delivery.tenantId
-        ?? bags[0]?.packages[0]?.delivery.tenantId;
-      if (sessionTenantId && sessionTenantId !== hotelId) {
-        setScannedPackages([]);
-        setBags([]);
-      }
+      // Farkli otel acilsa bile taranan paketler/cuvallar KORUNUR (irsaliye basilana kadar silinmez).
+      // Sadece goruntulenen otel degisir; tarama ve baski oturum oteline bagli kalir.
       setSelectedHotelId(hotelId);
     }
   };
 
   // Get selected hotel's deliveries
-  const selectedHotelDeliveries = packagedList.filter((d: Delivery) => d.tenantId === selectedHotelId);
+  // Cuvala eklenen (cuval etiketi basilmis) paketler "Hazir Paketler" gridinden kaybolur;
+  // onlar artik soldaki "Olusturulan Cuvallar" panelinde gorunur ve irsaliyeye bag uzerinden dahil edilir.
+  const selectedHotelDeliveries = packagedList.filter(
+    (d: Delivery) => d.tenantId === selectedHotelId && !isPackageInBag(d.id)
+  );
 
   return (
     <div className="p-8 space-y-6 animate-fade-in">
@@ -1757,7 +1809,7 @@ export function IrsaliyePage() {
             <FileText className="w-8 h-8 text-teal-600" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Irsaliye</h1>
+            <h1 className="text-2xl font-bold text-gray-900">Irsaliye <span className="text-xs font-semibold text-teal-600 align-middle">v1.0.2 · 19haz adet+paket korunur</span></h1>
             <p className="text-gray-500">Otel bazli paket yonetimi</p>
           </div>
         </div>
@@ -2218,9 +2270,37 @@ export function IrsaliyePage() {
                   <p className="text-lg text-gray-400 mt-2">Tum paketler teslim edilmis</p>
                 </div>
               ) : (
-                <div className="bg-white rounded-xl p-6">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                    {hotelPackageStatuses.map((hotel) => (
+                <div className="bg-white rounded-xl p-6 space-y-4">
+                  {/* Otel arama */}
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={hotelSearch}
+                      onChange={(e) => setHotelSearch(e.target.value)}
+                      placeholder="Otel ara..."
+                      className="w-full pl-10 pr-10 py-3 border-2 border-gray-200 rounded-xl focus:border-teal-400 focus:outline-none text-base"
+                    />
+                    {hotelSearch && (
+                      <button
+                        onClick={() => setHotelSearch('')}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 rounded"
+                        title="Temizle"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    )}
+                  </div>
+
+                  {filteredHotelStatuses.length === 0 ? (
+                    <div className="p-10 text-center text-gray-500">
+                      <Search className="w-12 h-12 mx-auto text-gray-300 mb-2" />
+                      <p>"{hotelSearch}" ile eslesen otel yok</p>
+                    </div>
+                  ) : (
+                    <div className="max-h-[60vh] overflow-y-auto pr-1">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                        {filteredHotelStatuses.map((hotel) => (
                       <button
                         key={hotel.id}
                         onClick={() => handleHotelClick(hotel.id)}
@@ -2269,8 +2349,10 @@ export function IrsaliyePage() {
                           <span className="font-bold">{hotel.totalItems} urun</span>
                         </div>
                       </button>
-                    ))}
-                  </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -2339,15 +2421,15 @@ export function IrsaliyePage() {
                           )}
                         </div>
 
-                        {/* Created Bags Display */}
-                        {bags.length > 0 && (
+                        {/* Created Bags Display (sadece aktif otelin cuvallari) */}
+                        {activeBags.length > 0 && (
                           <div className="bg-orange-50 rounded-xl border-2 border-orange-200 p-4 shadow-sm">
                             <h3 className="font-semibold mb-2 text-sm flex items-center gap-2 text-orange-800">
                               <ShoppingBag className="w-4 h-4" />
-                              Olusturulan Cuvallar ({bags.length})
+                              Olusturulan Cuvallar ({activeBags.length})
                             </h3>
                             <div className="space-y-2">
-                              {bags.map((bag, idx) => (
+                              {activeBags.map((bag, idx) => (
                                 <div key={bag.id} className="bg-white rounded-lg p-2 border border-orange-200">
                                   <div className="flex items-center justify-between">
                                     <span className="font-mono text-xs font-bold text-orange-700">
@@ -2362,7 +2444,7 @@ export function IrsaliyePage() {
                             </div>
                             <div className="mt-3 pt-2 border-t border-orange-200 flex items-center justify-between text-sm">
                               <span className="font-bold text-orange-800">TOPLAM</span>
-                              <span className="font-bold text-orange-700">{packagesInBags.length} paket</span>
+                              <span className="font-bold text-orange-700">{activePackagesInBags.length} paket</span>
                             </div>
                           </div>
                         )}
@@ -2381,7 +2463,7 @@ export function IrsaliyePage() {
                             </div>
                             <div className="pt-2 border-t flex items-center justify-between">
                               <span className="font-bold text-sm">PAKET</span>
-                              <span className="text-lg font-bold text-teal-700">{scannedPackages.length}</span>
+                              <span className="text-lg font-bold text-teal-700">{activeScannedPackages.length}</span>
                             </div>
                           </div>
                         )}
@@ -2389,7 +2471,7 @@ export function IrsaliyePage() {
                         {/* Buttons - always show when hotel selected */}
                         <div className="space-y-2">
                           {/* Tümünü Seç butonu - hiç paket seçilmemişse */}
-                          {scannedPackages.length === 0 && bags.length === 0 && selectedHotelDeliveries.length > 0 && (
+                          {activeScannedPackages.length === 0 && activeBags.length === 0 && selectedHotelDeliveries.length > 0 && (
                             <button
                               onClick={() => {
                                 selectedHotelDeliveries.forEach((delivery: Delivery) => {
@@ -2416,7 +2498,7 @@ export function IrsaliyePage() {
                           )}
 
                           {/* Paketler seçildiyse - İrsaliye Yazdır ve opsiyonel Çuval Etiketi */}
-                          {(scannedPackages.length > 0 || bags.length > 0) && (
+                          {(activeScannedPackages.length > 0 || activeBags.length > 0) && (
                             <>
                               {/* Ana buton: İrsaliye Yazdır */}
                               <button
@@ -2436,13 +2518,13 @@ export function IrsaliyePage() {
                                 ) : (
                                   <>
                                     <Printer className="w-5 h-5" />
-                                    IRSALIYE YAZDIR ({scannedPackages.length + packagesInBags.length} paket)
+                                    IRSALIYE YAZDIR ({activeScannedPackages.length + activePackagesInBags.length} paket)
                                   </>
                                 )}
                               </button>
 
                               {/* Opsiyonel: Çuval Etiketi Bas */}
-                              {scannedPackages.length > 0 && (
+                              {activeScannedPackages.length > 0 && (
                                 <button
                                   onClick={generateBagLabel}
                                   className="w-full py-2 bg-orange-100 text-orange-700 border-2 border-orange-300 rounded-xl hover:bg-orange-200 font-medium flex items-center justify-center gap-2"
@@ -2453,8 +2535,8 @@ export function IrsaliyePage() {
                               )}
 
                               <p className="text-xs text-center text-gray-500">
-                                {bags.length > 0
-                                  ? `${bags.length} cuval + ${scannedPackages.length} yeni paket`
+                                {activeBags.length > 0
+                                  ? `${activeBags.length} cuval + ${activeScannedPackages.length} yeni paket`
                                   : 'Cuval etiketi opsiyoneldir'}
                               </p>
                             </>
@@ -2469,9 +2551,13 @@ export function IrsaliyePage() {
                             <Package className="w-5 h-5 text-teal-600" />
                             Hazir Paketler
                           </h3>
-                          {scannedPackages.length > 0 && (
+                          {(activeScannedPackages.length > 0 || activeBags.length > 0) && (
                             <button
-                              onClick={handleClearAll}
+                              onClick={() => {
+                                // Sadece aktif otelin calisma setini temizle; diger oteller park'ta kalir.
+                                setScannedPackages(prev => prev.filter(sp => sp.delivery.tenantId !== activeHotelId));
+                                setBags(prev => prev.filter(bag => bagHotelId(bag) !== activeHotelId));
+                              }}
                               className="text-xs text-red-600 hover:text-red-800 flex items-center gap-1"
                             >
                               <Trash2 className="w-3 h-3" />
@@ -2531,6 +2617,15 @@ export function IrsaliyePage() {
                                   onClick={() => {
                                     if (inBag) {
                                       toast.warning('Bu paket zaten bir cuvalda!');
+                                      return;
+                                    }
+                                    // Secili otelden FARKLI bir otelin paketi eklenmeye calisilirsa engelle.
+                                    // (Bu grid zaten secili otele aittir; secili otelin paketleri sorunsuz eklenir,
+                                    //  diger otellerin paketleri park halinde kalir.)
+                                    if (activeHotelId && delivery.tenantId !== activeHotelId) {
+                                      playErrorSound();
+                                      const activeHotel = tenants?.find(t => t.id === activeHotelId);
+                                      toast.warning(`Bu paket ${activeHotel?.name || 'secili otel'} disinda - once o oteli secin`);
                                       return;
                                     }
                                     if (!isScanned) {
@@ -2659,8 +2754,13 @@ export function IrsaliyePage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {bags.map((bag, idx) => {
                     // Calculate bag item totals
+                    // Urun adetleri teslimat bazinda; ayni teslimatin birden fazla paketi
+                    // varsa katlanmamasi icin teslimat ID'sine gore tekillestir.
                     const bagTotals: Record<string, { name: string; count: number }> = {};
-                    bag.packages.forEach(({ delivery }) => {
+                    const bagDeliveries = Array.from(
+                      new Map(bag.packages.map(({ delivery }) => [delivery.id, delivery])).values()
+                    );
+                    bagDeliveries.forEach((delivery) => {
                       if (delivery.notes) {
                         try {
                           const labelData = JSON.parse(delivery.notes);
@@ -2898,25 +2998,8 @@ export function IrsaliyePage() {
                 {/* Waybills List */}
                 <div className="space-y-2 max-h-[600px] overflow-y-auto">
                   {filteredWaybills.length > 0 && (
-                    <div className="flex items-center justify-between mb-2 px-2">
-                      <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          className="w-4 h-4 rounded border-gray-300 text-teal-600"
-                          checked={selectedWaybillIds.size === filteredWaybills.length && filteredWaybills.length > 0}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedWaybillIds(new Set(filteredWaybills.map(w => w.id)));
-                            } else {
-                              setSelectedWaybillIds(new Set());
-                            }
-                          }}
-                        />
-                        Tumunu Sec ({filteredWaybills.length})
-                      </label>
-                      {selectedWaybillIds.size > 0 && (
-                        <span className="text-sm font-medium text-teal-600">{selectedWaybillIds.size} secili</span>
-                      )}
+                    <div className="flex items-center mb-2 px-2">
+                      <span className="text-sm text-gray-500">Yazdirmak icin bir irsaliye secin ({filteredWaybills.length})</span>
                     </div>
                   )}
                   {filteredWaybills.length === 0 ? (
@@ -2937,28 +3020,14 @@ export function IrsaliyePage() {
                             isChecked ? 'border-teal-500 ring-2 ring-teal-200' : 'hover:border-gray-300'
                           }`}
                           onClick={() => {
-                            setSelectedWaybillIds(prev => {
-                              const next = new Set(prev);
-                              if (next.has(waybill.id)) {
-                                next.delete(waybill.id);
-                              } else {
-                                next.add(waybill.id);
-                              }
-                              return next;
-                            });
+                            // Tek secim: sadece bu irsaliye secili (toplu yazdirma kaldirildi)
+                            setSelectedWaybillIds(isChecked ? new Set() : new Set([waybill.id]));
                             setExpandedDeliveryId(isPreview ? null : waybill.id);
                           }}
                         >
                           <div className="p-4">
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-3">
-                                <input
-                                  type="checkbox"
-                                  className="w-5 h-5 rounded border-gray-300 text-teal-600"
-                                  checked={isChecked}
-                                  onChange={() => {}}
-                                  onClick={(e) => e.stopPropagation()}
-                                />
                                 <div className={`p-2 rounded-lg ${isChecked ? 'bg-teal-500 text-white' : 'bg-gray-100'}`}>
                                   <FileText className="w-5 h-5" />
                                 </div>
@@ -3009,7 +3078,7 @@ export function IrsaliyePage() {
                     <div className="space-y-4">
                       {/* Selected waybills summary */}
                       <div className="bg-white rounded-lg shadow-lg p-4 border">
-                        <h3 className="font-bold text-lg mb-3">{selectedWaybillIds.size} Irsaliye Secili</h3>
+                        <h3 className="font-bold text-lg mb-3">Secili Irsaliye</h3>
                         <div className="space-y-2 max-h-[400px] overflow-y-auto">
                           {filteredWaybills
                             .filter(w => selectedWaybillIds.has(w.id))
@@ -3090,16 +3159,18 @@ export function IrsaliyePage() {
                       {/* Print All Button */}
                       <button
                         onClick={async () => {
-                          const waybillsToPrint = filteredWaybills.filter(w => selectedWaybillIds.has(w.id));
-                          for (const waybill of waybillsToPrint) {
-                            await handleReprintWaybill(waybill);
-                          }
-                          toast.success(`${waybillsToPrint.length} irsaliye yaziciya gonderildi!`);
+                          const waybill = filteredWaybills.find(w => selectedWaybillIds.has(w.id));
+                          if (!waybill) return;
+                          await handleReprintWaybill(waybill);
+                          toast.success('Irsaliye yaziciya gonderildi!');
+                          // Yazdirdiktan sonra secimi kaldir; kullanici tekrar yazdirmak icin yeniden secsin
+                          setSelectedWaybillIds(new Set());
+                          setExpandedDeliveryId(null);
                         }}
                         className="w-full px-6 py-4 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-medium flex items-center justify-center gap-2 shadow text-lg"
                       >
                         <Printer className="w-6 h-6" />
-                        {selectedWaybillIds.size} Irsaliye Yazdir
+                        Irsaliye Yazdir
                       </button>
                     </div>
                   )}
