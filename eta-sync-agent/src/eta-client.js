@@ -284,13 +284,31 @@ EtaClient.prototype.getNextIrsaliyeRefNo = function() {
  */
 EtaClient.prototype.createIrsaliye = function(irsaliye) {
   var self = this;
+  var evrakNoChk = irsaliye.evrakNo || irsaliye.barcode || '';
 
   var connectPromise = this.pool ? Promise.resolve() : this.connect();
 
   return connectPromise.then(function() {
-    return self.getNextIrsaliyeRefNo();
+    // MUKERRER GUVENLIGI: Bu evrak no ile IRSFIS zaten var mi? createIrsaliye
+    // transaction'a sarili degil; onceki bir calisma IRSFIS'i yazip RFID'de
+    // etaSynced isaretini koymadan cokebilir -> ayni waybill tekrar gonderilirse
+    // ETA'da MUKERRER olusur. Bu yuzden insert oncesi evrak no kontrol edilir.
+    if (!evrakNoChk) return null;
+    return self.pool.request()
+      .input('evrakNoChk', sql.NVarChar, evrakNoChk)
+      .query("SELECT TOP 1 IRSFISREFNO FROM IRSFIS WHERE IRSFISEVRAKNO1 = @evrakNoChk")
+      .then(function(r) {
+        return (r.recordset && r.recordset.length > 0) ? r.recordset[0].IRSFISREFNO : null;
+      });
   })
-  .then(function(refNo) {
+  .then(function(existingRefNo) {
+    if (existingRefNo) {
+      console.log('  ! Irsaliye zaten ETA\'da mevcut (EvrakNo: ' + evrakNoChk + ', RefNo: ' + existingRefNo + ') - MUKERRER onlendi, atlaniyor');
+      // success:true -> sync-service deliveryleri etaSynced=true isaretler (bayrak iyilestirme)
+      return { success: true, refNo: existingRefNo, duplicate: true };
+    }
+    return self.getNextIrsaliyeRefNo()
+    .then(function(refNo) {
     var now = irsaliye.tarih || new Date();
     // Tarihi saat olmadan kaydet (ETA boyle bekliyor)
     // Saat 12:00 olarak ayarla - UTC donusumunde gun kaymasini onler (TR = UTC+3)
@@ -546,7 +564,8 @@ EtaClient.prototype.createIrsaliye = function(irsaliye) {
         return { success: true, refNo: refNo };
       });
     }); // .then - ADRESLER sonucu
-  })  // .then(function(refNo)
+    }); // getNextIrsaliyeRefNo().then(function(refNo)
+  })  // .then(function(existingRefNo)
   .catch(function(error) {
     console.error('  x Irsaliye olusturma hatasi:', error.message);
     return { success: false, error: error.message };

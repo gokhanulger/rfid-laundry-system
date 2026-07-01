@@ -22,7 +22,7 @@
     "password": "admin123"
   },
   "sync": {
-    "autoSync": false,
+    "autoSync": true,
     "intervalMinutes": 30
   }
 }

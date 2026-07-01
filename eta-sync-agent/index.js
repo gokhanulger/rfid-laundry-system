@@ -65,9 +65,11 @@ if (missingCreds.length > 0) {
 var syncService = new SyncService(config);
 
 // Otomatik sync modu
+// --auto CLI bayragi VEYA config.sync.autoSync=true ile otomatik moda gecilir.
 var args = process.argv.slice(2);
-var isAutoMode = args.indexOf('--auto') !== -1;
 var isSingleSync = args.indexOf('--sync') !== -1;
+var configAutoSync = !!(config.sync && config.sync.autoSync);
+var isAutoMode = (args.indexOf('--auto') !== -1) || (configAutoSync && !isSingleSync);
 
 function runAutoSync() {
   var intervalMinutes = (config.sync && config.sync.intervalMinutes) || 30;
@@ -277,5 +279,5 @@ process.on('unhandledRejection', function(error) {
   console.error('\nIslem hatasi:', error.message);
 });
 
-// Baslat
-main();
+// NOT: Baslatma yukaridaki "Mod kontrolu" blogunda yapilir (auto / single / menu).
+// Burada tekrar main() CAGIRILMAZ; yoksa otomatik modda interaktif menu de acilirdi.

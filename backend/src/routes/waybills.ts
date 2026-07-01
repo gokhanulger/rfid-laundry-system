@@ -64,6 +64,10 @@ waybillsRouter.get('/', async (req: AuthRequest, res: Response) => {
                   createdAt: true,
                   notes: true,
                   tenantId: true,
+                  // ETA sync ajani liste uzerinden mukerrer kontrolu yapabilsin diye
+                  // (per-waybill detay cagrisi olmadan) etaSynced/etaRefNo doner.
+                  etaSynced: true,
+                  etaRefNo: true,
                 },
               },
             },

@@ -385,84 +385,111 @@ RfidClient.prototype.markDeliveryAsEtaSynced = function(deliveryId, etaRefNo) {
 /**
  * Irsaliyesi basilmis (waybill) ama ETA'ya gonderilmemis delivery'leri al
  * Waybill tablosundan bakar - printed status'ta ve etaSynced=false olanlar
+ *
+ * ONEMLI: TUM sayfalar taranir (limit yok). Eski kod sadece en yeni 100 waybill'e
+ * bakiyordu; ajan birkac gun calismayinca o gunler pencereden dusup ETA'ya HIC
+ * gonderilmeden kaliyordu. Artik pagination ile hepsi taranir.
+ *
+ * MUKERRER GUVENLIGI: sadece `etaSynced === false` olanlar gonderilir. Backend
+ * liste endpoint'i bu alani dondurmuyorsa (eski surum) deger `undefined` gelir ve
+ * teslimat ATLANIR - boylece zaten atilmis irsaliyeler tekrar gonderilip ETA'da
+ * mukerrer kayit olusmaz. (Liste endpoint'ine etaSynced kolonu eklenmis olmali.)
  */
 RfidClient.prototype.getPrintedWaybills = function(retryCount) {
   var self = this;
   retryCount = retryCount || 0;
 
-  console.log('  Waybill\'lar kontrol ediliyor...');
-  return this.client.get('/waybills', {
-    params: {
-      status: 'printed',
-      limit: 100
-    }
-  })
-  .then(function(response) {
-    var data = response.data;
-    var waybills = [];
+  var PAGE_LIMIT = 200;
+  var result = [];
+  var totalScanned = 0;
+  var missingFieldWarned = false;
 
-    if (Array.isArray(data)) {
-      waybills = data;
-    } else if (data && Array.isArray(data.data)) {
-      waybills = data.data;
-    }
+  console.log('  Waybill\'lar kontrol ediliyor (tum sayfalar)...');
 
-    console.log('    Toplam ' + waybills.length + ' waybill bulundu');
+  function fetchPage(page) {
+    return self.client.get('/waybills', {
+      params: {
+        status: 'printed',
+        limit: PAGE_LIMIT,
+        page: page
+      }
+    })
+    .then(function(response) {
+      var data = response.data;
+      var waybills = [];
 
-    // Her waybill icin detay al (delivery bilgileri icin)
-    var detailPromises = waybills.map(function(w) {
-      return self.client.get('/waybills/' + w.id)
-        .then(function(r) { return r.data; })
-        .catch(function() { return null; });
-    });
+      if (Array.isArray(data)) {
+        waybills = data;
+      } else if (data && Array.isArray(data.data)) {
+        waybills = data.data;
+      }
 
-    return Promise.all(detailPromises);
-  })
-  .then(function(waybillDetails) {
-    // Waybill bazinda grupla - her waybill icindeki tum delivery'leri birlikte don
-    var result = [];
+      totalScanned += waybills.length;
 
-    for (var i = 0; i < waybillDetails.length; i++) {
-      var w = waybillDetails[i];
-      if (!w || !w.waybillDeliveries) continue;
+      for (var i = 0; i < waybills.length; i++) {
+        var w = waybills[i];
+        if (!w || !w.waybillDeliveries) continue;
 
-      // Bu waybill'in icindeki etaSynced=false delivery'leri topla
-      var unsynced = [];
-      for (var j = 0; j < w.waybillDeliveries.length; j++) {
-        var wd = w.waybillDeliveries[j];
-        var delivery = wd.delivery;
-        if (delivery && !delivery.etaSynced) {
-          unsynced.push(delivery);
+        var unsynced = [];
+        for (var j = 0; j < w.waybillDeliveries.length; j++) {
+          var delivery = w.waybillDeliveries[j].delivery;
+          if (!delivery) continue;
+          if (delivery.etaSynced === false) {
+            unsynced.push(delivery);
+          } else if (delivery.etaSynced === undefined && !missingFieldWarned) {
+            // Backend liste endpoint'i etaSynced dondurmuyor -> guvenlik icin
+            // hicbir sey gonderilmez. Backend guncellenmeli.
+            console.log('    ! UYARI: Liste endpoint\'i etaSynced dondurmuyor. Backend guncel degil; ');
+            console.log('      mukerrer kayit olusmasin diye hicbir irsaliye gonderilmeyecek.');
+            missingFieldWarned = true;
+          }
+        }
+
+        if (unsynced.length > 0) {
+          result.push({
+            waybillId: w.id,
+            waybillNumber: w.waybillNumber,
+            deliveries: unsynced
+          });
         }
       }
 
-      if (unsynced.length > 0) {
-        result.push({
-          waybillId: w.id,
-          waybillNumber: w.waybillNumber,
-          deliveries: unsynced
+      // Sonraki sayfa var mi?
+      var pagination = data && data.pagination;
+      var hasMore = pagination
+        ? (page < pagination.totalPages)
+        : (waybills.length === PAGE_LIMIT);
+
+      if (hasMore) {
+        return delay(500).then(function() {
+          return fetchPage(page + 1);
         });
       }
-    }
+      return null;
+    });
+  }
 
-    var totalDeliveries = 0;
-    for (var k = 0; k < result.length; k++) {
-      totalDeliveries += result[k].deliveries.length;
-    }
-    console.log('    ETA\'ya gonderilecek ' + result.length + ' irsaliye (' + totalDeliveries + ' teslimat) bulundu');
-    return result;
-  })
-  .catch(function(error) {
-    var status = error.response && error.response.status;
-    if (status === 429 && retryCount < 5) {
-      console.log('  Waybill listesi icin rate limit, 10 saniye bekleniyor...');
-      return delay(10000).then(function() {
-        return self.getPrintedWaybills(retryCount + 1);
-      });
-    }
-    console.error('Waybill listesi alinamadi:', error.message);
-    throw error;
-  });
+  return fetchPage(1)
+    .then(function() {
+      var totalDeliveries = 0;
+      for (var k = 0; k < result.length; k++) {
+        totalDeliveries += result[k].deliveries.length;
+      }
+      console.log('    ' + totalScanned + ' waybill tarandi; ETA\'ya gonderilecek ' +
+        result.length + ' irsaliye (' + totalDeliveries + ' teslimat) bulundu');
+      return result;
+    })
+    .catch(function(error) {
+      var status = error.response && error.response.status;
+      if (status === 429 && retryCount < 5) {
+        console.log('  Waybill listesi icin rate limit, 10 saniye bekleniyor...');
+        return delay(10000).then(function() {
+          return self.getPrintedWaybills(retryCount + 1);
+        });
+      }
+      console.error('Waybill listesi alinamadi:', error.message);
+      throw error;
+    });
 };
 
 /**
